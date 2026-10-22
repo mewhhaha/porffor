@@ -73,6 +73,11 @@ barrier with MAX_MATRIX_NODES=16: nodes remain sequential and individually
 checkpointed, with the same worker and memory limits. Original and resumed
 logs/memory samples are separate `candidate50-full-suite-*` target artifacts;
 `/tmp/scriptw-performance-batch22/resume-full-suite16.py` owns the live watcher.
+`candidate50-full-suite-status.json` under the attribution target is updated
+atomically each minute by `watch-full-suite-outcomes.py` in that same tool
+directory. It counts completed leaves, lists exact non-success IDs and flags
+anything outside the four tracked Bugs; active-leaf work is excluded. It is
+partial progress, never publication acceptance.
 After it finishes, bind the graph's 429-case scope projection directly
 to that aggregate and its leaves, without replaying the suite. Preserve all four
 upstream Bugs as ordinary failures. Commands/watchers are in
