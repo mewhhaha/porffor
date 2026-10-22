@@ -77,12 +77,13 @@ The preserved payload stays intact, unrelated dependency aliases stay attached,
 and queries remain literal. The inventory must contain only task-owned aliases.
 Build-script-produced runtime image outputs still require separate protection;
 this wrapper only intercepts rustc. `SCRIPTW_TEST_CODEGEN_JOBS=auto` requires
-serial Cargo and a finite inherited cloud budget. Eleven ownership/argument controls and
+serial Cargo and a finite inherited cloud budget. Twelve ownership/argument controls and
 a tiny real-Cargo probe pass; an actual Scriptw build has not yet measured the
 iteration-time benefit.
 The existing native `test-rustc` wrapper also admits that optional inventory;
 its existing test/incremental policy stays intact. This avoids protecting product
-outputs at the cost of stale test-graph dependencies or the reverse.
+outputs at the cost of stale test-graph dependencies or the reverse. Metadata-only
+compilation leaves the unit's unwritten linked outputs attached.
 
 ## Second execution batch — published 2026-10-22
 

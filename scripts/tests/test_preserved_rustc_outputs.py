@@ -26,7 +26,8 @@ class OutputProtection(unittest.TestCase):
         self.inventory = self.root / 'inventory.json'
         self.log = self.root / 'actions.jsonl'
         self.records = []
-        self.args = ['--crate-name', 'chosen', '--out-dir', str(self.deps), '-C', 'extra-filename=-123']
+        self.args = ['--crate-name', 'chosen', '--out-dir', str(self.deps), '-C', 'extra-filename=-123',
+                     '--emit=dep-info,metadata,link']
 
     def link(self, name, data=b'preserved bytes', directory=None):
         path = (directory or self.deps) / name
@@ -61,6 +62,16 @@ class OutputProtection(unittest.TestCase):
             self.run_guard()
         self.assertTrue(first.is_symlink() and bad.is_symlink())
         self.assertFalse(self.log.exists())
+
+    def test_metadata_only_unit_keeps_its_unwritten_link_output(self):
+        linked, _, _ = self.link('libchosen-123.rlib')
+        metadata, payload, _ = self.link('libchosen-123.rmeta')
+        arguments = [x for x in self.args if not x.startswith('--emit=')] + ['--emit=metadata']
+        rows = self.run_guard(arguments)
+        self.assertEqual([r['original'] for r in rows], [str(metadata)])
+        self.assertTrue(linked.is_symlink())
+        self.assertFalse(metadata.is_symlink())
+        self.assertEqual(payload.read_bytes(), b'preserved bytes')
 
     def test_changed_link_owner_is_rejected(self):
         path, _, _ = self.link('libchosen-123.rlib')

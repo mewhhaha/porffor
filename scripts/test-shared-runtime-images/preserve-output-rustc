@@ -42,12 +42,29 @@ def output_candidates(arguments):
     if suffix and not re.fullmatch(r'-[A-Za-z0-9_]+', suffix):
         raise ValueError('invalid Cargo extra filename')
     out = Path(directory).resolve()
-    paths = {out / (name + suffix), out / (name + suffix + '.d')}
-    paths.update(out / ('lib' + name + suffix + ext) for ext in ['.rlib', '.rmeta', '.so', '.a', '.dylib'])
+    requested = option(arguments, '--emit') or 'link'
+    kinds = set()
+    paths = set()
+    for output in requested.split(','):
+        kind, separator, destination = output.partition('=')
+        if separator:
+            paths.add(Path(destination).absolute())
+        else:
+            kinds.add(kind)
+    if 'dep-info' in kinds:
+        paths.add(out / (name + suffix + '.d'))
+    if 'metadata' in kinds:
+        paths.add(out / ('lib' + name + suffix + '.rmeta'))
+    if 'link' in kinds:
+        paths.add(out / (name + suffix))
+        paths.update(out / ('lib' + name + suffix + ext) for ext in ['.rlib', '.so', '.a', '.dylib'])
     if out.name == 'deps':
-        paths.add(out.parent / name)
-        paths.update(out.parent / ('lib' + name + ext) for ext in ['.rlib', '.rmeta', '.so', '.a', '.dylib'])
-    elif out.name == 'examples':
+        if 'link' in kinds:
+            paths.add(out.parent / name)
+            paths.update(out.parent / ('lib' + name + ext) for ext in ['.rlib', '.so', '.a', '.dylib'])
+        if 'metadata' in kinds:
+            paths.add(out.parent / ('lib' + name + '.rmeta'))
+    elif out.name == 'examples' and 'link' in kinds:
         paths.add(out / name)
     return paths
 
