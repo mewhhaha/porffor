@@ -128,3 +128,13 @@ split does not automatically share differently configured Rust units.
 Exact outstanding gates and the missing historical replay input are recorded in
 [the inventory](docs/rust-rewrite/current-inventory.md) and
 [acceptance criteria](docs/rust-rewrite/conformance-acceptance.md).
+
+Candidate47 compiled all12semantic families,21-case screen/ABBA and ordinary
+V8 observations at bf681edcb; genuine direct/alias and integer gains are retained
+with slower controls and targeted ABBAABBA rechecks. Native preflight ran no
+test bodies: its optional must_use annotation changed emit.rs, a pinned Intl
+provenance input. Candidate48 removes only that annotation; all15original
+identity checks pass without regeneration. Product48 correctness and21-case
+P/R byte-equivalence checks will bridge the separately labeled47timings to
+current-source48native/Test262 acceptance. No47timing is relabeled48. Tools
+for this continuation are under /tmp/scriptw-performance-batch20.

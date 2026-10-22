@@ -667,3 +667,10 @@ validate in an unoptimized standalone diagnostic emitter linked against cached
 optimized dependencies. That quick foundation has no product/execution authority;
 product, native and original-case acceptance remain pending. All failed receipts
 and existing ledger counts remain intact.
+
+Candidate47 completed its own measurements and semantic controls, but native
+preflight rejected the optional must_use annotation in a globally pinned Intl
+source file before any test ran. Candidate48 removes that annotation only.
+All15Intl identity checks pass unchanged. Keep47metrics source-labeled; require
+actual48product controls,21-case code/R equality and48native/Test262 acceptance
+before publication. Native47preflight failure and all earlier receipts remain.
