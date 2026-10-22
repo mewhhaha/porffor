@@ -1223,26 +1223,14 @@ impl FunctionBuilder<'_> {
             function,
         )?;
         self.emit_propagate_current_throw_if_needed(function);
-        // Preserve the original receiver and actual property result. The
-        // numeric candidate validates identity after evaluating both operands.
-        if !self.try_emit_numeric_imul_method_call(
+        self.emit_indirect_call_from_locals(
             &callee,
-            &receiver,
-            key,
+            Some(&receiver),
             arguments,
             continuation,
             output,
             function,
-        )? {
-            self.emit_indirect_call_from_locals(
-                &callee,
-                Some(&receiver),
-                arguments,
-                continuation,
-                output,
-                function,
-            )?;
-        }
+        )?;
         callee.clear(function);
         receiver.clear(function);
         Ok(())

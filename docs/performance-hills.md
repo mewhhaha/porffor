@@ -649,3 +649,12 @@ The published batches above describe measured implementation progress. The
 [current inventory](rust-rewrite/current-inventory.md) continues to
 own native/conformance/release status. A later implementation batch should
 update that status only with the verification it actually runs.
+
+Candidate45 diagnostic correction: normal Math.imul lowered through CallIndirect,
+so its initial CallMethod hook left direct/alias P bytes identical to44. All12
+compiled semantic families and21-case screen/ABBA completed, but there is no
+P081 speedup or native/Test262 acceptance claim for45. Candidate46 relocates the
+runtime proof to the actual indirect route, selected by provisional target
+knowledge and still guarded by actual function/code/realm/operand identity.
+Acceptance requires differing direct/alias code sections before paired timings;
+all decisions and backlog counts remain unchanged until that verification.

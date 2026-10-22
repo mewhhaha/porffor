@@ -7,13 +7,12 @@ use crate::gc_types::{
 };
 
 impl FunctionBuilder<'_> {
-    /// Static syntax selects a candidate; immutable code and current Realm
+    /// Static target knowledge selects a candidate; immutable code and current Realm
     /// identity decide the runtime route after all observable argument effects.
-    pub(super) fn try_emit_numeric_imul_method_call(
+    pub(super) fn try_emit_numeric_imul_call(
         &mut self,
         callee: &ValueLocals,
         receiver: &ValueLocals,
-        key: &PropertyKeyIr,
         arguments: &[TypedExpr],
         continuation: &CallContinuation,
         output: &ValueLocals,
@@ -23,7 +22,6 @@ impl FunctionBuilder<'_> {
             return Ok(false);
         };
         if !matches!(continuation, CallContinuation::Continue)
-            || crate::planning::static_property_key_name(key) != Some("imul")
             || [left, right].iter().any(|argument| {
                 matches!(
                     argument.expr,

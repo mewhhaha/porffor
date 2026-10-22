@@ -51,7 +51,7 @@ Next coherent work:
    pass on accepted frozen44 before this implementation; stock Node validates
    numeric/collection controls and actual distinct-realm oracles. The proposal
    getOrInsert control keeps repository assertions because Node lacks the API.
-   Candidate45 product/measurement/native/Test262 acceptance is pending.
+   Candidate45 compiled all12controls and completed21-case screen/ABBA, but normal Math.imul P modules stayed byte-identical: the initial helper was attached to CallMethod instead of the real CallIndirect route. That diagnostic attempt is retained and has no native/Test262 acceptance claim. Candidate46 moves the same runtime proof to actual indirect calls, selected only by provisional target knowledge; before timings, code-section checks must prove real direct/alias workloads change. Root correction tools are under /tmp/scriptw-performance-batch18. Corrected product/native/Test262 acceptance is pending.
    Prepared keys now own a private rooted value snapshot, so callers cannot
    change the value while retaining its old hash. They cover computed insertion,
    groupBy, cross-owner Set operations and lookup/unlink deletion, with fresh

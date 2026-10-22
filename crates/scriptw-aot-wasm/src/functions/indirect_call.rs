@@ -87,14 +87,32 @@ impl FunctionBuilder<'_> {
             }
             None => receiver.set_undefined(function),
         }
-        self.emit_indirect_call_from_locals(
-            &callee,
-            Some(&receiver),
-            arguments,
-            continuation,
-            output,
-            function,
-        )?;
+        // Target knowledge selects a candidate only. The actual once-read
+        // callee and evaluated operands still prove the guarded route at runtime.
+        let numeric_imul_candidate = callee_expression
+            .function_targets
+            .known_targets()
+            .iter()
+            .any(|id| StandardBuiltinId::from_function_id(id) == Some(StandardBuiltinId::MathImul));
+        if !numeric_imul_candidate
+            || !self.try_emit_numeric_imul_call(
+                &callee,
+                &receiver,
+                arguments,
+                continuation,
+                output,
+                function,
+            )?
+        {
+            self.emit_indirect_call_from_locals(
+                &callee,
+                Some(&receiver),
+                arguments,
+                continuation,
+                output,
+                function,
+            )?;
+        }
         receiver.clear(function);
         callee.clear(function);
         Ok(())
