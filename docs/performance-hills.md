@@ -21,6 +21,8 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
+| P004 | **Diagnostic complete; no speedup claim** | Empty-body, empty-loop, scalar-expression and scalar-return controls print checked outputs under both runtime orders. Seven samples after ten warmups quantify minimally observable execution/setup, with raw phases and no subtraction from published scores. [Receipts](rust-rewrite/performance-replacement-20261022.json). |
+| P107 | **Verified improvement with explicit tradeoffs** | Original→final screen: literal callback 456.100→7.507 ms; RegExp callback 2,410.068→101.373 ms. Direct short two-match eight-round medians: 45.926→45.548 ms. Intermediate→final ABBA retains a 37.8% RegExp dollar-template slowdown. Six compiled families, exact overflow, 3,569 native passes and 406/410 affected Test262 successes with the four original failures. [Boundaries](rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22). |
 | P040 | **Rejected: no reliable gain** in the old unoptimized Portable/Fast cohort | The read-heavy row case rose 168.957 → 181.914 ms; ABBA controls also failed to establish a gain. Implementation removed, semantic fixtures and raw failed attempts retained. A different optimized-R cohort would require a new measured hypothesis. |
 | P091 | **Verified improvement** | Ordered, rooted multiargument concat preserves coercion and abrupt completion. Focused large-part ABBA round medians fall 24.719 → 7.796 ms and 120.461 → 8.944 ms (3.17× / 13.47×). Small-arity controls, six focused fixtures, the broad native checkpoint and original-case replay pass. |
 | P153 | **Verified improvement with an explicit image/startup tradeoff** | Separate matching Portable optimized R is admitted into the actual Engine. Matched combined-batch confirmation: integer 17.481 → 8.109 ms, objects 44.053 → 18.275 ms, retained rows 1,904.600 → 1,385.741 ms. CLI grows 116.01 MiB; paired startup adds about 58 ms cold / 22 ms cached. No claim of an isolated P153 contribution to every workload. |
@@ -42,11 +44,11 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | P038 | **Rejected: bounded inline publication gave no reliable gain** | Seven-sample/ten-warmup ABBA controls give four-element 9.917→10.109 ms, six-element 15.663→15.554 ms and retained rows 1,369.244→1,395.373 ms, with overlapping rounds. The inline GC index-chain publisher and compile-time hash mirror are removed. Existing indexed kernels/layout 15 remain. |
 | P066 | **Superseded by existing resolved-local facts** | BindingStorage already selects retained locals or emitted slot/hop pairs. Dynamic EnvironmentIdentifier/with/global resolution remains required. P067's broader parent/cell-access work stays open. |
 
-The deterministic 43-case attribution corpus covers construction, retained-row
+The original 43-case attribution corpus (now 44 with scalar return) covers construction, retained-row
 read-pass scaling, call, string, collection and Intl controls. Read-pass scaling
 is marginal attribution: invocation timings still include construction, so this
 is not a traversal-only benchmark. Seven-sample confirmations, reversed runtime
-order, ABBA diagnostics and failed attempts are retained. P001–P005 remain open
+order, ABBA diagnostics and failed attempts are retained. P001–P003 and P005 remain open
 until the broader attribution and representative-workload decisions are made.
 The other hills remain Proposed unless a linked decision below states otherwise.
 
@@ -123,52 +125,55 @@ strip diagnostic. The [packaging checkpoint](rust-rewrite/v8-baseline.md#release
 at `b59303ebe` now passes **3,568 scoped native tests** and six compiled semantic
 families, with unchanged source/linker and byte-identical product/test images.
 The actual 277.03 MiB CLI gives cold/cached ordinary medians 1,059.284 / 818.785 ms
-and now supplies the README table. Its expanded **9,411-case Test262 replay
+and previously supplied the README table. Its expanded **9,411-case Test262 replay
 returns 9,407 Success / 4 Bug / 0 Crash / 0 NotImplemented**. The four failures
 are exactly the original tracked disagreements. [Replay evidence](rust-rewrite/performance-kept-packaging-replay-20261022.json).
 Process RSS is unchanged; no isolated execution gain is claimed.
-The ledger now has **18 explicit terminal hill decisions**, seven partial/open
-outcomes and **135 remaining proposed/unresolved hills**. Rejected and superseded
+The ledger now has **20 explicit terminal hill decisions**, seven partial/open
+outcomes and **133 remaining proposed/unresolved hills**. Rejected and superseded
 hills are decisions, not shipped performance improvements.
 
-The next coherent batch investigates **P107 replacement assembly**. Literal and
-RegExp replacement paths collect completed rooted String pieces, validate total
-UTF-16 length before publication, and copy once into exact-size output. Empty
-pieces/no-match output and token-free substitution templates avoid unnecessary
-assembly. Fixtures cover observable coercion/exec/callback ordering, overlapping
-custom matches, named-capture admission, GC roots, UTF-16 and catchable aggregate
-overflow. Twelve Node-validated workloads include callback/plain/`$` templates,
-deletion, no-match and short-match controls. The first product, `9a971c238`,
-passes six compiled semantic families and the 14-case screen. Seven-sample,
-ten-warmup ABBA medians give literal callback **515.154→7.867 ms** and RegExp
-callback **2,679.265→108.316 ms**. The additional ABBAABBA check finds a short
-RegExp control **13.7% slower**, so this is **not accepted** yet.
-[All diagnostic observations and failed harness attempts](rust-rewrite/performance-replacement-probe-20261022.json)
-are retained. The historically named `regexp-one-match.js` actually matched
-twice; its bytes/results stay in that evidence. The current corpus retains that
-workload as `regexp-two-matches.js` and adds a true one-match control.
+**P107 replacement assembly is accepted** at `1e2978361`, with
+[933 verified portable evidence files](rust-rewrite/performance-replacement-20261022.json).
+Eight completed Strings remain in typed local roots before spilling; aggregate
+UTF-16 length is checked and output copied once. Observable coercion/exec/callback
+order, named captures, overlap, UTF-16, forced GC and catchable overflow pass.
+[The measurement record](rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22)
+keeps original→final screen, intermediate→final ABBA and original→final short
+controls separate. Large original-baseline gains remain; some intermediate cases
+are slower. Ordinary and balanced startup results also stay separate.
 
-The **64-unit bounded-prefix revision is rejected** after its own six compiled
-families, exact u32-overflow control, 15-case screen/ABBA and six-case eight-round
-short check. It does not reliably remove the short two-match overhead: about
-10.9% slower against the intermediate product in ABBA, with overlapping original
-baseline rounds and a 7.9% higher median of round medians in the separate check.
-[Complete revision evidence](rust-rewrite/performance-replacement-prefix-probe-20261022.json).
+The scoped native checkpoint passes **3,569 tests / 0 failed / 0 ignored**.
+Four originally passed scopes and a same-source continuation of three
+storage-deferred scopes form a disjoint seven-target union. Product/test images
+match. The **410-case replay returns 406 Success / 4 Bug / 0 Crash /
+0 NotImplemented**, preserving exactly the original four tracked IDs. This is
+not a fresh full-suite or all-feature campaign; the chart stays unchanged.
 
-The next revision retains the first **eight completed Strings in typed GC
-locals**, spills further pieces to the existing list, and copies each span once.
-This removes small-output list allocations without prefix copying. Fixtures
-cover exact inline/spill counts, all eight roots after GC, callbacks and UTF-16.
-New product measurements and native/Test262 acceptance remain pending. No
-additional hill is closed; README scores stay on `b59303ebe`.
+The first collector and bounded-prefix revision remain rejected
+[initial](rust-rewrite/performance-replacement-probe-20261022.json) /
+[prefix](rust-rewrite/performance-replacement-prefix-probe-20261022.json)
+diagnostics. Historical one-match input actually matched twice; original bytes
+and outcomes remain, alongside separate true one-match/two-match controls.
 
-Iteration audit: the product rebuild compiled the emitter for both opt1/no-debug
-host and opt3/line-table product graphs. Transitive features also differ, so
-simply aligning one package profile does not establish reusable units. Do not
-broaden the vendor rebuild without measurement. The next product build captures
-Cargo `--timings` alongside actual producer JSON. The existing exact-Wasm and
-Engine-identity native cache already avoids native recompilation when R bytes
-match; source/package admission remains independent and mandatory.
+P004 completes four checked fixed-overhead controls under both runtime orders.
+Timed main includes a fresh Wasm GC Realm and builtins; host Store/linker setup
+and R/P instantiation are separate. These minimally observable controls do not
+isolate bootstrap alone, and their variable medians are not subtracted from scores.
+The distinct scalar-return case matches its deterministic generator byte-for-byte.
+
+Iteration audit: product build **4m36s**, including emitter opt1/opt3 units
+72.08/102.13 s and runtime-image production 42.63 s. Each image reuses 2,181 native
+function stencils and compiles three. Admission stays mandatory; transitive
+host/product features prevent assuming one reusable Rust unit. This is not an
+isolated same-source build-speed experiment. Native memory reaches 32 GiB without
+OOM; investigate four sequential CLI chunks at the same two-process ceiling.
+
+Next hypotheses: prepared insertion hashes in Map/Set and ordinary properties
+(P020), then runtime-empty internal argv within P078's existing ABI. Static-key
+lookup prehashing (P023) is separate. Preserve proxy/coercion dispatch, equality
+after hash matches, reentrant callback boundaries and fresh mutable JS state.
+Unapplied drafts do not close additional hills.
 
 Verification tooling also avoids taking Cargo's incremental-cleanup lock when
 there is nothing to delete. Actual deletion still locks and re-discovers its

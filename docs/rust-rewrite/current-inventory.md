@@ -67,24 +67,40 @@ semantic fixtures remain; layout and the emitter behavior return to accepted
 is accepted at `b59303ebe`: **3,568 native passes**, no failures/ignored tests,
 unchanged source/linker, seven identical product/test image payloads/manifests
 and six compiled semantic families. Its 277.03 MiB CLI and actual seven-sample
-Wasmtime/V8 report now supply the README table. The expanded **9,411-case
+Wasmtime/V8 report previously supplied the README table. The expanded **9,411-case
 Test262 replay returns 9,407 Success / 4 Bug / 0 Crash / 0 NotImplemented**,
 with exactly the original four failures. [Final replay evidence](performance-kept-packaging-replay-20261022.json)
 supplements the immutable native/measurement publication; full-suite counts
-remain unchanged. The backlog
-still has 18 explicit terminal decisions, seven partial/open outcomes and 135
-proposed/unresolved hills.
+remain unchanged.
 
-The next replacement-assembly experiment passes six actual compiled fixture
-families and establishes large-output gains, but a short two-match RegExp
-control regresses by 13.7% in its longer confirmation. It is being revised,
-not accepted. [Source-bound diagnostic evidence](performance-replacement-probe-20261022.json)
-retains all observations, including the workload's former misleading
-single-match filename. The bounded-prefix revision also passes correctness
-controls but is [rejected on its measurements](performance-replacement-prefix-probe-20261022.json).
-The next revision keeps eight completed Strings directly in GC locals before
-spilling, and retains separate true one-match/two-match controls. New-product
-and broad verification remain pending; README and full-suite counts are unchanged.
+The [replacement checkpoint](v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22)
+is accepted at `1e2978361`: **3,569 native passes / 0 failed / 0 ignored** across
+seven affected targets, six compiled semantic families and exact catchable overflow.
+Four original passed scopes remain in their receipt; a same-source continuation
+covers only three storage-deferred scopes. Product/test runtime image bytes match.
+The **410-case affected replay returns 406 Success / 4 Bug / 0 Crash /
+0 NotImplemented**, with exactly the original four failures.
+[933 verified portable evidence files](performance-replacement-20261022.json)
+retain source identities, raw observations and all comparison cohorts. No fresh
+full-suite/all-feature claim or graph-count change is made.
+
+P107's eight-root collector retains large original-baseline gains and removes the
+observed short two-match obstacle. Some intermediate collector cases are slower;
+those tradeoffs remain explicit. P004 completes checked empty/loop/scalar-expression/
+scalar-return controls, without subtracting setup from raw scores. Fresh Wasm
+Realm/builtin initialization runs inside timed main. README uses the actual new
+ordinary report, including its slower cold-start median; the balanced startup
+diagnostic is separate. The earlier collector and bounded-prefix revision remain
+[rejected](performance-replacement-probe-20261022.json)
+[diagnostics](performance-replacement-prefix-probe-20261022.json).
+
+The backlog now has **20 terminal decisions, seven partial/open outcomes and
+133 proposed/unresolved hills**. Next: prepared insertion hashes (P020),
+runtime-empty argv within the current ABI (P078 extension), and separate CLI
+chunk count from its two-process ceiling. Native sampled group memory reaches
+32 GiB with zero OOM/OOM-kill events. The 4m36s product build spends about 174 s
+compiling two Rust emitter units; each image already reuses 2,181 of 2,184 native
+function stencils. A crate/profile split needs a measured same-source experiment.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic

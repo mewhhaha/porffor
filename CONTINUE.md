@@ -24,11 +24,42 @@ each verified batch to main.
 
 ## Next performance work
 
-The [performance backlog](docs/performance-hills.md) proposes 160 hills, separate
-from completed maintenance. Begin with its attribution batch (P001–P005, P009),
-then choose the first execution experiments from the measured dominant cost.
-Use the [verified baseline and comparison workflow](docs/rust-rewrite/v8-baseline.md).
-The backlog is a plan; no optimization or new conformance result is implied.
+The [performance backlog](docs/performance-hills.md) contains 160 hills:
+**20 terminal decisions, seven partial/open outcomes, 133 proposed/unresolved**.
+Rejected/superseded experiments are decisions, not shipped speedups.
+
+The [latest checkpoint](docs/rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22)
+keeps P107's eight-root collector at `1e2978361`: 3,569 scoped native passes,
+six compiled families, exact overflow, matching product/test images and
+406/410 affected Test262 successes with exactly the four tracked failures.
+P004's fixed-overhead controls are complete. README ordinary scores are current;
+slower observations, rejected variants and source-bound raw evidence remain.
+A fresh full-suite/all-feature campaign is still separate work.
+
+Next coherent batch:
+
+1. P020: carry a prepared hash tied to the rooted key through Map/Set insertion
+   and ordinary-property append. Recompute buckets after growth; retain equality,
+   collision checks and callback/reentrant lookup boundaries.
+2. Extend P078 to runtime-empty internal argument lists. Mutable JS arguments,
+   rest and Array storage stay fresh; preserve iterator/length coercion effects.
+3. Measure long fresh/hit/numeric collection/property cases and empty/two-argument
+   call controls. Root-owned drafts pass metadata-only Rust and Node checks;
+   product/native/Test262 acceptance is pending. This is not another P078 hill.
+4. Investigate four sequential CLI chunks with only two concurrent processes.
+   Preserve exact inventory/outcome unions, preflight lists, original stalls/cache
+   limits and target-idle exclusivity. Long-lived CLI test PIDs retain several GiB.
+
+Cloud drafts are in `/tmp/scriptw-performance-batch11`, with exact before/draft
+hashes; apply only to matching input bytes. Use the
+[baseline workflow](docs/rust-rewrite/v8-baseline.md), freeze the coherent batch
+before product measurement, and push verified progress to main.
+Native verification retains the two-GiB Cargo reserve and 256 MiB scratch per
+process. Stage outputs with verified byte preservation; detach only actually
+dirty rustc aliases, preserving fresh dependency artifacts. Product builds spend
+about 174 of 276 seconds on two differently configured Rust emitter units;
+each image already reuses 2,181 function stencils and rebuilds three. Do not
+reimplement that cache or assume a crate/profile split will share those units.
 
 ## Decisions to retain
 

@@ -21,6 +21,7 @@ def workloads(rows=(256, 1024, 4096), widths=(4,), passes=(0, 1, 4)):
     add('control-empty', 'print(0);', 0, 'fixed setup')
     add('control-loop', 'var i; for (i = 0; i < 10000; i++) {} print(i);', 10000, 'empty loop')
     add('control-scalar', 'var x = 19; print(x * x + 3);', 364, 'scalar completion')
+    add('control-return', 'function value() { return 364; } print(value());', 364, 'scalar return')
     for count in rows:
         for width in widths:
             values = ', '.join('i + ' + str(j) for j in range(width))

@@ -1,47 +1,119 @@
 # Local Wasmtime versus V8 baseline
 
-## Replacement assembly diagnostic — 2026-10-22
+## Replacement assembly checkpoint — published 2026-10-22
 
-Source `9a971c238` is a completed experiment, **pending revision and acceptance**.
-[Portable evidence](performance-replacement-probe-20261022.json) retains the
-actual static Cargo CLI/runner, six passing compiled semantic families, 14-case
-screen, seven-sample/ten-warmup case-wise ABBA, eight-round short controls,
-ordinary V8 observations, producer timings and corrected harness attempts.
-There is no new native/Test262 checkpoint for this experiment.
+Measured compiler: `1e2978361aeb7b7a5ed5fbac2d246307693593fd`.
+[933 verified portable evidence files](performance-replacement-20261022.json)
+retain actual static release Cargo producers, frozen executable hashes, emitted
+Wasm, raw observations, semantic controls, native receipts and exact Test262 IDs.
+The README now uses this compiler's ordinary seven-sample/ten-warmup report.
 
-Long-output round-median cohorts improve: literal callback 515.154→7.867 ms,
-literal plain template 530.858→9.626 ms, RegExp callback
-2,679.265→108.316 ms and RegExp plain template 2,617.858→105.576 ms.
-These are whole-workload Wasmtime comparisons, including input/template setup,
-callbacks and checksums, with no isolated per-change or significance claim.
+**P107 is accepted with measured tradeoffs.** Literal and RegExp replacement
+retain eight completed Strings in typed GC locals, spill additional pieces to
+the existing list, check aggregate UTF-16 length and copy once into final backing.
+Required coercions, exec/lastIndex effects, callbacks and named-capture Gets keep
+their order. Empty/no-match handling avoids unnecessary assembly. No object
+layout, global layout or helper ABI changes. Forced-GC inline/spill controls,
+lone surrogates and exact catchable-u32-overflow controls pass.
 
-The short RegExp confirmation instead rises 37.937→43.145 ms, about **13.7%**.
-Its historical `regexp-one-match.js` name was misleading: `/a/g` matches twice
-in `before-a-after`. Both compilers received identical original bytes. Those
-results stay in the evidence; the next corpus names it `regexp-two-matches.js`
-and includes a true one-match case. The subsequent 64-unit-prefix experiment
-also passes compiled semantic and exact u32-overflow controls, but does not
-reliably remove the short two-match cost and is rejected.
-[Its separate comparison cohorts](performance-replacement-prefix-probe-20261022.json)
-retain all rounds: intermediate-to-revision ABBA shows about 10.9% higher
-two-match medians; original-to-revision eight-round checks overlap and give a
-7.9% higher median of round medians. No ordinary V8 report or broad acceptance
-was taken for that rejected revision. Typed local roots for the first eight
-pieces are the next hypothesis, with one final copy and no short-prefix copying.
+Three comparisons remain separate; no ratios are multiplied across them:
 
-The actual product build takes **389 seconds**, versus the preceding **524**.
-Both unchanged Intl feature/profile variants remain fresh. AOT opt1/opt3 units
-take 75.10/104.87 seconds; runtime-image production takes 153.57 seconds.
-Its two module-cache misses still reuse 1,019/1,270 NativeHost/Portable function
-stencils. Source/cache state differs, so this is not an isolated build-speed
-experiment. Full executable hashing and independent package/native admission
-remain enabled. The README keeps the preceding accepted compiler's scores.
+1. Accepted `b59303ebe` → final: 15-case screen, three samples/three warmups.
+2. Intermediate `9a971c238` → final: 15-case case-wise ABBA, seven samples/ten warmups.
+3. Accepted `b59303ebe` → final: six short cases, eight rounds each, seven samples/ten warmups.
+
+| Whole-invocation screen | Accepted original | Final |
+| --- | ---: | ---: |
+| Literal callback | 456.100 ms | 7.507 ms |
+| Literal plain template | 510.698 ms | 9.272 ms |
+| Literal `$` template | 533.704 ms | 137.577 ms |
+| RegExp callback | 2,410.068 ms | 101.373 ms |
+| RegExp plain template | 2,507.185 ms | 117.525 ms |
+| RegExp `$` template | 2,857.313 ms | 425.046 ms |
+
+The direct short check's two-match medians of round medians are
+**45.926→45.548 ms**; this removes the observed short-control obstacle to the
+first experiment. Rounds overlap and vary: no-match RegExp is 6.4% higher and
+integer 0.9% higher in that cohort. No significance or universal-speedup claim.
+Against the intermediate collector, ABBA RegExp `$`-template medians rise
+**244.873→337.369 ms (37.8%)**, and literal plain-template medians rise 28.8%.
+The inline roots are a tradeoff; the original long-output gains remain in their
+separate screen. Input construction, callbacks, formatting and checksum work
+are included, rather than timing only the final copy.
+
+The ordinary report records cold/cached process medians **1,203.063 / 807.470 ms**
+and integer/object/retained-row execution **8.014 / 18.082 / 1,418.171 ms**.
+Cold start is slower than the preceding ordinary report. A new balanced ABBA
+startup diagnostic, 14 fresh processes per image/mode, gives cold
+**1,095.598→1,084.711 ms** and cached **763.558→810.802 ms**, with overlapping
+ranges. That separate diagnostic neither replaces the ordinary table nor
+establishes an isolated cause for either difference. Full executable hashing
+and independent runtime/package/native admission remain mandatory.
+
+**P004's fixed-overhead controls are complete.** All four print checked output;
+empty and loop controls retain the same heap-backed IIFE framing, and the
+scalar-return control calls a function returning 364. Two runtime orders use
+seven samples after ten warmups:
+
+| Wasmtime control | Wasmtime-first report | V8-first report |
+| --- | ---: | ---: |
+| Empty body plus checked print | 1.165 ms | 1.556 ms |
+| Empty 10,000-step loop plus print | 2.473 ms | 1.876 ms |
+| Scalar expression plus print | 2.245 ms | 1.311 ms |
+| Scalar-return function plus print | 1.968 ms | 1.798 ms |
+
+These are minimally observable programs, not a pure bootstrap span. Their
+variation illustrates why small deltas need repeated controls. Timed Wasm main
+includes a fresh GC Realm, intrinsics and global-object initialization; host
+Store/linker setup and R/P instantiation are separate. No control value is
+subtracted from published raw scores. The original scalar-expression workload
+is retained; the deterministic corpus gains a distinct scalar-return entry,
+with exact measured source bytes and all three corpus checks passing.
+
+The frozen compiler passes **3,569 native tests / 0 failed / 0 ignored** across
+seven targets, six compiled fixture families and the exact Scriptw overflow
+boundary. A two-GiB disk-reserve deferral stopped three unexecuted scopes; four
+passed scopes remain in their original receipt. Their same-source, same-linker
+continuation covers exactly the three deferred scopes, with a fresh ordinary
+feature-graph proof. No passing body was rerun or replaced. Seven product/test
+image payloads/manifests are byte-identical. Immutable original images remain
+round-trip verified in archives, separate from Cargo's writable working files.
+
+The **410-execution Test262 replay returns 406 Success / 4 Bug / 0 Crash /
+0 NotImplemented**. It covers every pinned execution in String replace,
+replaceAll and RegExp `@@replace`, related staging/Annex B cases and the four
+original failures. All failures are exactly those original tracked IDs. This
+is not a fresh full 102,994-case or all-feature native campaign; the chart is
+unchanged.
+
+Native verification keeps two simultaneous processes and original deadlines
+and cache limits. Sampled inherited-cgroup usage reaches 32 GiB; kernel pressure
+reclaims pages, with **zero OOM or OOM-kill events**. These samples include tmp
+files, caches, archive/staging chores and unrelated work; per-PID RSS counts
+shared mappings. They are not live JavaScript heap measurements. The long-lived
+CLI test processes reach several GiB; investigate more sequential chunks at the
+same two-process ceiling before increasing parallelism.
+
+The actual product build takes **4m36s**: emitter opt1/opt3 units 72.08/102.13 s,
+runtime-image production 42.63 s. Each image reuses **2,181 function stencils**
+and compiles three; NativeHost/Portable native compilation takes 19.17/18.81 s.
+This identifies duplicated Rust emitter compilation as the larger remaining
+iteration cost. Source/cache state differs from earlier builds, so no isolated
+same-source build-speed gain is claimed.
+
+The [initial collector](performance-replacement-probe-20261022.json) and
+[64-unit-prefix revision](performance-replacement-prefix-probe-20261022.json)
+remain rejected diagnostic history. Both passed their compiled controls but
+failed to remove short-match overhead. Historical `regexp-one-match.js` actually
+matched twice; its bytes/results remain intact, and the current corpus keeps
+separate true one-match/two-match cases. No broad acceptance is assigned to
+those rejected products.
 
 ## Release packaging checkpoint — published 2026-10-22
 
 Measured compiler: `b59303ebe953e5f07ad7aebba467211dd2ac88ff`, source fingerprint
 `db6e85fc67799d1f95ea938c63631cfa3e89299db30c8533d2db9ee7c36c9d9a`.
-The [README table](../../README.md#benchmarks-vs-v8) uses its actual release
+It previously supplied the README table with its actual release
 Cargo CLI and runner, seven samples and ten execution warmups. The
 [portable evidence](performance-kept-packaging-20261022.json) retains ordinary
 reports, source-frozen native acceptance, compiled semantic controls, paired
@@ -536,7 +608,8 @@ historical and are rejected as v2 baselines.
   runtimes use the same explicit warmup count and measured count. Wasmtime uses
   a fresh Store and V8 a fresh vm.Context per invocation. Context/Store setup and
   source compilation sit outside the execution span; output/completion processing
-  is inside. V8 tiering and natural GC stay enabled; equal warmup counts do not
+  is inside. Scriptw initializes its fresh Wasm GC Realm and builtins inside
+  timed main; V8 context creation is outside its source-execution span. V8 tiering and natural GC stay enabled; equal warmup counts do not
   prove equal steady-state/JIT tiers. Measured Wasmtime module-cache hits are
   required. Warmup observations remain in raw data and are excluded from summaries.
 - **Phases and bytes:** Wasmtime reports native-module/cache work, Store/linker,
