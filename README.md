@@ -60,7 +60,8 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
 The **2026-10-22 performance batch** passes **3,567 native tests** across seven
-affected targets. Its expanded **9,207-execution Test262 replay is running**.
+affected targets. Its expanded Test262 replay returns **9,203 passed / 4 failed**,
+with exactly the same four tracked failures and no crashes/unimplemented cases.
 [Source-bound performance verification](docs/rust-rewrite/v8-baseline.md#second-execution-batch--published-2026-10-22).
 The chart below reconciles that full baseline with the exact original-failure
 replay and an audited standalone Wasm scope split. A fresh full run of the

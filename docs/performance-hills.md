@@ -54,9 +54,12 @@ The second batch is published on **2026-10-22** at source
 [measurement boundaries](rust-rewrite/v8-baseline.md#second-execution-batch--published-2026-10-22).
 Its frozen-source native checkpoint passes **3,567 tests** across seven affected
 targets, including all ignored controls. The final 61-case corpus and ten compiled
-semantic fixture families pass. The expanded **9,207-execution Test262 replay is
-running**; neither partial results nor the historical full-suite counts establish
-fresh full-suite acceptance.
+semantic fixture families pass. The expanded **9,207-execution Test262 replay
+returns 9,203 Success / 4 Bug / 0 Crash / 0 NotImplemented**, with exactly the four
+original upstream-tracked failures and no new regressions in this campaign.
+[Exact replay evidence](rust-rewrite/performance-second-wave-replay-20261022.json)
+completes the earlier native/measurement publication. A fresh full suite remains
+separate work.
 
 The accepted code keeps layout **15**, immutable StoredValue binding snapshots,
 shared empty private arrays, bulk String operations and the narrower descriptor

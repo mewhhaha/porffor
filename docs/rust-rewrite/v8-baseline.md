@@ -19,9 +19,13 @@ The two checkpoint receipts have identical source maps and unchanged source;
 product/test raw, native, compressed and manifest image bytes match. This is
 scoped default-feature verification, not full-workspace/all-feature acceptance.
 Ten compiled semantic fixture families and all 61 ordinary corpus cases pass.
-The final-source **9,207-execution Test262 replay is running**. The intermediate
-F replay's 1,634 Success / 4 Bug is retained as history, not final-source truth.
-The README conformance graph still describes its existing reconciled checkpoints.
+The final-source **9,207-execution Test262 replay returns 9,203 Success / 4 Bug /
+0 Crash / 0 NotImplemented**, with exactly the original four upstream-tracked
+failures and no new regressions in this campaign.
+[Final replay evidence](performance-second-wave-replay-20261022.json) supplements
+the earlier native/measurement snapshot. The intermediate F replay remains
+historical. The README graph still describes its existing reconciled full-suite
+checkpoints; this affected-case campaign does not refresh full-suite counts.
 
 The kept batch shares immutable empty private storage, shortens concrete array
 length and normal-call completion paths, bulk-copies repeat/pad/partial slices,

@@ -44,9 +44,11 @@ invocation process RSS is 373.68 MiB and the separate whole-child peak is
 392.80 MiB. These are process measurements, not live GC bytes. The README now
 uses the new seven-sample Wasmtime/V8 report.
 
-Its **9,207-execution Test262 replay is running**. The intermediate F experiment's
-1,634 Success / 4 Bug replay is historical; neither that nor partial final results
-refresh the full-suite graph. Rejected layout-16 binding and numeric-branch
+Its [final 9,207-execution Test262 replay](performance-second-wave-replay-20261022.json)
+returns **9,203 Success / 4 Bug / 0 Crash / 0 NotImplemented**, preserving exactly
+the original four upstream-tracked failures. No new regression appears in the
+campaign. The intermediate F replay is historical; the final affected-case
+campaign does not refresh the full-suite graph. Rejected layout-16 binding and numeric-branch
 experiments remain removed, with their evidence retained. Layout remains 15 and
 bindings retain immutable StoredValue snapshots. Performance work remains open.
 
