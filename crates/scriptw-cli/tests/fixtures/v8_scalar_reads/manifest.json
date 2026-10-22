@@ -1,0 +1,44 @@
+{
+  "schema": "scriptw-v8-workloads-v1",
+  "startup": {
+    "file": "startup.js",
+    "stdout": "scriptw-startup-ok\n"
+  },
+  "execution": [
+    {
+      "file": "array-indexed.js",
+      "stdout": "620000\n",
+      "work": "Checked whole invocation including setup; array-indexed"
+    },
+    {
+      "file": "array-named.js",
+      "stdout": "620000\n",
+      "work": "Checked whole invocation including setup; array-named"
+    },
+    {
+      "file": "array-nonindex.js",
+      "stdout": "620000\n",
+      "work": "Checked whole invocation including setup; array-nonindex"
+    },
+    {
+      "file": "string-character.js",
+      "stdout": "110910000\n",
+      "work": "Checked whole invocation including setup; string-character"
+    },
+    {
+      "file": "string-single.js",
+      "stdout": "960000\n",
+      "work": "Checked whole invocation including setup; string-single"
+    },
+    {
+      "file": "string-iterator-ascii.js",
+      "stdout": "102912\n",
+      "work": "Checked whole invocation including setup; string-iterator-ascii"
+    },
+    {
+      "file": "string-iterator-unicode.js",
+      "stdout": "21542016\n",
+      "work": "Checked whole invocation including setup; string-iterator-unicode"
+    }
+  ]
+}

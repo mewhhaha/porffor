@@ -66,5 +66,27 @@
   var methods = [function () { return this; }];
   var zero = 0;
   check(methods[zero](), methods, 'method receiver');
+  var plain = [17, 19];
+  var keys = ['', '00', '01', '1.0', '1e0', '1e+0', '+1', '-0', '-1', '1 ', ' 1', '0x1', '0b1', '0o1', 'NaN', 'Infinity', '4294967295', '4294967296', '9999999999', '10000000000', '\uff11'];
+  for (var j = 0; j < keys.length; j++) {
+    plain[keys[j]] = j + 200;
+    check(read(plain, keys[j]), j + 200, 'noncanonical named key');
+  }
+  var symbol = Symbol('array-name');
+  plain[symbol] = 211;
+  check(read(plain, symbol), 211, 'symbol named key');
+  var namedCalls = 0;
+  Object.defineProperty(plain, 'named', {get: function () {
+    check(this, plain, 'named getter receiver'); namedCalls++; return 223;
+  }});
+  check(read(plain, 'named'), 223, 'named accessor');
+  check(namedCalls, 1, 'named accessor once');
+  check(read(plain, 'length'), 2, 'intrinsic length ignores named keys');
+  plain.length = 1;
+  check(read(plain, 1), undefined, 'truncated element absent');
+  plain[1] = 227;
+  check(read(plain, 1), 227, 'index insertion visible after miss');
+  delete plain[1];
+  check(read(plain, 1), undefined, 'deletion visible after hit');
   print('numeric-array-own-data:ok');
 })();

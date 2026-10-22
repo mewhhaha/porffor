@@ -2763,6 +2763,23 @@ pub(crate) struct StringConstruction {
     units: GcLocal<CodeUnitArray>,
 }
 impl StringConstruction {
+    /// Construct one exact UTF-16 unit without a fill followed by a copy.
+    pub(crate) fn from_code_unit(
+        schema: &RuntimeSchema,
+        slot: GcLocalSlot<CodeUnitArray>,
+        unit: I32Local,
+        function: &mut Function,
+    ) -> Self {
+        Self {
+            units: slot.initialize(
+                schema
+                    .array_type::<CodeUnitArray>()
+                    .fixed([GcOperand::i32_local(unit)], function),
+                function,
+            ),
+        }
+    }
+
     pub(crate) fn from_pooled_literal(
         schema: &RuntimeSchema,
         slot: GcLocalSlot<CodeUnitArray>,

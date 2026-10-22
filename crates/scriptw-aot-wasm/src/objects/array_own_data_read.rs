@@ -53,17 +53,12 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I32Const(1));
         handled.store(function);
         function.instruction(&Instruction::Else);
-        let header = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<ArrayObject>()
-                .field(ArrayObjectSchema::OBJECT)
-                .read(&array, schema, function)
-                .reference(),
-            function,
-        );
-        let descriptor = self.emit_ordinary_own_descriptor_reference(&header, key, function)?;
-        descriptor.load(schema, function).is_null(function);
-        self.open_frame(ControlFrameKind::If, function);
+        // Canonical indices live exclusively in ArrayIndexStorage. Classify
+        // the already-converted key before probing the named-property header.
+        // Holes and accessors still leave `handled` false for generic [[Get]].
+        let descriptor = schema
+            .reserve_gc_local::<PropertyDescriptor, Nullable>(function)
+            .initialize_null(schema, function);
         let index = schema.reserve_i32_local(function);
         let indexed = schema.reserve_i32_local(function);
         self.emit_property_key_array_index(key, index, indexed, function)?;
@@ -77,12 +72,23 @@ impl FunctionBuilder<'_> {
         descriptor.replace(element.load(schema, function), function);
         element.clear(function);
         schema.release_i64_local(index64, function);
+        function.instruction(&Instruction::Else);
+        let header = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ArrayObject>()
+                .field(ArrayObjectSchema::OBJECT)
+                .read(&array, schema, function)
+                .reference(),
+            function,
+        );
+        let named = self.emit_ordinary_own_descriptor_reference(&header, key, function)?;
+        descriptor.replace(named.load(schema, function), function);
+        named.clear(function);
+        header.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         schema.release_i32_local(indexed, function);
         schema.release_i32_local(index, function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
         descriptor.load(schema, function).is_null(function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
@@ -123,7 +129,6 @@ impl FunctionBuilder<'_> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         descriptor.clear(function);
-        header.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         length_key.clear(function);

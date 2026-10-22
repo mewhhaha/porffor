@@ -370,13 +370,18 @@ impl FunctionBuilder<'_> {
             code.store(f);
             match &operation {
                 StringCharacterOperation::CharAt | StringCharacterOperation::At => {
-                    index.load(f);
+                    let one = s.reserve_gc_local(f).initialize(string.load(s, f), f);
+                    // The validated index selects one UTF-16 unit, including
+                    // lone surrogates. Keep full-span immutable value reuse.
+                    length.load(f);
                     f.instruction(&Instruction::I64Const(1));
-                    f.instruction(&Instruction::I64Add);
-                    end.store(f);
-                    let one = s
-                        .reserve_gc_local(f)
-                        .initialize(b.emit_gc_string_slice(string, index, end, f), f);
+                    f.instruction(&Instruction::I64Ne);
+                    b.open_frame(ControlFrameKind::If, f);
+                    let construction =
+                        StringConstruction::from_code_unit(s, s.reserve_gc_local(f), code, f);
+                    one.replace(construction.publish(s, f), f);
+                    b.pop_control(ControlFrameKind::If);
+                    f.instruction(&Instruction::End);
                     result.set_reference(&one, s, f);
                     one.clear(f);
                 }

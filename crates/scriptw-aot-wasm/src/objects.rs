@@ -2783,6 +2783,9 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Array indices are exactly "0" or a nonzero ASCII decimal string whose
+    /// value is below 2^32-1. The at-most-ten-digit domain needs neither a
+    /// floating-point parse nor Number-to-string allocation/roundtrip.
     pub(crate) fn emit_property_key_array_index(
         &mut self,
         key: &PropertyKeyLocals,
@@ -2791,8 +2794,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        function.instruction(&Instruction::I32Const(0));
-        valid.store(function);
+        valid.set_constant(0, function);
         key.value().tag().load(function);
         function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
         function.instruction(&Instruction::I32Eq);
@@ -2802,42 +2804,98 @@ impl<'a> FunctionBuilder<'a> {
                 .cast_reference::<crate::gc_types::StringValue>(schema, function),
             function,
         );
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<crate::gc_types::StringValue>()
+                .field(crate::gc_types::StringValueSchema::CODE_UNITS)
+                .read(&string, schema, function)
+                .reference(),
+            function,
+        );
+        let length = schema.reserve_i32_local(function);
+        let cursor = schema.reserve_i32_local(function);
+        let digit = schema.reserve_i32_local(function);
         let number = schema.reserve_i64_local(function);
-        let canonical = schema.reserve_i32_local(function);
-        self.emit_canonical_numeric_index_string(&string, number, canonical, function)?;
-        canonical.load(function);
-        number.load(function);
-        function.instruction(&Instruction::I64Const((-0.0_f64).to_bits() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        number.load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Ge);
-        function.instruction(&Instruction::I32And);
-        number.load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(u32::MAX as f64)));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::I32And);
-        number.load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        number.load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::I32And);
-        valid.store(function);
-        valid.load(function);
+        schema
+            .array_type::<crate::gc_types::CodeUnitArray>()
+            .length(&units, schema, function);
+        length.store(function);
+        let finished = self.open_frame(ControlFrameKind::Block, function);
+        length.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        length.load(function);
+        function.instruction(&Instruction::I32Const(10));
+        function.instruction(&Instruction::I32GtU);
+        function.instruction(&Instruction::I32Or);
+        self.emit_branch_if_to_target(finished, function);
+        cursor.set_constant(0, function);
+        schema
+            .array_type::<crate::gc_types::CodeUnitArray>()
+            .read(&units, cursor, schema, function)
+            .store(digit, function);
+        digit.load(function);
+        function.instruction(&Instruction::I32Const(48));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        number.load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I32TruncF64U);
-        index.store(function);
+        // Only the one-unit spelling is canonical when the first digit is 0.
+        index.set_constant(0, function);
+        length.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Eq);
+        valid.store(function);
+        self.emit_branch_to_target(finished, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        schema.release_i32_local(canonical, function);
+        function.instruction(&Instruction::I64Const(0));
+        number.store(function);
+        let digits = self.open_frame(ControlFrameKind::Loop, function);
+        schema
+            .array_type::<crate::gc_types::CodeUnitArray>()
+            .read(&units, cursor, schema, function)
+            .store(digit, function);
+        digit.load(function);
+        function.instruction(&Instruction::I32Const(48));
+        function.instruction(&Instruction::I32Sub);
+        digit.store(function);
+        digit.load(function);
+        function.instruction(&Instruction::I32Const(9));
+        function.instruction(&Instruction::I32GtU);
+        self.emit_branch_if_to_target(finished, function);
+        // Ten decimal digits fit in u64, so no intermediate can overflow.
+        number.load(function);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Mul);
+        digit.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Add);
+        number.store(function);
+        cursor.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        cursor.store(function);
+        cursor.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32LtU);
+        self.emit_branch_if_to_target(digits, function);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        number.load(function);
+        function.instruction(&Instruction::I64Const(u32::MAX as i64));
+        function.instruction(&Instruction::I64LtU);
+        self.open_frame(ControlFrameKind::If, function);
+        number.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        index.store(function);
+        valid.set_constant(1, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
         schema.release_i64_local(number, function);
+        for local in [digit, cursor, length] {
+            schema.release_i32_local(local, function);
+        }
+        units.clear(function);
         string.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);

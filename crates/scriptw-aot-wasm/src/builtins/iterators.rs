@@ -393,7 +393,6 @@ impl FunctionBuilder<'_> {
         let width = schema.reserve_i32_local(function);
         let cursor = schema.reserve_i32_local(function);
         let source_index = schema.reserve_i32_local(function);
-        let unit = schema.reserve_i32_local(function);
         value.set_undefined(function);
         let exit = self.open_frame(ControlFrameKind::Block, function);
         receiver.reference().load(function);
@@ -463,33 +462,13 @@ impl FunctionBuilder<'_> {
             width,
             function,
         );
-        function.instruction(&Instruction::I32Const(0));
-        cursor.store(function);
-        let copied = self.open_frame(ControlFrameKind::Block, function);
-        let copy = self.open_frame(ControlFrameKind::Loop, function);
-        cursor.load(function);
-        width.load(function);
-        function.instruction(&Instruction::I32GeU);
-        self.emit_branch_if_to_target(copied, function);
+        cursor.set_constant(0, function);
         index.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        cursor.load(function);
-        function.instruction(&Instruction::I32Add);
         source_index.store(function);
-        schema
-            .array_type::<CodeUnitArray>()
-            .read(&units, source_index, schema, function)
-            .store(unit, function);
-        construction.write(cursor, unit, schema, function);
-        cursor.load(function);
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::I32Add);
-        cursor.store(function);
-        self.emit_branch_to_target(copy, function);
-        self.pop_control(ControlFrameKind::Loop);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
+        // Width is the validated one- or two-unit code point span. Copy it
+        // into private construction storage without a per-unit control loop.
+        construction.copy_units_range_from(cursor, &units, source_index, width, schema, function);
         let substring = schema
             .reserve_gc_local(function)
             .initialize(construction.publish(schema, function), function);
@@ -511,7 +490,7 @@ impl FunctionBuilder<'_> {
         iterator.clear(function);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        for local in [unit, source_index, cursor, width, length] {
+        for local in [source_index, cursor, width, length] {
             schema.release_i32_local(local, function);
         }
         schema.release_i64_local(index, function);

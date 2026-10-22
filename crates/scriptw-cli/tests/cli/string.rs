@@ -194,6 +194,26 @@ fn run_wasm_backend_succeeds_for_string_split_utf16_units_fixture() {
 }
 
 #[test]
+fn single_character_string_reads_preserve_units_effects_and_iterator_results() {
+    let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+        .args(["run", "--execution-backend", "wasm"])
+        .arg(fixture_path("wasm_single_character_string_reads.js"))
+        .output()
+        .expect("single-character string controls should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("single-character-string-reads:ok"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_string_char_at_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
         .arg("run")

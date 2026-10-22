@@ -43,6 +43,18 @@ rechecks remain. Wider full-suite/default/all-feature acceptance stays open.
 
 Next coherent work:
 
+The next coherent hot-read batch is implemented with **acceptance pending**.
+It replaces the Array-index classifier's floating-point parse/string roundtrip
+with bounded ASCII decimal recognition (exact ArrayIndex domain), classifies
+concrete Array indices before named-header probes, builds charAt/at's already-read
+unit directly while preserving full-span reuse, and copies a string iterator's
+validated one/two UTF-16 units without a per-unit loop. Typed-array numeric-key
+semantics remain separate. New semantic matrices cover canonical/noncanonical
+keys, String exotic descriptors, coercion/throws, UTF-16 and iterator freshness;
+seven checked Node-compatible workloads include named/nonindex regression controls.
+No new terminal decisions, speed claims or native/Test262 acceptance yet. Tools:
+`/tmp/scriptw-performance-batch22`; direct baseline remains frozen source48.
+
 The NativeHost compressed-storage experiment is **rejected**, with
 [raw evidence](docs/rust-rewrite/performance-nativehost-storage-rejected-20261022.json).
 Source `f9f4efa9e` built in 1m01s and reduced the CLI by 59,296,072

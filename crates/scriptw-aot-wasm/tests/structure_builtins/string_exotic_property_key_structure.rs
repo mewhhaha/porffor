@@ -80,25 +80,13 @@ fn backend_classifies_dynamic_keys_and_preserves_prototype_fallback() {
         "pub(crate) fn emit_delete_ordinary_by_tag(",
     );
     assert!(index.contains("key: &PropertyKeyLocals"));
-    assert_eq!(
-        index
-            .matches("self.emit_canonical_numeric_index_string(")
-            .count(),
-        1
-    );
-    for check in [
-        "(-0.0_f64).to_bits()",
-        "Instruction::F64Ge",
-        "u32::MAX as f64",
-        "Instruction::F64Lt",
-        "Instruction::F64Trunc",
-        "Instruction::F64Eq",
-    ] {
-        assert!(
-            index.contains(check),
-            "canonical String index check `{check}`"
-        );
-    }
+    assert!(index.contains("key.value().tag().load(function)"));
+    assert!(index.contains("WasmRuntimeValueTag::String"));
+    // The Array-index domain is bounded decimal, unlike a typed array's
+    // broader CanonicalNumericIndexString domain (which includes -0).
+    assert!(index.contains("u32::MAX as i64"));
+    assert!(!index.contains("emit_canonical_numeric_index_string("));
+    assert!(!index.contains("emit_number_to_string_payload("));
     let descriptor = between(
         DESCRIPTOR_SOURCE,
         "fn emit_string_index_descriptor(",
