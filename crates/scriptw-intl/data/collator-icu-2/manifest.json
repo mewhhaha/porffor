@@ -36,7 +36,7 @@
   "owners": [
     {
       "path": "Cargo.toml",
-      "sha256": "7b37da23bedc1f32ca198fba6d88ca61b1fd533aa653e26e46b0c3c13898006f"
+      "sha256": "21489eb8f4d29f716f7e198db81686d30dc7ffbd808e839b8ca7419bf1d5bf2f"
     },
     {
       "path": "crates/scriptw-intl/Cargo.toml",
@@ -253,5 +253,5 @@
   "utf16_policy": "direct pinned compare_utf16; isolated units have ICU replacement weights, valid pairs are scalar; raw units preserved; no lexical tie-breaker",
   "available_locales_count": null,
   "available_sort_collations_count": null,
-  "data_sha256": "d9eceebbe5d82b82198383a83eeec41c8f93e66a368e833fe67c394e03727905"
+  "data_sha256": "c3f391166c12a4b7a51d9d8fd06fdb995f6266ea88138802592a9ce43c2069d3"
 }

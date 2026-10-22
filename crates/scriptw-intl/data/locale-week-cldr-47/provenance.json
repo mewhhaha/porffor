@@ -54,9 +54,9 @@
         "sha256": "ae8634e7e3f98127df51bf1245d40681ae136e5a65c78ed5593d8fa47d6764e0"
       },
       {
-        "bytes": 5887,
+        "bytes": 6103,
         "path": "Cargo.toml",
-        "sha256": "7b37da23bedc1f32ca198fba6d88ca61b1fd533aa653e26e46b0c3c13898006f"
+        "sha256": "21489eb8f4d29f716f7e198db81686d30dc7ffbd808e839b8ca7419bf1d5bf2f"
       },
       {
         "bytes": 81271,
@@ -91,7 +91,7 @@
       {
         "bytes": 31947,
         "path": "crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "87d0690d1669eb9376632e3ebe68a35b22432ed3593a489485402967f272e214"
+        "sha256": "be273a74da9e1d3b3ad581cdbfcddb7df9c379a3179cce8bce9739f4248e9bf2"
       },
       {
         "bytes": 34690,
@@ -161,7 +161,7 @@
       {
         "bytes": 328,
         "path": "crates/scriptw-intl/src/provider/datetime/identity.rs",
-        "sha256": "6f874c510481a96faa7e3c8da23d06444747847863c4d00ecd70f1ae8ab133d3"
+        "sha256": "67e7fba347426ee56fb95fe69098de7f29de2246db84d108c3846c7e4d26e5eb"
       },
       {
         "bytes": 3906,
@@ -280,7 +280,7 @@
       }
     ]
   },
-  "kernel_sha256": "c9207e20df9a588ca76ba48ac8536758c5bb0d71f8697fda97bbb3a29d8fd1dc",
+  "kernel_sha256": "acca8810d3ecd3ac65fe9b7c135ccaefa13e5af11b8f4cb57834c6e06bd4c682",
   "kernel_source_closure": "explicit production module inventory; missing/added production modules reject",
   "minimalDays_exposed": false,
   "primary_manifest_path": "crates/scriptw-intl/data/datetime-cldr-47/manifest.json",

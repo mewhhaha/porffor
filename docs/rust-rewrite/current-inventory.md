@@ -54,9 +54,14 @@ bindings retain immutable StoredValue snapshots. Performance work remains open.
 
 Startup host sampling identifies SHA-256 as roughly 64–74% of sampled user CPU.
 A separately identified debug-stripped copy is prepared with allocated ELF
-sections verified equal, full executable hashing preserved and separate caches;
-its paired timing waits for correctness work to finish. No ordinary default
-compiler-policy or integrity-admission change follows from that preparation.
+sections verified equal, full executable hashing preserved and separate caches.
+The [completed ABBA diagnostic](performance-startup-strip-20261022.json) measures
+identity binding 376.835→221.256 ms, cold start 1,171.645→1,018.480 ms and cached
+start 923.743→739.889 ms, with unchanged process RSS. The next batch adopts
+release CLI/example DWARF stripping and experiments with larger static object
+reservation and bounded fresh-array index publication. Product measurements and
+native acceptance for that batch are pending. The Wasm native policy, integrity
+admission and current measured-source README table remain identified separately.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic

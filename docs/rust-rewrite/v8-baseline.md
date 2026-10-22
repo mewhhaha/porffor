@@ -66,9 +66,28 @@ Four separately instrumented cached CLI profiles attribute **64.38–74.32%** of
 executable binding currently hashes approximately 500 MB once per fresh process.
 This is whole-child host attribution, not ordinary startup timing or a JS-span
 profile. A separately labelled debug-stripped copy is prepared, with allocated
-ELF code/data equality and distinct full executable identity verified. Its paired
-startup timing is pending while correctness work runs. Ordinary producer/hash
-checks and compiler-bound cache identity remain intact.
+ELF code/data equality and distinct full executable identity verified. The
+[completed startup diagnostic](performance-startup-strip-20261022.json) records
+14 fresh processes per variant/mode in ABBA order (seven per round):
+
+| Boundary | Full parent | Derived debug-stripped copy |
+| --- | ---: | ---: |
+| Identity binding | 376.835 ms | 221.256 ms |
+| Cold application start | 1,171.645 ms | 1,018.480 ms |
+| Cached application start | 923.743 ms | 739.889 ms |
+
+Both variants retain full loaded-executable hashing, separate independently
+primed application caches and embedded-native admission. All allocated ELF
+sections match. Size falls 502,376,224→289,166,424 bytes (203.33 MiB); process RSS
+does not materially change. These derived-copy diagnostics are separate from
+ordinary V8 scores. Rust DWARF line tables disappear; global symbols, compiled
+panic locations and Wasm code/data remain. Ordinary producer/hash checks and
+compiler-bound cache identity remain intact.
+
+The next source batch adopts release CLI/example debug stripping and experiments
+with P017/P038 fresh literal storage. Its product build, measurements and native
+acceptance are pending; the README table still identifies measured source
+`865189051`.
 
 
 ## First execution batch — published 2026-10-22

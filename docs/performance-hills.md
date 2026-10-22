@@ -97,7 +97,20 @@ lost samples. This is whole-child host attribution. P131/P132/P152 remain open
 for finer phase/byte accounting. A debug-stripped diagnostic copy is prepared:
 502,376,224→289,166,424 bytes, with every allocated ELF section verified equal.
 It retains full executable hashing, a distinct executable identity and separate
-application caches; timing waits for the correctness replay to finish.
+application caches. [The completed ABBA diagnostic](rust-rewrite/performance-startup-strip-20261022.json)
+measures 14 fresh processes per variant/mode: identity binding 376.835→221.256 ms,
+cold start 1,171.645→1,018.480 ms, cached start 923.743→739.889 ms. This saves
+203.33 MiB of artifact bytes; process RSS is unchanged. These are separate
+post-link diagnostic scores, not a replacement for the ordinary V8 table.
+
+The next coherent batch is **pending product build and verification**: default
+release CLI/example artifacts omit DWARF, P017 reserves private power-of-two
+storage only above four unique static own keys, and P038 initializes small fresh
+literal index chains under a bounded unique-ordinal proof. Dynamic/spread object
+literals and arbitrary array mutations retain their existing paths. The current
+GC layout/ABI stays at 15. GC, high-ordinal holes, collisions, descriptors,
+prototype setters, abrupt completion and later growth/delete controls accompany
+the experiment. No P017/P038 performance improvement is claimed before measurement.
 
 Verification tooling also avoids taking Cargo's incremental-cleanup lock when
 there is nothing to delete. Actual deletion still locks and re-discovers its

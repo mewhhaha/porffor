@@ -952,3 +952,37 @@ fn run_wasm_backend_succeeds_for_async_disposable_stack_surface_fixture() {
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
 }
+
+#[test]
+fn fresh_literal_storage_preserves_descriptors_indices_and_gc_roots() {
+    for (fixture, expected) in [
+        (
+            "wasm_object_literal_capacity.js",
+            "object-literal capacity ok",
+        ),
+        (
+            "wasm_small_array_literal_publication.js",
+            "small-array publication ok",
+        ),
+        (
+            "wasm_small_array_large_ordinal.js",
+            "small-array high-ordinal ok",
+        ),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+            .args(["--jobs", "1", "run", "--execution-backend", "wasm-aot"])
+            .arg(fixture_path(fixture))
+            .output()
+            .expect("fresh literal controls should run");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{fixture}: {stdout}\nstderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("backend_used: WasmAot") && stdout.contains(expected),
+            "{fixture}: {stdout}"
+        );
+    }
+}

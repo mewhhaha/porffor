@@ -33,6 +33,7 @@ mod define_property;
 mod descriptor_object;
 mod has_property;
 mod header_projection;
+mod literal_capacity;
 mod module_namespace;
 mod object_literal_property;
 mod runtime_helpers;
@@ -902,6 +903,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_alloc_plain_object_with_prototype(Some(&prototype), function)?,
             function,
         );
+        self.emit_fresh_literal_property_capacity(properties, &object, function);
         let target = schema.reserve_value_local(function);
         target.set_reference(&object, schema, function);
         let pending = schema.reserve_completion(function);

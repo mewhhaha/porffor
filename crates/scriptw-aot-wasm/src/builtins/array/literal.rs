@@ -6,6 +6,8 @@ use crate::gc_types::{GcLocal, PropertyDescriptor, StoredValue};
 use crate::heap::StoredPropertyAttributes;
 
 mod compact;
+mod small_fresh;
+use small_fresh::SmallFreshArrayStorage;
 
 /// There is no constructor from an existing Array and no borrowed-array view.
 /// Only consuming finish can publish this fresh object's whole Value.
@@ -14,11 +16,13 @@ struct FreshArrayLiteral {
     array: GcLocal<ArrayObject>,
     absent_accessor: GcLocal<StoredValue>,
     index: I64Local,
+    small: Option<SmallFreshArrayStorage>,
 }
 
 impl FreshArrayLiteral {
     fn new(
         length: u32,
+        present_count: u32,
         builder: &mut FunctionBuilder<'_>,
         f: &mut Function,
     ) -> Result<Self, EmitError> {
@@ -26,6 +30,7 @@ impl FreshArrayLiteral {
         let length_local = schema.reserve_i64_local(f);
         length_local.set_constant(i64::from(length), f);
         let array = builder.emit_array_literal_object(length_local, f)?;
+        let small = SmallFreshArrayStorage::new(present_count, &array, schema, f);
         schema.release_i64_local(length_local, f);
         let undefined = schema.reserve_value_local(f);
         undefined.set_undefined(f);
@@ -41,6 +46,7 @@ impl FreshArrayLiteral {
             array,
             absent_accessor,
             index,
+            small,
         })
     }
 
@@ -76,8 +82,17 @@ impl FreshArrayLiteral {
             ),
             f,
         );
-        self.index.set_constant(i64::from(ordinal), f);
-        builder.emit_array_indexed_publish_descriptor(&self.array, self.index, &descriptor, f)?;
+        if let Some(small) = &mut self.small {
+            small.publish(ordinal, &descriptor, builder, f);
+        } else {
+            self.index.set_constant(i64::from(ordinal), f);
+            builder.emit_array_indexed_publish_descriptor(
+                &self.array,
+                self.index,
+                &descriptor,
+                f,
+            )?;
+        }
         descriptor.clear(f);
         stored.clear(f);
         Ok(())
@@ -88,6 +103,9 @@ impl FreshArrayLiteral {
         output.set_reference(&self.array, schema, f);
         schema.release_i64_local(self.index, f);
         self.absent_accessor.clear(f);
+        if let Some(small) = self.small {
+            small.clear(f);
+        }
         self.array.clear(f);
     }
 }
@@ -110,7 +128,14 @@ impl FunctionBuilder<'_> {
         }
         let schema = self.runtime_schema();
         let value = schema.reserve_value_local(f);
-        let mut literal = FreshArrayLiteral::new(length, self, f)?;
+        let present_count = u32::try_from(
+            elements
+                .iter()
+                .filter(|element| !matches!(element.expr, ExprIr::ArrayHole))
+                .count(),
+        )
+        .expect("present entries are bounded by validated literal length");
+        let mut literal = FreshArrayLiteral::new(length, present_count, self, f)?;
         for (ordinal, element) in elements.iter().enumerate() {
             if matches!(element.expr, ExprIr::ArrayHole) {
                 continue;
