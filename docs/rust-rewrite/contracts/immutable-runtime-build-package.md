@@ -26,8 +26,9 @@ compatibility checks. Runtime keys and serialized artifact formats are unchanged
 The safe `with_build_package` setter always restores full body validation,
 including when replacing an earlier trusted candidate. All disk-cache paths
 also validate every body. Rejected candidates use the ordinary checked cache
-or emitter. Engine only supplies the immutable candidate to NativeHost
-compilation; Portable export stays on its existing path. Unsupported/custom
+or emitter. Engine supplies a separate immutable candidate for each of NativeHost
+and Portable compilation. Each profile retains its exact raw R key, package and
+native manifest; one profile cannot substitute for the other. Unsupported/custom
 identities still reject the canonical package and follow normal emission.
 Candidate construction remains lazy for scalar programs.
 

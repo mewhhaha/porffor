@@ -1,5 +1,64 @@
 # Local Wasmtime versus V8 baseline
 
+## First execution batch — published 2026-10-22
+
+Measured compiler: `621ba89ca04a3522192b97afdd2c9fae617009a7`, product source
+fingerprint `31caadf8de6aa83eb3581a6ba0a49e9d8147d4f2cc43c490abb72b0dc306bf76`.
+The [README](../../README.md#benchmarks-vs-v8) contains the current seven-sample,
+ten-warmup table. [Portable evidence](performance-first-wave-20261022.json)
+retains the ordinary reports, checked comparisons, rejected experiments, exact
+Cargo producers, native checkpoint, original-case replay and instrumented profiles.
+Assets use the same verified gzip+base64 format described below; ELF images and
+private cache payloads are excluded. Report sources remain their actual tested
+commits, independently of this later documentation commit.
+
+NativeHost and Portable now have **separate** matching optimized runtime R
+images, SpeedAndSize/Backtracking, with profile-specific raw keys and v4 manifests.
+Generated P keeps Fast/None/SinglePass. Admission is lazy per profile and always
+uses the actual destination Engine; no mutable Store or realm is shared.
+The startup prime receipt proves NativeHost admission. The separate Portable
+trace and runtime-key proof bind the execution corpus to actual Portable image
+admission; the startup flag alone does not prove that path.
+
+In the matched seven-sample confirmation against `3b1a3427f`, integer execution
+fell from 17.481 to 8.109 ms, 500 objects from 44.053 to 18.275 ms, and retained
+rows from 1,904.600 to 1,385.741 ms. These describe the combined concat/runtime
+batch, with no general JS score or significance claim. A separate focused ABBA
+concat study retains the earlier compiler's 3.17× and 13.47× gains on large-part
+inputs. The numeric Array own-data experiment was rejected under the preceding
+unoptimized Portable runtime policy and removed; its raw failed attempt remains.
+
+The image tradeoff is explicit: the CLI grew from 440,628,904 to 562,274,800 bytes
+(**116.01 MiB**). In a same-session before/current/current/before startup check,
+14 observations per image/mode gave medians 1,137.973 → 1,195.838 ms cold and
+904.560 → 926.627 ms cached. This accepts a measured startup/image cost in return
+for execution gains; it does not call startup improved. Samples retain ranges
+and round order. The main table is the separate paired Wasmtime/V8 run.
+
+Retained-row whole-child peak RSS was **439.73 MiB** versus V8 **53.21 MiB**,
+one observation per process. The invocation's median sampled process maximum
+was **439.91 MiB**; V8's median endpoint was **48.96 MiB**. Different measurement
+boundaries and kernel/proc sampling need not agree exactly. GC capacity remains
+64 MiB and is not live JS memory. No allocation, live-byte, collection or pause
+counters are claimed.
+
+The separate loaded-code profile collected **670 user CPU samples, zero lost**.
+About **59%** of self samples name copying-GC functions; ordinary property
+read/find helpers account for about 3.58% each. Actual R/P function names now
+resolve through the opt-in map, bound to loaded text and Wasm hashes.
+This is whole-child attribution including compile/warmup/hash work, not a claim
+that 59% of the execution span is GC. Four map-off/on/on/off observations retain
+instrumentation controls; their overlap does not establish zero profiler cost.
+
+The ordinary native checkpoint passes **2,687 tests**: engine library 973,
+builtins 541, language 322 and CLI 851, including their ignored controls.
+The source-bound Test262 replay is **182 Success / 4 Bug** across 186 original
+executions, with the same four upstream-tracked failures and no new failures.
+The replay compiler is `4fe934c4b`, with the same product fingerprint as `621ba89ca`;
+the latter changes a Rust test only. This is neither a fresh full Test262 run
+nor full-workspace/all-feature acceptance. The separate 85-workload Portable
+correctness run competed with native verification: its timings are excluded.
+
 ## Performance and memory baseline — 2026-10-21
 
 Measured source: `cbbd9b17039c595d470b5bc140b4ab7a1f2beea9`. Ordinary default-feature opt3 release;
@@ -145,8 +204,8 @@ their priorities, semantic controls and the first measurement batches.
 
 The v2 runner extends the historical timing harness with memory observations,
 phase timings, retained emitted Wasm, workload selection and checked comparisons.
-The 2026-10-20 table is the historical v1 result. The 2026-10-21 result above
-uses v2 instrumentation; these schemas cannot serve as each other's performance
+The 2026-10-20 table is the historical v1 result. The 2026-10-21 results above
+use v2 instrumentation; these schemas cannot serve as each other's performance
 baseline.
 
 Requires Linux, GNU `time`, Node and the Rust toolchain. Use `--time PATH` for

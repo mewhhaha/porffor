@@ -262,8 +262,10 @@ configuration are unchanged. Cargo explicitly selects TARGET and baseline ISA,
 uses serial native precompilation on the existing compiler stack, and disables
 ambient backtrace-detail selection. It produces a bundle only for supported
 little-endian x86_64, aarch64 and riscv64 targets. Other targets retain ordinary
-runtime compilation and capability checks. The initial bundle covers exact
-Minimal R for Fast and SizeOptimized execution; other raw identities use the
+runtime compilation and capability checks. Separate bundles cover exact
+Minimal NativeHost and Portable R for Fast and SizeOptimized execution. Each
+profile has its own raw key, package and version-four manifest, admitted lazily;
+selecting one does not initialize the other. Other raw identities use the
 original path. R is deserialized into the actual P Engine, not returned from a
 separate optimized Engine.
 
@@ -282,7 +284,7 @@ while product admission still requires the exact supported mode set. The shared
 module-cache key remains the execution Engine's mode and raw Wasm digest, so
 an image compiled in a different mode cannot cross Engine ownership.
 Native deserialization runs only inside the existing shared R/P cache factory.
-Actual mapped-image accounting, one-entry/64-MiB retention, oversized-module
+Actual mapped-image accounting, bounded cache retention, oversized-module
 behavior, explicit bypass and agent bypass all retain their existing owner.
 The bundle retains metadata, never a native Module or mutable Store state.
 

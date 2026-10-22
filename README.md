@@ -6,22 +6,22 @@ it in a Rust application. WebAssembly is the sole output target.
 
 ## Benchmarks vs V8
 
-Measured on 2026-10-21 at compiler source `cbbd9b170`. Medians of seven samples;
+Measured on 2026-10-21 at compiler source `621ba89ca`. Medians of seven samples;
 all workload outputs checked against Node. V8 is faster in these measured cases.
 
 | Measurement | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start | 1,117.891 ms | 31.094 ms |
-| Cached start | 938.986 ms | 36.474 ms |
-| Execute: 10,000 integer steps | 19.393 ms | 2.584 ms |
-| Execute: 500 objects | 51.342 ms | 0.061 ms |
-| Execute: 8,192 retained objects | 2,118.118 ms | 3.575 ms |
+| Cold start | 1,252.743 ms | 33.321 ms |
+| Cached start | 974.579 ms | 32.486 ms |
+| Execute: 10,000 integer steps | 7.261 ms | 2.420 ms |
+| Execute: 500 objects | 18.510 ms | 0.059 ms |
+| Execute: 8,192 retained objects | 1,458.465 ms | 4.230 ms |
 
 | Peak process RSS | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start (median) | 384.16 MiB | 27.12 MiB |
-| Cached start (median) | 350.95 MiB | 27.12 MiB |
-| Retained-object run (one process) | 558.05 MiB | 53.12 MiB |
+| Cold start (median) | 384.22 MiB | 27.12 MiB |
+| Cached start (median) | 350.68 MiB | 27.12 MiB |
+| Retained-object run (one process) | 439.73 MiB | 53.21 MiB |
 
 AMD EPYC 9V74; 32 GiB memory limit; four-CPU cloud quota. Both runtimes pinned
 to one CPU. Wasmtime 47.0.0; Node 24.19.0 / V8 13.6.233.17-node.51.
@@ -31,8 +31,11 @@ caches; the shared runtime is precompiled and the OS cache is not flushed.
 Execution reuses compiled code with a fresh Wasmtime Store or V8 context after
 ten warmups. Process RSS includes host/runtime overhead; the retained-object
 peak also includes compilation and warmups. It is not JavaScript heap usage.
-The Rust compiler uses `release`; Wasmtime program modules use its normal Fast
-policy. These small workloads are a local baseline.
+The Rust compiler uses `release`; generated program modules use Fast compilation.
+NativeHost and Portable have separate matching optimized runtime images.
+The new batch improves measured execution, but adds about 116 MiB to the
+executable; a paired startup check measured about 58 ms cold / 22 ms cached
+overhead. These small workloads are a local baseline.
 [Methodology, raw evidence and reproduction](docs/rust-rewrite/v8-baseline.md).
 The [performance tooling](docs/rust-rewrite/v8-baseline.md#current-performance-and-memory-tooling)
 also records memory, runtime phases and code size, with selected-workload and

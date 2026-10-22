@@ -9,44 +9,27 @@ a ceiling, not a reason to add low-value work.
 
 ## Progress ledger
 
-The 2026-10-21 attribution batch adds deterministic, independently checked input
-families and raw phase/scaling reports (`scripts/performance_corpus.py` and
-`scripts/performance_study.py`). Its retained screening run contains the original
-three workloads plus 40 generated cases; every Wasmtime/V8 checksum matches.
-Seven-sample confirmation and small-arity/array-width controls are retained under
-`target/performance-hills-20261021-attribution`. These are local receipts until a
-portable evidence bundle is published, not a new published benchmark score.
+The first verified execution batch is published on **2026-10-22** with
+[source-bound evidence](rust-rewrite/performance-first-wave-20261022.json) and
+[measurement boundaries](rust-rewrite/v8-baseline.md#first-execution-batch--published-2026-10-22).
+Its ordinary native checkpoint passes **2,687 tests**. The 186-execution original
+Test262 replay returns **182 Success / 4 Bug**, preserving the four tracked
+upstream failures. No fresh full-suite conformance claim is made.
 
-User-space CPU-clock sampling of the retained-row child succeeded: 871 samples,
-zero lost. Flat self samples attribute approximately 48% to named copying-GC
-functions. This profiles the whole child (compilation, warmups and measurements),
-so it does not establish that percentage inside the JS execution span. Guest JIT
-addresses remain unnamed. P001–P005/P009 have useful evidence but remain open
-until the attribution and reproducibility decisions are published.
+| Hill | Decision | Evidence and remaining scope |
+| --- | --- | --- |
+| P040 | **Rejected: no reliable gain** in the old unoptimized Portable/Fast cohort | The read-heavy row case rose 168.957 → 181.914 ms; ABBA controls also failed to establish a gain. Implementation removed, semantic fixtures and raw failed attempts retained. A different optimized-R cohort would require a new measured hypothesis. |
+| P091 | **Verified improvement** | Ordered, rooted multiargument concat preserves coercion and abrupt completion. Focused large-part ABBA round medians fall 24.719 → 7.796 ms and 120.461 → 8.944 ms (3.17× / 13.47×). Small-arity controls, six focused fixtures, the broad native checkpoint and original-case replay pass. |
+| P153 | **Verified improvement with an explicit image/startup tradeoff** | Separate matching Portable optimized R is admitted into the actual Engine. Matched combined-batch confirmation: integer 17.481 → 8.109 ms, objects 44.053 → 18.275 ms, retained rows 1,904.600 → 1,385.741 ms. CLI grows 116.01 MiB; paired startup adds about 58 ms cold / 22 ms cached. No claim of an isolated P153 contribution to every workload. |
+| P009 | **Diagnostic implemented; attribution investigation remains open** | Opt-in loaded-code map binds actual addresses to exact R/P Wasm and native-text hashes; symbol/name/index test passes. It is a serial single-program latest snapshot, not concurrent mapping history. Instrumented samples are excluded from ordinary scores. |
 
-P040's initial primitive numeric Array own-data experiment is **Rejected: no
-reliable gain** under the current Portable/Fast runtime. The seven-sample
-read-heavy row case rose from 168.957 to 181.914 ms; ABBA repeats also failed to
-show a gain. The implementation is removed, with raw failed-attempt evidence
-retained. Its semantic fixtures remain useful generic Array/Get controls.
-
-P091's ordered multiargument concat experiment passes six focused CLI fixtures
-and all 43 checked workloads. Its large-part ABBA study (seven observations
-after ten warmups in each of four rounds) reduces the medians of round medians
-from 24.719 to 7.796 ms for 256 16-unit parts, and from 120.461 to 8.944 ms for
-256 128-unit parts, each repeated 64 times. These are focused compiler
-`49ac374d7` versus `3b1a3427f` measurements, not a general JS speedup. Small
-zero/one/two/four-argument controls and the original workloads are retained.
-P091 awaits the broader native/original-case checkpoint before shipment.
-
-P153's matching optimized Portable runtime image and P009's opt-in loaded-code
-perf map are the next **unverified experiments**. NativeHost and Portable keep
-separate raw keys, packages and v4 manifests, per-profile lazy admission and
-the same destination-Engine ownership checks. The map is off by default; use
-`SCRIPTW_PERF_MAP_DIR=/tmp` only in serial single-program profiling children.
-It is a latest-mapping snapshot, not a general concurrent JIT profiler, and its
-hashing/file work belongs to instrumented diagnostics. The other hills remain
-open; no full current-source conformance run is claimed here.
+The deterministic 43-case attribution corpus covers construction, retained-row
+read-pass scaling, call, string, collection and Intl controls. Read-pass scaling
+is marginal attribution: invocation timings still include construction, so this
+is not a traversal-only benchmark. Seven-sample confirmations, reversed runtime
+order, ABBA diagnostics and failed attempts are retained. P001–P005 remain open
+until the broader attribution and representative-workload decisions are made.
+The other hills remain Proposed unless a linked decision below states otherwise.
 
 ## Starting evidence
 
@@ -79,25 +62,20 @@ The existing full measurement takes about one minute; the selected integer loop
 with a conditioned execution cache takes about three seconds. The initial
 39-second cache-conditioning run stays outside those iteration measurements.
 
-There is an important profile distinction to preserve in future comparisons.
-The CLI's embedded **NativeHost** runtime is already built with
-**SpeedAndSize and Backtracking register allocation**. The execution benchmark's
-`profile_script_compilation` emits the **Portable** profile; the embedded image
-is deliberately not a candidate for that different runtime key/profile. See
-the [producer](../crates/scriptw-engine/src/embedded_runtime/build.rs),
-[manifest](../crates/scriptw-engine/src/embedded_runtime/manifest.rs),
-[profile gate](../crates/scriptw-engine/src/embedded_runtime.rs) and
-[emission entry](../crates/scriptw-engine/src/compilation_profile.rs).
-P001/P153 must distinguish these paths. Do not attribute the Portable execution
-times to an identical native compilation policy in the CLI, or reuse a
-NativeHost runtime for Portable Wasm. P153 investigates an optimized image for
-the Portable profile without changing its emitted imports or bundling a parser.
+The starting report above predates P153. In current code the CLI's NativeHost
+and the execution driver's Portable profile each have a **separate matching**
+optimized R image, SpeedAndSize/Backtracking. Generated P retains Fast/None/
+SinglePass. Exact raw keys, packages, v4 manifests and destination-Engine checks
+prevent substituting one source profile for the other. Admission is lazy per
+profile. Original reports retain their historical policy and source identity;
+the new [published batch](rust-rewrite/v8-baseline.md#first-execution-batch--published-2026-10-22)
+records the actual image trace, performance and costs.
 
 ## What already exists
 
 Preserve these working optimizations and measure their remaining costs:
 
-- A shared optimized NativeHost runtime image, immutable runtime packages and
+- Separate optimized NativeHost and Portable runtime images, immutable packages and
   bounded compiled module caches; compiler/runtime identity and admission
   checks remain required. Embedded image admission is already once per process.
 - Ordinary-property hash indexes, sparse array hash indexes and direct own-data
@@ -456,12 +434,12 @@ Owners: [Wasmtime configuration](../crates/scriptw-engine/src/wasmtime_config.rs
 [runtime producer](../crates/scriptw-runtime-image/build.rs),
 [unused type pruning](../crates/scriptw-aot-wasm/src/native_program_template/unused_function_types.rs).
 The 16 MiB initial GC capacity, copying collector, Fast/SizeOptimized policies
-and shared package path already exist. The NativeHost build image already uses
-SpeedAndSize/Backtracking; ordinary Fast compilation uses None/SinglePass.
+and shared package path already exist. Both profile-specific runtime build images use
+SpeedAndSize/Backtracking; ordinary Fast P compilation uses None/SinglePass.
 Reserved stack/linear memory is not
 committed RSS, and a compiler-phase gain is not an execution-time gain.
 Runtime/program modules must still share the required Engine and canonical
-reference types. NativeHost already admits optimized R into compatible Fast or
+reference types. Both source profiles admit their matching optimized R into compatible Fast or
 SizeOptimized destination Engines. Policy extensions must preserve that checked
 producer/destination compatibility, not link modules from different Engines or
 bypass native-version checks.
@@ -475,7 +453,7 @@ bypass native-version checks.
 | P150 | C / E / M | Improve arena/scratch reuse on compiler and host allocation paths. | Repeated-compile RSS/time; do not keep prior JS objects or unbounded high-water buffers. |
 | P151 | C / I / M | Evaluate stack and linear-memory reservation/guard budgets from measured usage. | Separate virtual reservation from committed pages; preserve large frames, recursion and memory/timeout limits. |
 | P152 | B / I / M | Split measured emission cost into runtime admission, codegen, encoding and metadata stages. | Explain the roughly 1.06–1.14-second tiny-program emission observations before changing the pipeline. |
-| P153 | A / A / L | Evaluate matching optimized build-image reuse for Portable runtime artifacts. | NativeHost is already optimized; measure Portable helper speed/startup, build/image cost and cache coverage. Preserve Portable imports, source profile and exact R/P/native identities. |
+| P153 | A / A / L | Evaluate matching optimized build-image reuse for Portable runtime artifacts. | **Verified with image/startup tradeoff**, see ledger. Keep measuring build cost and cache coverage. Preserve Portable imports, source profile and exact R/P/native identities. |
 | P154 | B / A / L | Evaluate a speed-focused policy for generated program modules separately from shared runtime policy. | End-to-end compile/startup/execution break-even across short/long programs; retain Fast as a labelled comparison cohort. |
 | P155 | B / I / M | Compare native register allocation independently for runtime and program compilation. | NativeHost R already uses Backtracking and Fast P uses SinglePass; measure frame/image size, compilation and execution with exact policy identities. |
 | P156 | C / E / M | Specialize/share emitted helper bodies according to measured hotness and duplication. | Code size/compile versus call overhead; preserve per-program/realm metadata and recursion. |
@@ -492,7 +470,7 @@ already solves the proposed case. Record that evidence and mark the row
 Superseded rather than implementing another mechanism. Reorder B/C work using
 measured time and representative use, not the number of unchecked rows.
 
-This planning change adds no implementation, new benchmark numbers or Test262
-passes. The [current inventory](rust-rewrite/current-inventory.md) continues to
+The published batches above describe measured implementation progress. The
+[current inventory](rust-rewrite/current-inventory.md) continues to
 own native/conformance/release status. A later implementation batch should
 update that status only with the verification it actually runs.
