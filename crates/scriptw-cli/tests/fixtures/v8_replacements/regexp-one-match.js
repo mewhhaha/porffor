@@ -1,5 +1,5 @@
 
-const input = 'before-a-after';
+const input = 'before-a-end';
 let calls = 0;
 let result = '';
 for (let round = 0; round < 512; round++) {

@@ -1,5 +1,35 @@
 # Local Wasmtime versus V8 baseline
 
+## Replacement assembly diagnostic — 2026-10-22
+
+Source `9a971c238` is a completed experiment, **pending revision and acceptance**.
+[Portable evidence](performance-replacement-probe-20261022.json) retains the
+actual static Cargo CLI/runner, six passing compiled semantic families, 14-case
+screen, seven-sample/ten-warmup case-wise ABBA, eight-round short controls,
+ordinary V8 observations, producer timings and corrected harness attempts.
+There is no new native/Test262 checkpoint for this experiment.
+
+Long-output round-median cohorts improve: literal callback 515.154→7.867 ms,
+literal plain template 530.858→9.626 ms, RegExp callback
+2,679.265→108.316 ms and RegExp plain template 2,617.858→105.576 ms.
+These are whole-workload Wasmtime comparisons, including input/template setup,
+callbacks and checksums, with no isolated per-change or significance claim.
+
+The short RegExp confirmation instead rises 37.937→43.145 ms, about **13.7%**.
+Its historical `regexp-one-match.js` name was misleading: `/a/g` matches twice
+in `before-a-after`. Both compilers received identical original bytes. Those
+results stay in the evidence; the next corpus names it `regexp-two-matches.js`
+and includes a true one-match case. A bounded 64-unit completed prefix is now
+being tested to avoid general collector allocation on small outputs.
+
+The actual product build takes **389 seconds**, versus the preceding **524**.
+Both unchanged Intl feature/profile variants remain fresh. AOT opt1/opt3 units
+take 75.10/104.87 seconds; runtime-image production takes 153.57 seconds.
+Its two module-cache misses still reuse 1,019/1,270 NativeHost/Portable function
+stencils. Source/cache state differs, so this is not an isolated build-speed
+experiment. Full executable hashing and independent package/native admission
+remain enabled. The README keeps the preceding accepted compiler's scores.
+
 ## Release packaging checkpoint — published 2026-10-22
 
 Measured compiler: `b59303ebe953e5f07ad7aebba467211dd2ac88ff`, source fingerprint

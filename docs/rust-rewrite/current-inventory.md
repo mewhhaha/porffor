@@ -75,6 +75,15 @@ remain unchanged. The backlog
 still has 18 explicit terminal decisions, seven partial/open outcomes and 135
 proposed/unresolved hills.
 
+The next replacement-assembly experiment passes six actual compiled fixture
+families and establishes large-output gains, but a short two-match RegExp
+control regresses by 13.7% in its longer confirmation. It is being revised,
+not accepted. [Source-bound diagnostic evidence](performance-replacement-probe-20261022.json)
+retains all observations, including the workload's former misleading
+single-match filename. The revision bounds short-prefix copying and separates
+true one-match/two-match controls. New-product and broad verification remain
+pending; the README table and full-suite counts are unchanged.
+
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic
 issues and ten preexisting rename-related expectations. Its record retains the

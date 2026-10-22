@@ -69,9 +69,15 @@
     },
     {
       "file": "regexp-one-match.js",
+      "stdout": "12:-1060600574:6144:be:nd\n",
+      "source_sha256": "0651424c395e141f8086a455e0dd0b84552a5de1ec4d8de79fd6ea6aab7d9ee0",
+      "boundary": "512 separate replacements, one actual RegExp match per call, short plain template; receiver construction and sampled final checksum included."
+    },
+    {
+      "file": "regexp-two-matches.js",
       "stdout": "14:-1362445404:7168:be:er\n",
       "source_sha256": "657ddd534660ba18c174ce1d1e251b91a3d24e2fe0b72055120842f6ee9ee9d8",
-      "boundary": "512 separate replacements, short plain template; receiver construction and sampled final checksum included."
+      "boundary": "512 separate replacements, two actual RegExp matches per call, short plain template; receiver construction and sampled final checksum included."
     }
   ],
   "policy": "Whole workload includes setup, callbacks and output/completion; not replacement-only instrumentation.",

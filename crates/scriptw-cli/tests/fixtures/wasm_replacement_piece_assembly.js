@@ -53,4 +53,17 @@ const named = /a/;
 named.exec = function () { return { 0: 'a', index: 0, length: 1, groups: { get v() { namedReads++; return 'G'; } } }; };
 check('a'.replace(named, 'long literal replacement') === 'long literal replacement' && namedReads === 0, 'token-free named getter');
 check('a'.replace(named, '$<v>') === 'G' && namedReads === 1, 'named getter retained');
+// Cross the bounded-prefix boundary before/at/after a completed callback piece.
+for (const size of [0, 1, 31, 63, 64, 65, 66, 129, 256]) {
+  const piece = 'q'.repeat(size);
+  for (const input of ['a', 'a,a,a', 'z'.repeat(64) + 'a', 'z'.repeat(65) + 'a']) {
+    const expected = input.split('a').join(piece);
+    let literalCalls = 0;
+    let regexpCalls = 0;
+    check(input.replaceAll('a', () => { ++literalCalls; return piece; }) === expected, 'literal prefix spill');
+    check(input.replace(/a/g, () => { ++regexpCalls; return piece; }) === expected, 'regexp prefix spill');
+    check(literalCalls === input.split('a').length - 1 && regexpCalls === literalCalls, 'prefix spill callbacks');
+  }
+}
+check('xy'.repeat(64).replace(/y/g, '') === 'x'.repeat(64), 'short output after many matches');
 print('replacement-piece-assembly-ok');

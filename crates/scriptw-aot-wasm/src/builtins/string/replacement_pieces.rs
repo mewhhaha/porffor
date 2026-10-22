@@ -92,20 +92,29 @@ impl SubstitutionPieces {
     }
 }
 
-/// Whole replacement output retains only completed Strings. Each append
-/// validates the bounded UTF-16 length before the final exact-size copy.
+/// Whole replacement output retains only completed Strings. Length checks
+/// precede both bounded short-prefix copying and exact-size large publication.
 #[must_use = "replacement pieces must be consumed by final publication"]
 pub(super) struct ReplacementPieces {
     pieces: SubstitutionPieces,
+    small: GcLocal<StringValue>,
     total: I64Local,
 }
 
 impl ReplacementPieces {
-    pub(super) fn new(s: &RuntimeSchema, f: &mut Function) -> Self {
+    // Bound prefix copying independently of match count. Short replacements
+    // avoid list nodes; once this limit is crossed, output is copied only once.
+    const SMALL_UNITS: i64 = 64;
+
+    pub(super) fn new(b: &FunctionBuilder<'_>, f: &mut Function) -> Self {
+        let s = b.runtime_schema();
         let total = s.reserve_i64_local(f);
         total.set_constant(0, f);
         Self {
             pieces: SubstitutionPieces::new(s, f),
+            small: s
+                .reserve_gc_local(f)
+                .initialize(b.emit_native_string_static("", f), f),
             total,
         }
     }
@@ -141,7 +150,41 @@ impl ReplacementPieces {
         f.instruction(&Instruction::I64Eqz);
         b.open_frame(ControlFrameKind::If, f);
         f.instruction(&Instruction::Else);
+        self.total.load(f);
+        f.instruction(&Instruction::I64Const(Self::SMALL_UNITS));
+        f.instruction(&Instruction::I64LeU);
+        b.open_frame(ControlFrameKind::If, f);
+        self.total.load(f);
+        length.load(f);
+        f.instruction(&Instruction::I64Eq);
+        b.open_frame(ControlFrameKind::If, f);
+        self.small.replace(text.load(s, f), f);
+        f.instruction(&Instruction::Else);
+        self.small
+            .replace(b.emit_concat_gc_strings(&self.small, text, f), f);
+        b.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        f.instruction(&Instruction::Else);
+        // Only the first spill retains the completed short prefix. The total
+        // is monotonic; subsequent pieces go straight to the linear collector.
+        self.total.load(f);
+        length.load(f);
+        f.instruction(&Instruction::I64Sub);
+        f.instruction(&Instruction::I64Const(Self::SMALL_UNITS));
+        f.instruction(&Instruction::I64LeU);
+        b.open_frame(ControlFrameKind::If, f);
+        self.total.load(f);
+        length.load(f);
+        f.instruction(&Instruction::I64Ne);
+        b.open_frame(ControlFrameKind::If, f);
+        self.pieces.append(&self.small, s, f);
+        b.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        b.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         self.pieces.append(text, s, f);
+        b.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         b.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
         s.release_i64_local(length, f);
@@ -154,7 +197,17 @@ impl ReplacementPieces {
         f: &mut Function,
     ) -> GcLocal<StringValue> {
         let s = b.runtime_schema();
-        let result = self.pieces.publish(b, self.total, f);
+        let result = s.reserve_gc_local(f).initialize(self.small.load(s, f), f);
+        self.total.load(f);
+        f.instruction(&Instruction::I64Const(Self::SMALL_UNITS));
+        f.instruction(&Instruction::I64GtU);
+        b.open_frame(ControlFrameKind::If, f);
+        let large = self.pieces.publish(b, self.total, f);
+        result.replace(large.load(s, f), f);
+        large.clear(f);
+        b.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.small.clear(f);
         s.release_i64_local(self.total, f);
         result
     }

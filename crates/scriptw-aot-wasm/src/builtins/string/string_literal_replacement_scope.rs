@@ -286,7 +286,7 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         let captures = SubstitutionCaptures::empty(s, f);
         let named = NamedSubstitutionCaptures::absent(s, f);
-        let pieces = ReplacementPieces::new(s, f);
+        let pieces = ReplacementPieces::new(self, f);
         f.instruction(&Instruction::I64Const(0));
         end_of_last_match.store(f);
         f.instruction(&Instruction::I64Const(0));

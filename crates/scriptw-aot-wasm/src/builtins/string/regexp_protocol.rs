@@ -1586,7 +1586,7 @@ impl FunctionBuilder<'_> {
             b.emit_branch_to_target(exit, f);
             b.pop_control(ControlFrameKind::If);
             f.instruction(&Instruction::End);
-            let pieces = ReplacementPieces::new(s, f);
+            let pieces = ReplacementPieces::new(b, f);
             let replacement_text = s
                 .reserve_gc_local(f)
                 .initialize(b.emit_native_string_static("", f), f);
