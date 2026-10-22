@@ -3137,12 +3137,6 @@ iterator_entry_construction!(
 /// The only initial sparse storage producer: eight empty buckets and zero
 /// occupied entries. Later capacity changes are owned by the two registered
 /// mutation kernels, which retain the same storage identity.
-impl ArrayIndexStorageSchema {
-    pub(crate) const INITIAL_BUCKET_CAPACITY: u32 = 8;
-}
-
-const _: () = assert!(ArrayIndexStorageSchema::INITIAL_BUCKET_CAPACITY.is_power_of_two());
-
 impl GcStructType<ArrayIndexStorage> {
     pub(crate) fn empty(
         self,
@@ -3150,9 +3144,7 @@ impl GcStructType<ArrayIndexStorage> {
         function: &mut Function,
     ) -> GcStackReference<ArrayIndexStorage> {
         let length = schema.reserve_i32_local(function);
-        function.instruction(&Instruction::I32Const(
-            ArrayIndexStorageSchema::INITIAL_BUCKET_CAPACITY as i32,
-        ));
+        function.instruction(&Instruction::I32Const(8));
         length.store(function);
         let buckets = schema.reserve_gc_local(function).initialize(
             schema.array_type::<ArrayIndexBucketTable>().filled(

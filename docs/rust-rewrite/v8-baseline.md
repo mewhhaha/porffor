@@ -84,10 +84,16 @@ ordinary V8 scores. Rust DWARF line tables disappear; global symbols, compiled
 panic locations and Wasm code/data remain. Ordinary producer/hash checks and
 compiler-bound cache identity remain intact.
 
-The next source batch adopts release CLI/example debug stripping and experiments
-with P017/P038 fresh literal storage. Its product build, measurements and native
-acceptance are pending; the README table still identifies measured source
-`865189051`.
+The next source batch keeps release CLI/example debug stripping. Its combined
+P017/P038 literal experiments were built and measured, then removed because they
+did not establish a throughput gain. [Exact decisions and 216 verified assets](performance-literal-decisions-20261022.json)
+retain the 14-case screen, ten-case ABBA confirmation, six compiled semantic
+families, actual Cargo producers and 24 unique Wasm programs. Object nine-key and
+33-key medians rise 17.823→19.393 / 47.447→50.464 ms; four-element arrays are
+9.917→10.109 ms and retained rows 1,369.244→1,395.373 ms. These descriptive
+Wasmtime-only cohorts are separate from ordinary V8 scores and do not isolate
+each combined change. The packaging-only product, ordinary measurements and
+native/Test262 acceptance remain pending; the README still names `865189051`.
 
 
 ## First execution batch — published 2026-10-22

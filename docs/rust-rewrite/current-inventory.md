@@ -57,11 +57,16 @@ A separately identified debug-stripped copy is prepared with allocated ELF
 sections verified equal, full executable hashing preserved and separate caches.
 The [completed ABBA diagnostic](performance-startup-strip-20261022.json) measures
 identity binding 376.835→221.256 ms, cold start 1,171.645→1,018.480 ms and cached
-start 923.743→739.889 ms, with unchanged process RSS. The next batch adopts
-release CLI/example DWARF stripping and experiments with larger static object
-reservation and bounded fresh-array index publication. Product measurements and
-native acceptance for that batch are pending. The Wasm native policy, integrity
-admission and current measured-source README table remain identified separately.
+start 923.743→739.889 ms, with unchanged process RSS. The next batch keeps
+release CLI/example DWARF stripping. The combined P017/P038 literal experiments
+were built, passed six compiled semantic families and were then removed after
+screen/ABBA measurements showed no reliable throughput gain. [Exact evidence](performance-literal-decisions-20261022.json)
+retains the failures of the performance hypothesis and all raw controls. New
+semantic fixtures remain; layout and the emitter behavior return to accepted
+`865189051`. Packaging-only product measurements and native/Test262 acceptance
+are pending. The backlog has 18 explicit terminal decisions, seven partial/open
+outcomes and 135 proposed/unresolved hills. The measured-source README table and
+Test262 counts remain unchanged.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic

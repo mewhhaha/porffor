@@ -38,6 +38,8 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | P096 / P099 | **Verified bulk-copy and reuse improvements** | Edge-specific trim scans and full-span String reuse avoid unnecessary copying; partial slices own exact-size backing. C→F paired trimStart/trimEnd/whole-slice/partial-slice medians are 24.120→1.617, 24.129→1.390, 6.691→1.475 and 6.860→2.618 ms. Final ordinary medians are 1.472 / 1.600 / 1.384 / 2.352 ms; these separate cohorts are not a direct final-source paired effect. |
 | P132 / P133 / P149 | **Measured component improvement; broader hills remain open** | Compressed Portable storage plus transient decoded leases reduce final CLI size by 57.12 MiB against the preceding accepted batch. Retained-row invocation RSS is 373.68 MiB (preceding accepted report: 439.91); whole-child peaks are 392.80 / 439.73 MiB. These distinct process boundaries are not live-GC bytes or isolated per-change attribution. Independent manifest/digest/Engine admission remains mandatory. |
 | P154 | **Diagnostic implemented; policy decision open** | Explicit Fast/SizeOptimized cohorts report requested/actual modes, compile/emission spans, native cache outcomes, code size, checksums and memory. Forced Fast does not silently retry another policy. Two-mode/two-execution SDK controls pass. Existing diagnostic results show no universal default-policy winner; first module phases still combine R admission and P compilation. |
+| P017 | **Rejected: fresh-literal reservation gave no gain** | Candidate `d58f7c7ad` passes compiled semantic controls but case-wise ABBA medians rise 17.823→19.393 ms for nine keys and 47.447→50.464 ms for 33 keys. The private preallocation module is removed; static/dynamic/accessor/growth/GC fixtures remain. |
+| P038 | **Rejected: bounded inline publication gave no reliable gain** | Seven-sample/ten-warmup ABBA controls give four-element 9.917→10.109 ms, six-element 15.663→15.554 ms and retained rows 1,369.244→1,395.373 ms, with overlapping rounds. The inline GC index-chain publisher and compile-time hash mirror are removed. Existing indexed kernels/layout 15 remain. |
 | P066 | **Superseded by existing resolved-local facts** | BindingStorage already selects retained locals or emitted slot/hop pairs. Dynamic EnvironmentIdentifier/with/global resolution remains required. P067's broader parent/cell-access work stays open. |
 
 The deterministic 43-case attribution corpus covers construction, retained-row
@@ -103,14 +105,33 @@ cold start 1,171.645→1,018.480 ms, cached start 923.743→739.889 ms. This sav
 203.33 MiB of artifact bytes; process RSS is unchanged. These are separate
 post-link diagnostic scores, not a replacement for the ordinary V8 table.
 
-The next coherent batch is **pending product build and verification**: default
-release CLI/example artifacts omit DWARF, P017 reserves private power-of-two
-storage only above four unique static own keys, and P038 initializes small fresh
-literal index chains under a bounded unique-ordinal proof. Dynamic/spread object
-literals and arbitrary array mutations retain their existing paths. The current
-GC layout/ABI stays at 15. GC, high-ordinal holes, collisions, descriptors,
-prototype setters, abrupt completion and later growth/delete controls accompany
-the experiment. No P017/P038 performance improvement is claimed before measurement.
+The next literal experiment is **rejected and removed**, with
+[216 verified evidence assets](rust-rewrite/performance-literal-decisions-20261022.json).
+Source `d58f7c7ad` built the actual release CLI and runner in **11m 08s**, passed
+six compiled semantic fixture families, then completed a 14-case three-sample
+screen and ten-case seven-sample/ten-warmup ABBA confirmation. P017's larger
+static-object reservation did not improve the targeted controls. P038's bounded
+fresh-array publisher did not establish a reliable gain. These were combined
+experiments, not a factorial attribution. All three new semantic fixtures stay;
+the four emitter files are restored byte-for-byte to accepted `865189051`.
+No broad native or Test262 acceptance is claimed for the rejected candidate.
+
+Release CLI/example DWARF stripping remains. The rejected candidate's CLI was
+290,507,288 bytes, with normal system-library dependencies and its symbol table
+preserved. Startup benefit is established by the separately identified earlier
+strip diagnostic; a new packaging-only product/ordinary benchmark and scoped
+native/Test262 acceptance are pending. README scores still name `865189051`.
+The ledger now has **18 explicit terminal hill decisions**, seven partial/open
+outcomes and **135 remaining proposed/unresolved hills**. Rejected and superseded
+hills are decisions, not shipped performance improvements.
+
+Iteration audit: the product rebuild compiled the emitter for both opt1/no-debug
+host and opt3/line-table product graphs. Transitive features also differ, so
+simply aligning one package profile does not establish reusable units. Do not
+broaden the vendor rebuild without measurement. The next product build captures
+Cargo `--timings` alongside actual producer JSON. The existing exact-Wasm and
+Engine-identity native cache already avoids native recompilation when R bytes
+match; source/package admission remains independent and mandatory.
 
 Verification tooling also avoids taking Cargo's incremental-cleanup lock when
 there is nothing to delete. Actual deletion still locks and re-discovers its

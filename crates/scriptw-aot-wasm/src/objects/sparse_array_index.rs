@@ -1,8 +1,6 @@
 //! The single strong-GC indexed store for Array exotics. Logical Array length
 //! never sizes backing storage. Registered mutation bodies own unique entries,
 //! a nonzero power-of-two bucket count and publication of complete descriptors.
-//! Private small literals initialize the same chains under a bounded unique-
-//! ordinal proof; arbitrary writes and deletes retain the registered kernels.
 use super::*;
 use crate::gc_types::{
     ArrayIndexBucketTable, ArrayIndexEntry, ArrayIndexEntrySchema, ArrayIndexKeyConstruction,
@@ -13,9 +11,6 @@ use crate::runtime_helpers::{
     ArrayIndexedDeleteArguments, ArrayIndexedDeleteParameters, ArrayIndexedPublishArguments,
     ArrayIndexedPublishParameters, HelperParameters,
 };
-
-const INDEX_HASH_SHIFTS: [u32; 3] = [16, 15, 16];
-const INDEX_HASH_MULTIPLIERS: [u32; 2] = [0x7feb352d, 0x846ca68b];
 
 impl FunctionBuilder<'_> {
     fn emit_array_index_storage(
@@ -152,20 +147,6 @@ impl FunctionBuilder<'_> {
         Ok(())
     }
 
-    /// Exact compile-time counterpart of the emitted u32 wrapping mix. Only
-    /// fixed literal ordinals and the canonical initial bucket shape use it.
-    pub(crate) fn known_array_index_bucket(index: u32, capacity: u32) -> u32 {
-        assert!(capacity.is_power_of_two());
-        let mut mixed = index;
-        for (ordinal, shift) in INDEX_HASH_SHIFTS.into_iter().enumerate() {
-            mixed ^= mixed >> shift;
-            if let Some(multiplier) = INDEX_HASH_MULTIPLIERS.get(ordinal) {
-                mixed = mixed.wrapping_mul(*multiplier);
-            }
-        }
-        mixed & (capacity - 1)
-    }
-
     /// A fixed integer mixing function. References and semantic addresses are
     /// absent; equal admitted index words always select the same bucket.
     fn emit_array_index_hash(index: I64Local, capacity: I32Local, out: I32Local, f: &mut Function) {
@@ -174,23 +155,23 @@ impl FunctionBuilder<'_> {
         out.store(f);
         out.load(f);
         out.load(f);
-        f.instruction(&Instruction::I32Const(INDEX_HASH_SHIFTS[0] as i32));
+        f.instruction(&Instruction::I32Const(16));
         f.instruction(&Instruction::I32ShrU);
         f.instruction(&Instruction::I32Xor);
-        f.instruction(&Instruction::I32Const(INDEX_HASH_MULTIPLIERS[0] as i32));
+        f.instruction(&Instruction::I32Const(0x7feb352d));
         f.instruction(&Instruction::I32Mul);
         out.store(f);
         out.load(f);
         out.load(f);
-        f.instruction(&Instruction::I32Const(INDEX_HASH_SHIFTS[1] as i32));
+        f.instruction(&Instruction::I32Const(15));
         f.instruction(&Instruction::I32ShrU);
         f.instruction(&Instruction::I32Xor);
-        f.instruction(&Instruction::I32Const(INDEX_HASH_MULTIPLIERS[1] as i32));
+        f.instruction(&Instruction::I32Const(0x846ca68bu32 as i32));
         f.instruction(&Instruction::I32Mul);
         out.store(f);
         out.load(f);
         out.load(f);
-        f.instruction(&Instruction::I32Const(INDEX_HASH_SHIFTS[2] as i32));
+        f.instruction(&Instruction::I32Const(16));
         f.instruction(&Instruction::I32ShrU);
         f.instruction(&Instruction::I32Xor);
         capacity.load(f);
@@ -589,9 +570,7 @@ impl FunctionBuilder<'_> {
         previous.set_null(schema, &mut f);
         next.set_null(schema, &mut f);
         capacity.load(&mut f);
-        f.instruction(&Instruction::I32Const(
-            ArrayIndexStorageSchema::INITIAL_BUCKET_CAPACITY as i32,
-        ));
+        f.instruction(&Instruction::I32Const(8));
         f.instruction(&Instruction::I32GtU);
         count.load(&mut f);
         f.instruction(&Instruction::I64Const(4));
