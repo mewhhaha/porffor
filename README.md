@@ -67,14 +67,15 @@ This combines seven passing runtime targets with the complete structural target
 rerun after correcting a stale trim-visibility assertion; production code is
 unchanged by that repair. The previous numeric/collection checkpoint's
 **3,235-case Test262 replay gave 3,231 passed / 4 failed**, with zero crashes or
-unimplemented cases. A fresh full-suite run is the next acceptance step.
+unimplemented cases. A fresh full-suite run is in progress.
 [Source-bound evidence](docs/rust-rewrite/performance-hot-reads-20261022.json)
 · [Measured gains and limits](docs/rust-rewrite/v8-baseline.md#hot-read-checkpoint--published-2026-10-22).
 Earlier wider native and Test262 results remain bound to their original sources.
 These affected checks do not replace a fresh full-suite campaign.
 The chart below reconciles the complete 2026-10-20 baseline with the exact
 original-failure replay and an audited standalone Wasm scope split. A fresh full
-run of the repaired compiler is still pending.
+run of the repaired compiler is running; the graph keeps the completed evidence
+until that campaign finishes.
 
 <!-- scriptw-test-graph:start -->
 ![Test262 checkpoints: 102,561 passing in scope, 4 failing, 0 not implemented, 429 out of standalone Wasm scope](docs/rust-rewrite/assets/test262-status.svg)

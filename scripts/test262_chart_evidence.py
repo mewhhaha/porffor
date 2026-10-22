@@ -3,6 +3,8 @@
 This is a display projection. It neither republishes native suite results nor
 claims that successes from an older compiler were rerun on the repaired one.
 """
+import base64
+import gzip
 import hashlib
 import json
 from pathlib import Path
@@ -10,9 +12,10 @@ import re
 import tarfile
 
 from check_conformance_source_pins import verify as verify_source_pins
-from status_publication import load_publication
+from status_publication import load_publication, read_local_or_index
 
 EVIDENCE = 'docs/rust-rewrite/test262-chart-reconciliation-20261021.json'
+FULL_EVIDENCE = 'docs/rust-rewrite/test262-chart-full-20261022.json'
 BASE_RECEIPT = 'test262/snapshots/current-test262-20261020-receipt.json'
 REPLAY_RECEIPT = 'docs/rust-rewrite/failed-case-replay-20261021.json'
 BACKLOG = 'test262/backlog/6a4268a9354a545d41c3b62efebc478ed8c521f4/wasm-aot.json'
@@ -102,6 +105,133 @@ def projection(outcomes, scope_ids):
     return counts
 
 
+def full_snapshot_names(real, aggregate):
+    name = Path(real['snapshot_paths']['json']).name
+    suffix = f"-aggregate-{real['manifest_hash']}.json"
+    require(name.endswith(suffix), 'published aggregate filename differs from manifest')
+    family = name[:-len(suffix)]
+    names = [f"{family}-{entry['node_id'].replace('/', '_')}-{entry['manifest_hash']}.json"
+             for entry in aggregate['aggregate_entries']]
+    require(family and len(names) == len(set(names)) and name not in names,
+            'full snapshot filenames collide')
+    require(all(Path(n).name == n and '\\' not in n for n in names), 'invalid full snapshot filename')
+    return name, names
+
+
+def checked_full_outcomes(real, aggregate, snapshots):
+    """Require every native leaf exactly once; a publication total is not enough."""
+    labels = {'Success', 'Bug', 'Crash', 'NotImplemented'}
+    published = real['counts_per_outcome']
+    expected = {row['label']: row['count'] for row in published}
+    require(len(published) == len(expected) and set(expected) == labels, 'invalid full published outcomes')
+    require(all(type(v) is int and v >= 0 for v in expected.values())
+            and type(real['total']) is int and real['total'] > 0
+            and type(real['passed']) is int, 'invalid full published totals')
+
+    def census(snapshot):
+        counts = snapshot['counts_per_outcome']
+        require(set(counts) == labels and all(type(v) is int and v >= 0 for v in counts.values()),
+                'invalid full snapshot outcome counts')
+        require(type(snapshot['total']) is int and snapshot['total'] > 0
+                and type(snapshot['passed']) is int and snapshot['passed'] == counts['Success']
+                and sum(counts.values()) == snapshot['total'], 'full snapshot counts disagree')
+        return counts
+
+    def identity(snapshot):
+        require(snapshot['snapshot_version'] == 8 and snapshot['producer'] == 'scriptw'
+                and snapshot['execution_backend'] == 'wasm-aot'
+                and snapshot['compiler_identity'] == real['compiler_identity']
+                and snapshot['pinned_revisions'] == real['pinned_revisions'], 'full snapshot identity differs')
+
+    identity(aggregate)
+    require(real['backend'] == 'wasm-aot' and aggregate['run_kind'] == 'aggregate-matrix'
+            and aggregate['matrix_path'] == ['top-level']
+            and aggregate['manifest_hash'] == real['manifest_hash']
+            and aggregate['total'] == real['total'] and aggregate['passed'] == real['passed']
+            and census(aggregate) == expected, 'full aggregate differs from publication')
+    entries = aggregate['aggregate_entries']
+    nodes = aggregate['completed_nodes']
+    require(entries and len(nodes) == len(set(nodes)) == len(entries)
+            and {e['node_id'] for e in entries} == set(nodes), 'full aggregate nodes incomplete or duplicated')
+    aggregate_name, names = full_snapshot_names(real, aggregate)
+    require(set(snapshots) == {aggregate_name, *names}, 'full snapshot inventory differs')
+    outcomes = {}
+    for entry, name in zip(entries, names, strict=True):
+        leaf = snapshots[name]
+        identity(leaf)
+        kind = {'filter-leaf': 'matrix-filter-leaf', 'chunk-leaf': 'matrix-chunk-leaf'}.get(entry['node_kind'])
+        require(kind is not None and leaf['run_kind'] == kind
+                and leaf['manifest_hash'] == entry['manifest_hash']
+                and leaf['matrix_path'] == entry['matrix_path']
+                and leaf['matrix_strategy_version'] == aggregate['matrix_strategy_version']
+                and leaf['total'] == entry['total'] and leaf['passed'] == entry['passed']
+                and census(leaf) == entry['counts_per_outcome'], 'full leaf identity or counts differ')
+        ids = leaf['completed_test_ids']
+        require(len(ids) == len(set(ids)) == leaf['total'] and not outcomes.keys() & set(ids),
+                'full leaf IDs incomplete, duplicated or overlapping')
+        failures = {row['test_id']: row['outcome'] for row in leaf['failures']}
+        require(len(failures) == len(leaf['failures']) and set(failures) <= set(ids)
+                and set(failures.values()) <= labels - {'Success'}
+                and leaf['passed'] + len(failures) == leaf['total'], 'full leaf failures incomplete')
+        measured = {key: failures.get(key, 'Success') for key in ids}
+        require({k: sum(v == k for v in measured.values()) for k in labels} == leaf['counts_per_outcome'],
+                'full leaf execution census differs')
+        outcomes.update(measured)
+    require(len(outcomes) == real['total']
+            and {k: sum(v == k for v in outcomes.values()) for k in labels} == expected,
+            'full execution census differs from publication')
+    return outcomes
+
+
+def build_full(root, retained=None):
+    """Bind a fresh chart to portable native snapshots, without another suite run."""
+    publication, published_path = load_publication(root)
+    real = publication['real_suite']
+    if retained is None:
+        aggregate_path = Path(real['snapshot_paths']['json'])
+        if not aggregate_path.is_absolute():
+            aggregate_path = root / aggregate_path
+        aggregate_raw = aggregate_path.read_bytes()
+        aggregate = json.loads(aggregate_raw)
+        name, names = full_snapshot_names(real, aggregate)
+        raw = {name: aggregate_raw, **{n: (aggregate_path.parent / n).read_bytes() for n in names}}
+        retained = []
+        for name, payload in sorted(raw.items()):
+            packed = gzip.compress(payload, mtime=0)
+            retained.append(dict(name=name, bytes=len(payload), sha256=hashlib.sha256(payload).hexdigest(),
+                encoding='gzip+base64', gzip_sha256=hashlib.sha256(packed).hexdigest(), data=base64.b64encode(packed).decode()))
+    snapshots = {}
+    for row in retained:
+        name = row['name']
+        require(Path(name).name == name and '\\' not in name and name not in snapshots
+                and row['encoding'] == 'gzip+base64', 'invalid retained full snapshot')
+        packed = base64.b64decode(row['data'], validate=True)
+        require(hashlib.sha256(packed).hexdigest() == row['gzip_sha256'], 'retained full snapshot compressed digest differs')
+        payload = gzip.decompress(packed)
+        require(len(payload) == row['bytes'] and hashlib.sha256(payload).hexdigest() == row['sha256'],
+                'retained full snapshot payload digest differs')
+        snapshots[name] = json.loads(payload)
+    aggregate_name = Path(real['snapshot_paths']['json']).name
+    require(aggregate_name in snapshots, 'retained full aggregate missing')
+    aggregate = snapshots[aggregate_name]
+    outcomes = checked_full_outcomes(real, aggregate, snapshots)
+    pin_check = verify_source_pins(root / 'crates/scriptw-test262/src/source-pins.json', root / 'test262/vendor/test262')
+    require(pin_check['vendored_tree_verified'], 'scope sources are not the pinned suite')
+    rows = scoped_rows(root, outcomes)
+    historical = json.loads(read_local_or_index(root, EVIDENCE))
+    require(historical['source_pins'] == real['pinned_revisions'] and rows == historical['scope_rows'],
+            'audited scope inventory changed; review it explicitly before publication')
+    scope_ids = {key for row in rows for key in row['execution_ids']}
+    return dict(schema='scriptw-test262-chart-full-v1', date=real['refresh_date'],
+        interpretation='Fresh complete native suite with the unchanged audited standalone-Wasm scope projection; no failure replay is mixed in.',
+        source_pins=real['pinned_revisions'], baseline_compiler_identity=real['compiler_identity'],
+        total=len(outcomes), measured_counts=aggregate['counts_per_outcome'], scoped_chart_counts=projection(outcomes, scope_ids),
+        remaining_failures=[dict(execution_id=k, outcome=v) for k, v in sorted(outcomes.items()) if v != 'Success'],
+        scope_policy=historical['scope_policy'], scope_source_paths=len(rows), scope_execution_count=len(scope_ids), scope_rows=rows,
+        evidence=[dict(path=published_path, sha256=hashlib.sha256(read_local_or_index(root, published_path)).hexdigest())],
+        native_snapshots=retained, full_current_source_rerun=True)
+
+
 def build(root):
     publication, published_path = load_publication(root)
     real = publication['real_suite']
@@ -176,6 +306,12 @@ def build(root):
 
 
 def load(root, publication):
+    fresh = root / FULL_EVIDENCE
+    if fresh.exists():
+        record = json.loads(fresh.read_text())
+        require(record['schema'] == 'scriptw-test262-chart-full-v1', 'invalid full chart evidence schema')
+        require(record == build_full(root, record['native_snapshots']), 'stale full chart evidence; regenerate from native snapshots')
+        return record
     path = root / EVIDENCE
     if not path.exists():
         return None

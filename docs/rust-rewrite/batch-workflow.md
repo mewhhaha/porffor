@@ -73,6 +73,33 @@ need separate temporary and workspace filesystems. Report skips explicitly.
 
 ## Verification ladder
 
+For a complete native Test262 publication, use an isolated source checkout and
+the exact frozen compiler binary. The cloud campaign started on 2026-10-22 with
+one matrix group per invocation, then resumed the same family at a read-only
+progress barrier with `MAX_MATRIX_NODES=16`. The Rust runner still processes
+groups sequentially and checkpoints every completed group. This reduces up to
+748 CLI/provenance cycles to about 47; it is a process-count reduction, not a
+measured end-to-end speedup. Four case workers, serial compiler jobs, original
+case deadlines, isolation, retirement and cache limits stay unchanged.
+
+The invocation horizon is not part of publication identity. The one-group mode
+has a special low-memory resume loader; larger horizons use the ordinary exact
+loader. Retain the finite inherited memory cap and observe memory rather than
+claiming equal peaks. Never run two writers for one family. The completed
+campaign's aggregate and all leaves can feed the chart directly:
+
+```sh
+python3 -B scripts/generate-test-graph.py --refresh-evidence --full-evidence
+python3 -B scripts/generate-test-graph.py --check
+```
+
+Run those commands only after the canonical publication is complete and its
+generation members/manifest are imported. Full evidence embeds every native
+snapshot losslessly and checks compiler/pins, exact disjoint IDs, outcome census
+and the unchanged scope inventory. The old baseline/replay evidence remains
+historical; fresh counts contain no failure replay and need no second suite run.
+[Verification and completion procedure](verification-full-chart-20261022.json).
+
 | Check | Use | Evidence limit |
 | --- | --- | --- |
 | Diff, formatting, source/identity guards | Every affected batch | No semantic execution |

@@ -1,8 +1,11 @@
 """Native-replay reconciliation and the conservative standalone-Wasm scope split."""
 import importlib.util
+import json
 from pathlib import Path
 import sys
+import tarfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -56,7 +59,12 @@ class ChartReconciliationTests(unittest.TestCase):
                 evidence.projection(outcomes, excluded)
 
     def test_actual_archived_evidence_has_exact_reviewed_scope_inventory(self):
-        record = evidence.build(ROOT)
+        # Keep this historical fixture independent of the next full publication.
+        archive_path = 'test262/snapshots/current-test262-20261020.tar.gz'
+        with tarfile.open(ROOT / archive_path, 'r:gz') as archive:
+            publication = json.load(archive.extractfile('snapshots/published-status-wasm-aot.json'))
+        with patch.object(evidence, 'load_publication', return_value=(publication, archive_path)):
+            record = evidence.build(ROOT)
         self.assertEqual(record['scope_source_paths'], 221)
         self.assertEqual(record['scope_execution_count'], 429)
         self.assertEqual(record['scoped_chart_counts'], dict(Success=102561, Bug=4, Crash=0, NotImplemented=0, OutOfScope=429))

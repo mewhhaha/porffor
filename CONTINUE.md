@@ -62,13 +62,18 @@ is roughly flat, and slower initial cohorts plus integer/Unicode rechecks remain
 The README now uses source50's separate ordinary V8 comparison. Hill counts
 remain 21 terminal / eight partial / 131 unresolved until broader acceptance.
 
-The next step is one canonical full102994-execution campaign using
+A canonical full102994-execution campaign is running using
 `scripts/publish-real-status-low-ram.sh`, four case workers and original budgets.
 Use the frozen source50 product from an isolated checkout at
 `/workspace/scriptw-full-suite-20261022`; record its identity separately from
 that later test/doc/tool-only checkout. Keep that checkout's HEAD and source
 inputs unchanged for the campaign so implementation can continue independently
-in the development worktree. After it finishes, bind the graph's 429-case scope projection directly
+in the development worktree. The same family resumed at a read-only progress
+barrier with MAX_MATRIX_NODES=16: nodes remain sequential and individually
+checkpointed, with the same worker and memory limits. Original and resumed
+logs/memory samples are separate `candidate50-full-suite-*` target artifacts;
+`/tmp/scriptw-performance-batch22/resume-full-suite16.py` owns the live watcher.
+After it finishes, bind the graph's 429-case scope projection directly
 to that aggregate and its leaves, without replaying the suite. Preserve all four
 upstream Bugs as ordinary failures. Commands/watchers are in
 `/tmp/scriptw-performance-batch22`; raw results under the attribution target.
@@ -79,6 +84,15 @@ Tracked Cargo config is restored. Do not use `/dev/shm` for persistent history:
 twenty relocated historical archives are absent in this environment. Current
 products and raw observations remain verified; missing old binaries are not
 restorable from the recorded paths. Availability audit is in the new bundle.
+
+Fresh graph support is implemented and tooling-verified: after importing the
+completed canonical publication from the frozen checkout, run
+`python3 -B scripts/generate-test-graph.py --refresh-evidence --full-evidence`,
+then `--check`. It retains the native aggregate and all leaves in a portable
+record and checks their exact census; no second Test262 run or old failure replay
+is mixed into fresh counts. Twenty-two graph evidence/renderer controls pass.
+Do not use the full-evidence option against the old publication while the new
+campaign is still running. Keep this file/tasks and unresolved hill counts.
 
 The NativeHost compressed-storage experiment is **rejected**, with
 [raw evidence](docs/rust-rewrite/performance-nativehost-storage-rejected-20261022.json).

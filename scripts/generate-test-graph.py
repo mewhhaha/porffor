@@ -6,7 +6,10 @@ from pathlib import Path
 import re
 
 from status_publication import load_publication
-from test262_chart_evidence import EVIDENCE, build as build_reconciliation, load as load_reconciliation
+from test262_chart_evidence import (
+    EVIDENCE, FULL_EVIDENCE, build as build_reconciliation,
+    build_full, load as load_reconciliation,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 START = "<!-- scriptw-test-graph:start -->"
@@ -80,6 +83,23 @@ def render(publication, evidence_path=SNAPSHOT, reconciliation=None):
     if reconciliation is not None:
         counts = reconciliation["scoped_chart_counts"]
         failed = counts["Bug"] + counts["Crash"]
+        if reconciliation.get("full_current_source_rerun"):
+            return f"""{START}
+![Test262: {counts['Success']:,} passing in scope, {failed:,} failing, {counts['NotImplemented']:,} not implemented, {counts['OutOfScope']:,} out of standalone Wasm scope]({CHART})
+
+**Fresh full run, {reconciliation['date']}:** {display['total']:,} mode-specific
+executions at pin `{display['pin']}`, compiler `{display['measured']}`.
+All executions belong to this compiler; no earlier failure replay is mixed in.
+
+Blue is the unchanged audited **{counts['OutOfScope']:,}-execution subset** focused
+on dynamic `eval` / Function source compilation outside the standalone Wasm promise.
+These cases passed through the native host in this run. Ordinary API properties
+and `call` / `apply` / `bind` stay in the measured categories.
+The four bars partition all {display['total']:,} executions; scope cannot hide a failure.
+[Portable native snapshots and exact scope inventory]({FULL_EVIDENCE}) ·
+[Complete published result]({evidence_path}) ·
+[Scope policy](docs/rust-rewrite/runtime-requirements.md#out-of-scope-tests).
+{END}"""
         repaired = categories(publication)[1][2] - failed
         return f"""{START}
 ![Test262 checkpoints: {counts['Success']:,} passing in scope, {failed:,} failing, {counts['NotImplemented']:,} not implemented, {counts['OutOfScope']:,} out of standalone Wasm scope]({CHART})
@@ -158,11 +178,18 @@ def render_svg(publication, reconciliation=None):
     )
     if reconciliation is not None:
         source = f"Baseline {display['date']} + replay {reconciliation['date']} · pin {display['pin']} · {display['total']:,} executions"
+    fresh = reconciliation is not None and reconciliation.get("full_current_source_rerun")
+    if fresh:
+        source = f"{display['date']} · compiler {display['measured']} · pin {display['pin']} · {display['total']:,} executions"
     context = ("Baseline + exact failure replay; scoped view" if reconciliation is not None else
                "Complete pinned-suite baseline" if current else "Historical snapshot")
+    if fresh:
+        context = "Fresh complete pinned-suite run; scoped view"
     title = "Test262 verification by product scope" if reconciliation is not None else "Published Test262 results"
     footer = (f"{display['rows'][-1][2]:,} audited dynamic-source executions outside standalone Wasm scope; not a fresh full rerun."
               if reconciliation is not None else "Out-of-scope count unknown; published totals unchanged.")
+    if fresh:
+        footer = f"{display['rows'][-1][2]:,} audited native-host passes outside standalone Wasm scope; failures remain counted."
     unit = "test executions" if current else "test entries"
     elements = [
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 422" role="img" aria-labelledby="title description">',
@@ -256,12 +283,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--refresh-evidence", action="store_true", help="rebuild the pinned baseline/replay/scope reconciliation")
+    parser.add_argument("--full-evidence", action="store_true", help="with --refresh-evidence, retain and verify a newly published full native run")
     args = parser.parse_args()
     if args.check and args.refresh_evidence:
         parser.error("--check is read-only; use --refresh-evidence separately")
+    if args.full_evidence and not args.refresh_evidence:
+        parser.error("--full-evidence requires --refresh-evidence")
     if args.refresh_evidence:
         import json
-        (ROOT / EVIDENCE).write_text(json.dumps(build_reconciliation(ROOT), indent=2) + "\n")
+        full = args.full_evidence or (ROOT / FULL_EVIDENCE).exists()
+        evidence = build_full(ROOT) if full else build_reconciliation(ROOT)
+        (ROOT / (FULL_EVIDENCE if full else EVIDENCE)).write_text(json.dumps(evidence, indent=2) + "\n")
     generate(check=args.check)
     print("README Test262 chart: current with published evidence")
 

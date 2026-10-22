@@ -35,13 +35,26 @@ The focused Cargo recheck explicitly retains empty encoded Rustflags to reuse
 the unchanged preceding dependency cohort; subsequent default builds use the
 restored config. [Commands and limits](batch-workflow.md#fast-source-only-guards).
 
-Fresh full Test262 publication is next; chart counts and the four tracked Bug
+Fresh full Test262 publication is running in the isolated
+`/workspace/scriptw-full-suite-20261022` checkout at `4aac260e7`, using the exact
+source50 product. It resumed the same checkpoints at a read-only progress barrier
+with 16 sequential groups per invocation, reducing CLI/provenance barriers while
+preserving four workers, case budgets, isolation and each leaf checkpoint.
+Memory remains sampled under the inherited cap; no peak-memory equality is
+claimed for the two invocation horizons. Chart counts and the four tracked Bug
 results remain bound to earlier completed evidence until it finishes. Hill
 counts stay **21 terminal / eight partial / 131 unresolved**. A historical
 availability audit also finds twenty `/dev/shm` archive paths absent here;
 their old binaries are no longer claimed restorable. Current binaries/runtime
 payloads are verified, and observations, inventories and scripts are committed
 losslessly. Do not use shared memory as persistent history storage.
+
+Fresh chart tooling now retains the completed aggregate and every leaf snapshot
+losslessly, checks their identities and disjoint execution census, and reuses
+the unchanged 429-case scope audit. It needs no second suite execution. Its
+22 evidence/renderer controls pass, including the archived102994-case native
+baseline and portable roundtrip; current chart generation remains unchanged.
+[Tooling evidence and completion procedure](verification-full-chart-20261022.json).
 
 Previous numeric/collection acceptance source: **`37ab9fa44`**, with [4924 portable evidence files](performance-prepared-numeric-20261022.json).
 The [numeric/collection checkpoint](v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22)
