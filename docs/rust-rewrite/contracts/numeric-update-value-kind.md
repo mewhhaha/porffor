@@ -53,3 +53,15 @@ with-environment CLI control does not reach execution: Wasmtime
 rejects its existing 6,630,529-byte generated function as too large. The
 shared `cargo xc`, workspace formatting, diff, module-boundary and task-plan
 checks were green. Those results predate the canonical BigInt delta repair.
+
+
+## Guarded Number update candidate — 2026-10-22
+
+A runtime tag check may reuse an already captured Number payload without
+ToNumber or normal-completion copying. The closed IR result kind alone is not
+that proof: strings, booleans, null, undefined and Symbols still take the full
+conversion/abrupt path. Dynamic and BigInt paths are unchanged. Postfix keeps
+the original Number, including negative zero; PutValue, const errors and
+getter/setter/coercion order retain their existing owners. This candidate still
+requires fresh product/native verification; historical counts above are not its
+acceptance result.

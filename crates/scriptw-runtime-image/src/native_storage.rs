@@ -3,11 +3,26 @@
 use sha2::{Digest, Sha256};
 use std::io::Read;
 
+/// Verified decoded Cargo storage. Private fields prevent a caller from
+/// substituting bytes or a self-reported digest at Engine's admission boundary.
+pub struct NativeRuntimeBytes {
+    bytes: Box<[u8]>,
+    digest: [u8; 32],
+}
+impl NativeRuntimeBytes {
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn digest(&self) -> &[u8; 32] {
+        &self.digest
+    }
+}
+
 pub(super) const MAGIC: &[u8; 8] = b"SWRTZ001";
 pub(super) const HEADER_BYTES: usize = 48;
 pub(super) const MAX_RAW_BYTES: usize = 256 * 1024 * 1024;
 
-pub(super) fn decode(encoded: &[u8]) -> Option<Box<[u8]>> {
+pub(super) fn decode(encoded: &[u8]) -> Option<NativeRuntimeBytes> {
     if encoded.get(..8)? != MAGIC {
         return None;
     }
@@ -27,10 +42,14 @@ pub(super) fn decode(encoded: &[u8]) -> Option<Box<[u8]>> {
         .take(length as u64 + 1)
         .read_to_end(&mut bytes)
         .ok()?;
-    if bytes.len() != length || <[u8; 32]>::from(Sha256::digest(&bytes)) != expected {
+    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    if bytes.len() != length || digest != expected {
         return None;
     }
-    Some(bytes.into_boxed_slice())
+    Some(NativeRuntimeBytes {
+        bytes: bytes.into_boxed_slice(),
+        digest,
+    })
 }
 
 #[cfg(test)]
@@ -49,7 +68,7 @@ mod tests {
     fn exact_decoded_bytes_and_rejected_container_corruption() {
         let raw = b"Cargo-owned native image, including \0 bytes";
         let encoded = encode(raw);
-        assert_eq!(&*decode(&encoded).unwrap(), raw);
+        assert_eq!(decode(&encoded).unwrap().bytes(), raw);
         for index in [0, 8, 16, HEADER_BYTES] {
             let mut changed = encoded.clone();
             changed[index] ^= 1;
@@ -82,7 +101,7 @@ mod tests {
             bytes.extend_from_slice(frame);
             bytes
         };
-        assert_eq!(&*decode(&wrap(&frame)).unwrap(), raw);
+        assert_eq!(decode(&wrap(&frame)).unwrap().bytes(), raw);
         frame[5] = 0x88; // 128 MiB history request with the same small output.
         assert!(decode(&wrap(&frame)).is_none());
     }

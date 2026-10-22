@@ -908,7 +908,7 @@ mod tests {
                 };
                 assert_eq!(
                     finalized.globals.section.len(),
-                    existing_global_count + 17 + snapshot_global_count,
+                    existing_global_count + 21 + snapshot_global_count,
                     "ordinary roots and opt-in typed inventory/witnesses share the actual section"
                 );
             }

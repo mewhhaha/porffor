@@ -334,3 +334,32 @@ fn empty_storage_globals_are_nonnull_immutable_zero_length_arrays() {
         );
     }
 }
+
+#[test]
+fn binding_cells_own_mutable_words_while_stored_values_remain_immutable_snapshots() {
+    let (module, bytes) = encoded(ModuleKind::Runtime(
+        crate::RuntimeSourceCompilationProfile::Portable,
+    ));
+    let (types, _, _) = declarations(&bytes);
+    let layouts = module.globals().schema().layouts();
+    for (layout, mutable) in [
+        (GcLayout::BindingCell, true),
+        (GcLayout::StoredValue, false),
+    ] {
+        let index = layouts.layout_index(layout) as usize;
+        let CompositeInnerType::Struct(actual) = &types[index].composite_type.inner else {
+            panic!("value owner must be an actual GC struct");
+        };
+        for (field, expected) in actual.fields[..3].iter().zip([
+            wasmparser::ValType::I32,
+            wasmparser::ValType::I64,
+            wasmparser::ValType::Ref(wasmparser::RefType::EQREF),
+        ]) {
+            assert_eq!(field.element_type, wasmparser::StorageType::Val(expected));
+            assert_eq!(
+                field.mutable, mutable,
+                "mutable cells cannot alias immutable snapshots"
+            );
+        }
+    }
+}

@@ -33,6 +33,13 @@ record 2,687 passing ordinary native tests and a 186-execution Test262 replay:
 182 Success / the same four Bug results. This is not a fresh full Test262 or
 all-feature workspace checkpoint; published conformance counts are unchanged.
 
+The next performance candidate is not yet an accepted checkpoint. Its preceding
+intermediate experiment replayed 1,638 exact original/affected executions:
+1,634 Success and the same four Bug results, with no crashes/unimplemented cases.
+Its 3,135-pass native run also had a stale global-count assertion and a rejected
+source-stability guard. Both causes are corrected; the new layout-16/numeric/
+transient-image candidate requires a fresh build, measurements and verification.
+
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic
 issues and ten preexisting rename-related expectations. Its record retains the

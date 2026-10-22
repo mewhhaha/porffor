@@ -4,8 +4,10 @@
 //! independently admits source, target, modes, layout and byte digests before
 //! deserializing native code. This crate accepts no caller bytes or paths.
 
-#[cfg(any(scriptw_runtime_image, test))]
 mod native_storage;
+pub use native_storage::NativeRuntimeBytes;
+#[cfg(scriptw_runtime_image)]
+mod native_lease;
 
 #[cfg(scriptw_runtime_image)]
 include!(concat!(env!("OUT_DIR"), "/image_bindings.rs"));
@@ -52,20 +54,11 @@ pub fn portable_package() -> &'static [u8] {
 }
 
 #[inline(never)]
-pub fn portable_native() -> &'static [u8] {
+pub fn portable_native() -> Option<std::sync::Arc<NativeRuntimeBytes>> {
     #[cfg(scriptw_runtime_image)]
-    {
-        static IMAGE: std::sync::OnceLock<Option<Box<[u8]>>> = std::sync::OnceLock::new();
-        // SAFETY: only Cargo's immutable target-defined encoded array enters
-        // this decoder. The checked bytes are published without mutable aliases
-        // for the process lifetime; failure leaves ordinary native compilation.
-        return IMAGE
-            .get_or_init(|| native_storage::decode(unsafe { &SCRIPTW_RUNTIME_PORTABLE_NATIVE }))
-            .as_deref()
-            .unwrap_or(&[]);
-    }
+    return native_lease::acquire();
     #[cfg(not(scriptw_runtime_image))]
-    &[]
+    None
 }
 
 #[inline(never)]
@@ -76,3 +69,6 @@ pub fn portable_manifest_bytes() -> &'static [u8] {
     #[cfg(not(scriptw_runtime_image))]
     &[]
 }
+
+#[cfg(all(test, scriptw_runtime_image))]
+mod lease_tests;

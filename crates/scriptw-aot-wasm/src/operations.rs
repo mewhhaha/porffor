@@ -1982,6 +1982,31 @@ impl<'a> FunctionBuilder<'a> {
         out_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
+        // Ordered comparisons exclude NaN and infinities. Inside this signed
+        // range truncation is exact; wrapping preserves the low 32 bits even
+        // for negative/fractional inputs. The strict upper bound excludes
+        // +2^63, whose signed saturating conversion would lose those bits.
+        number_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(
+            -9_223_372_036_854_775_808.0,
+        )));
+        function.instruction(&Instruction::F64Ge);
+        number_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(
+            9_223_372_036_854_775_808.0,
+        )));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        number_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncSatF64S);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64ExtendI32U);
+        out_local.store(function);
+        function.instruction(&Instruction::Else);
         number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
@@ -2000,6 +2025,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64TruncSatF64U);
         out_local.store(function);
+        function.instruction(&Instruction::End);
     }
 
     /// Emits ECMA-262 ToUint16 steps 2-5 for a Number payload.

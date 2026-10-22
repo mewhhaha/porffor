@@ -62,8 +62,38 @@ pub fn wasm_runtime_profile_policy() -> String {
     PRODUCT_WASMTIME_POLICY.report()
 }
 
+/// Explicit diagnostic cohort only. Ordinary execution retains automatic
+/// dispatch and its CodeTooLarge retry. Forced cohorts fail instead of silently
+/// changing mode; every other product Wasmtime capability/limit stays identical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WasmProfileNativeMode {
+    Fast,
+    SizeOptimized,
+}
+impl WasmProfileNativeMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::SizeOptimized => "size-optimized",
+        }
+    }
+    pub(crate) fn internal(self) -> WasmNativeCompilationMode {
+        match self {
+            Self::Fast => WasmNativeCompilationMode::Fast,
+            Self::SizeOptimized => WasmNativeCompilationMode::SizeOptimized,
+        }
+    }
+    pub(crate) fn from_internal(mode: WasmNativeCompilationMode) -> Self {
+        match mode {
+            WasmNativeCompilationMode::Fast => Self::Fast,
+            WasmNativeCompilationMode::SizeOptimized => Self::SizeOptimized,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct WasmRuntimeProfile {
+    pub native_mode: WasmProfileNativeMode,
     pub outcome: ObservedRunOutcome,
     pub timings: WasmRuntimeTimings,
     pub module_cache: WasmRuntimeModuleCacheOutcome,
@@ -81,6 +111,8 @@ pub struct WasmRuntimeProfile {
 }
 
 pub(super) struct RuntimeObservation {
+    pub(super) requested_native_mode: Option<WasmProfileNativeMode>,
+    pub(super) actual_native_mode: Option<WasmProfileNativeMode>,
     pub(super) timings: WasmRuntimeTimings,
     pub(super) module_cache: WasmRuntimeModuleCacheOutcome,
     pub(super) heap: WasmRuntimeHeapObservation,
@@ -89,6 +121,8 @@ pub(super) struct RuntimeObservation {
 impl Default for RuntimeObservation {
     fn default() -> Self {
         Self {
+            requested_native_mode: None,
+            actual_native_mode: None,
             timings: WasmRuntimeTimings::default(),
             heap: WasmRuntimeHeapObservation::default(),
             process_memory: None,
@@ -108,8 +142,33 @@ impl Engine {
         timeout_ms: Option<u64>,
         can_block: bool,
     ) -> Result<WasmRuntimeProfile, EngineError> {
+        self.profile_wasm_execution_mode(artifact, timeout_ms, can_block, None)
+    }
+
+    /// Measure a separately labelled native compiler-policy cohort. This does
+    /// not change product automatic policy, JS state isolation or cache keys.
+    pub fn profile_wasm_execution_with_native_mode(
+        &self,
+        artifact: &Artifact,
+        timeout_ms: Option<u64>,
+        can_block: bool,
+        native_mode: WasmProfileNativeMode,
+    ) -> Result<WasmRuntimeProfile, EngineError> {
+        self.profile_wasm_execution_mode(artifact, timeout_ms, can_block, Some(native_mode))
+    }
+
+    fn profile_wasm_execution_mode(
+        &self,
+        artifact: &Artifact,
+        timeout_ms: Option<u64>,
+        can_block: bool,
+        native_mode: Option<WasmProfileNativeMode>,
+    ) -> Result<WasmRuntimeProfile, EngineError> {
         run_on_sized_stack(|| {
-            let mut observation = RuntimeObservation::default();
+            let mut observation = RuntimeObservation {
+                requested_native_mode: native_mode,
+                ..RuntimeObservation::default()
+            };
             let outcome = self
                 .execute_with_wasm_bytes_profiled(
                     artifact.program(),
@@ -129,7 +188,13 @@ impl Engine {
             })?;
             let unavailable = WasmRuntimeMetricUnavailable::WasmtimeHasNoPublicCounter;
             let peak = WasmRuntimeMetricUnavailable::NoPerInvocationPeakSampler;
+            let actual_mode = observation.actual_native_mode.ok_or_else(|| {
+                EngineError::new(
+                    "completed runtime profile omitted its actual native compiler mode",
+                )
+            })?;
             Ok(WasmRuntimeProfile {
+                native_mode: actual_mode,
                 outcome,
                 timings: observation.timings,
                 module_cache: observation.module_cache,
@@ -225,5 +290,54 @@ mod tests {
                 false,
             )
             .is_err());
+    }
+}
+
+#[cfg(test)]
+mod native_mode_cohort_tests {
+    use super::*;
+
+    #[test]
+    fn forced_modes_are_reported_exactly_and_reuse_only_their_own_cached_modules() {
+        let engine = Engine::new(RealmBuilder::new().build());
+        let artifact = engine
+            .profile_script_compilation(
+                "let n=0; for(let i=0;i<8;i++) n+=i; print(n); n;",
+                CompileOptions::default(),
+            )
+            .unwrap()
+            .artifact;
+        for requested in [
+            WasmProfileNativeMode::Fast,
+            WasmProfileNativeMode::SizeOptimized,
+        ] {
+            for repeat in 0..2 {
+                let profile = engine
+                    .profile_wasm_execution_with_native_mode(&artifact, None, false, requested)
+                    .unwrap();
+                assert_eq!(profile.native_mode, requested);
+                assert_eq!(
+                    profile.outcome.completion,
+                    ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(
+                        28.0
+                    )))
+                );
+                assert_eq!(
+                    profile.outcome.output_events,
+                    [HostOutputEvent::PrintLine("28".into())]
+                );
+                if repeat == 1 {
+                    assert_eq!(profile.module_cache, WasmRuntimeModuleCacheOutcome::Hit);
+                }
+                assert_eq!(profile.runtime_policy, wasm_runtime_profile_policy());
+            }
+        }
+        assert_eq!(
+            engine
+                .profile_wasm_execution(&artifact, None, false)
+                .unwrap()
+                .native_mode,
+            WasmProfileNativeMode::Fast
+        );
     }
 }

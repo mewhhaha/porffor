@@ -43,9 +43,9 @@ pub use compiler_identity::{
 };
 pub use runtime_profile::{
     wasm_runtime_profile_policy, WasmProcessMemoryObservation, WasmProcessMemorySample,
-    WasmProcessMemoryScope, WasmProcessMemoryUnavailable, WasmRuntimeHeapObservation,
-    WasmRuntimeMetricUnavailable, WasmRuntimeModuleCacheOutcome, WasmRuntimeProfile,
-    WasmRuntimeTimings,
+    WasmProcessMemoryScope, WasmProcessMemoryUnavailable, WasmProfileNativeMode,
+    WasmRuntimeHeapObservation, WasmRuntimeMetricUnavailable, WasmRuntimeModuleCacheOutcome,
+    WasmRuntimeProfile, WasmRuntimeTimings,
 };
 mod execution_failure;
 mod global_script_prelude;
@@ -3680,7 +3680,11 @@ impl Engine {
                 "configured system time zone does not match the executing Intl provider",
             ));
         }
-        let native_compilation_plan = wasm_runtime_link::plan_native_compilation(program);
+        let requested_native_mode = profile.as_ref().and_then(|p| p.requested_native_mode);
+        let mut native_compilation_plan = wasm_runtime_link::plan_native_compilation(program);
+        if let Some(forced) = requested_native_mode {
+            native_compilation_plan.mode = forced.internal();
+        }
         if trace_wasm {
             match native_compilation_plan.largest_code_body_bytes {
                 Some(largest_code_body_bytes) => eprintln!(
@@ -3690,7 +3694,8 @@ impl Engine {
                     SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES
                 ),
                 None => eprintln!(
-                    "scriptw wasm trace: native compiler: fast (code-body scan could not parse artifact; Wasmtime validation remains authoritative)"
+                    "scriptw wasm trace: native compiler: {} (code-body scan could not parse artifact; Wasmtime validation remains authoritative)",
+                    native_compilation_plan.mode.as_str()
                 ),
             }
         }
@@ -3735,6 +3740,7 @@ impl Engine {
             Ok(compiled) => compiled,
             Err(error)
                 if native_mode == WasmNativeCompilationMode::Fast
+                    && requested_native_mode.is_none()
                     && agent_execution.is_none()
                     && error.to_string().contains(WASM_CODE_TOO_LARGE_MESSAGE) =>
             {
@@ -4295,6 +4301,8 @@ impl Engine {
                 .expect("profile requested its invocation sampler")
                 .finish();
             *profile = runtime_profile::RuntimeObservation {
+                requested_native_mode,
+                actual_native_mode: Some(WasmProfileNativeMode::from_internal(native_mode)),
                 timings: WasmRuntimeTimings {
                     engine: engine_elapsed,
                     module: module_elapsed,

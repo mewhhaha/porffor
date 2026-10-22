@@ -582,7 +582,13 @@ require_fixed_string_count "$engine_native_config" 'ModuleVersionStrategy::Custo
 require_fixed_string_count "$engine_embedded_compile" 'configure_native_version(&mut config, native_identity);' 1 'build compiler always binds its actual native dependency identity'
 require_fixed_string_count "$engine_embedded_build" 'crate::cache::NativeFunctionCache::new(' 1 'build stencils bind native dependencies'
 require_fixed_string_count crates/scriptw-engine/src/lib.rs 'cache::NativeFunctionCache::new(' 1 'product stencils bind native dependencies'
-require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engine, self.images.native)' 1 'native load accepts only immutable embedded bytes'
+engine_embedded_load="crates/scriptw-engine/src/embedded_runtime/load.rs"
+require_file "$engine_embedded_load"
+require_module_decl "$engine_embedded_runtime" load
+require_fixed_string_count "$engine_embedded_load" 'Module::deserialize(engine, bytes)' 1 'native load uses its admitted private Cargo-byte lease'
+require_fixed_string_count "$engine_embedded_load" 'if !self.accepts_portable_native(&image)' 1 'Portable decoded bytes match the independent native manifest'
+require_fixed_string_count "$engine_embedded_load" 'drop(lease);' 1 'copied mapping releases the transient decoded-byte owner'
+check_raw_line_budget "$engine_embedded_load" 120
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 2 'independent lazy admission per source profile'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Module>' 0 'no hidden retained native module'
 wasm_build_envelope="crates/scriptw-aot-wasm/src/runtime_artifact/build_package/envelope.rs"
@@ -605,6 +611,14 @@ check_raw_line_budget "$engine_embedded_publication" 40
 check_raw_line_budget "$engine_embedded_compile" 100
 check_raw_line_budget "$engine_native_stencils" 120
 check_raw_line_budget "$runtime_image_build" 80
+require_module_decl "$runtime_image_source" native_storage
+require_module_decl "$runtime_image_source" native_lease
+require_module_decl "$runtime_image_source" lease_tests
+require_file crates/scriptw-runtime-image/src/native_lease.rs
+require_file crates/scriptw-runtime-image/src/lease_tests.rs
+require_fixed_string_count crates/scriptw-runtime-image/src/native_lease.rs 'Mutex<Result<Weak<NativeRuntimeBytes>, ()>>' 1 'weak cache retains no strong decoded bytes'
+check_raw_line_budget crates/scriptw-runtime-image/src/native_lease.rs 50
+check_raw_line_budget crates/scriptw-runtime-image/src/lease_tests.rs 70
 check_raw_line_budget "$runtime_image_source" 90
 check_raw_line_budget "$runtime_image_objects" 120
 check_raw_line_budget "$wasm_build_package" 230

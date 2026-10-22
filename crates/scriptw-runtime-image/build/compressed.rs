@@ -19,9 +19,11 @@ pub(super) fn write(out: &Path) {
         encoded.extend_from_slice(&(raw.len() as u64).to_le_bytes());
         encoded.extend_from_slice(&Sha256::digest(&raw));
         encoded.extend_from_slice(&compressed);
+        let decoded = native_storage::decode(&encoded)
+            .expect("Cargo's exact encoded image decodes within its framing bounds");
         assert_eq!(
-            native_storage::decode(&encoded).as_deref(),
-            Some(raw.as_slice()),
+            decoded.bytes(),
+            raw.as_slice(),
             "encoded native storage exactly reproduces checked producer bytes"
         );
         println!(

@@ -10,6 +10,7 @@
 mod build_compile;
 mod digests;
 mod images;
+mod load;
 mod manifest;
 use crate::wasmtime_config::{WasmNativeCompilationMode, CONFIGURATION_SCHEMA};
 use scriptw_aot_wasm::{
@@ -76,15 +77,27 @@ impl EmbeddedNativeRuntime {
             return None;
         }
         let started = std::env::var_os("SCRIPTW_WASM_TRACE").map(|_| std::time::Instant::now());
-        let (package_digest, native_digest) =
-            digests::images(images, crate::configured_compilation_jobs().unwrap_or(1))?;
+        let package_digest = match images.profile {
+            RuntimeSourceCompilationProfile::NativeHost => {
+                let (package, native) = digests::images(
+                    images.package,
+                    scriptw_runtime_image::native(),
+                    crate::configured_compilation_jobs().unwrap_or(1),
+                )?;
+                if native != manifest.native_digest {
+                    return None;
+                }
+                package
+            }
+            RuntimeSourceCompilationProfile::Portable => digests::digest(images.package),
+        };
         if let Some(started) = started {
             eprintln!(
                 "scriptw wasm trace: runtime-native-bundle digest admission: {:?}",
                 started.elapsed()
             );
         }
-        if manifest.package_digest != package_digest || manifest.native_digest != native_digest {
+        if manifest.package_digest != package_digest {
             return None;
         }
         Some(Self { manifest, images })
@@ -94,60 +107,6 @@ impl EmbeddedNativeRuntime {
         self.images.profile == runtime.source_compilation_profile()
             && self.manifest.modes.execution.contains(mode)
             && runtime.key().as_bytes() == &self.manifest.runtime_key
-    }
-
-    fn load(
-        &self,
-        engine: &Engine,
-        runtime: &RuntimeArtifact,
-        mode: WasmNativeCompilationMode,
-    ) -> Option<Module> {
-        if !self.matches(runtime, mode) {
-            return None;
-        }
-        // SAFETY: self.images.native is exclusively the immutable Cargo output of
-        // scriptw-runtime-image build.rs (Portable storage is decoded once from
-        // its private Cargo array, with exact length/digest admission into an
-        // immutable process-lifetime Box). Its sole producer compiles the freshly
-        // admitted RuntimeBuildArtifact::wasm() with pinned Wasmtime. Native-host
-        // builds use Wasmtime's exact-Wasm compilation cache and serialize the
-        // resulting temporary Module; cross-target/cache-unavailable builds use
-        // precompile_module. That owner first round-trips the exact raw R through
-        // full identity/layout validation. Wasmtime owns cache compatibility.
-        // The admitted manifest binds source, target, config, native bytes and
-        // this actual RuntimeArtifact key. No caller-supplied native bytes reach
-        // this call. deserialize owns its copied mapping in the supplied
-        // execution Engine. The admitted modes explicitly allow optimized R
-        // with Fast or SizeOptimized P; no build Engine survives in the cache.
-        // Wasmtime still checks version/features/collector/tunables/ISA.
-        let started = std::env::var_os("SCRIPTW_WASM_TRACE").map(|_| std::time::Instant::now());
-        let loaded = unsafe { Module::deserialize(engine, self.images.native) };
-        if let Some(started) = started {
-            eprintln!(
-                "scriptw wasm trace: runtime-native-bundle deserialization: {:?}",
-                started.elapsed()
-            );
-        }
-        match loaded {
-            Ok(module) => {
-                if std::env::var_os("SCRIPTW_WASM_TRACE").is_some() {
-                    eprintln!(
-                        "scriptw wasm trace: runtime-native-bundle hit: {} bytes (runtime: {}, execution: {}, source: {:?})",
-                        self.images.native.len(),
-                        self.manifest.modes.runtime.as_str(),
-                        mode.as_str(),
-                        self.images.profile
-                    );
-                }
-                Some(module)
-            }
-            Err(error) => {
-                if std::env::var_os("SCRIPTW_WASM_TRACE").is_some() {
-                    eprintln!("scriptw wasm trace: runtime-native-bundle incompatible: {error:#}; compiling normally");
-                }
-                None
-            }
-        }
     }
 }
 

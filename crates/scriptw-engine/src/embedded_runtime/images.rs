@@ -6,7 +6,6 @@ use scriptw_runtime_image as image;
 pub(super) struct Images {
     pub(super) profile: RuntimeSourceCompilationProfile,
     pub(super) package: &'static [u8],
-    pub(super) native: &'static [u8],
     pub(super) manifest: &'static [u8],
 }
 
@@ -20,18 +19,13 @@ impl Images {
 
     pub(super) fn for_profile(profile: RuntimeSourceCompilationProfile) -> Self {
         let package = Self::package_for_profile(profile);
-        let (native, manifest) = match profile {
-            RuntimeSourceCompilationProfile::NativeHost => {
-                (image::native(), image::manifest_bytes())
-            }
-            RuntimeSourceCompilationProfile::Portable => {
-                (image::portable_native(), image::portable_manifest_bytes())
-            }
+        let manifest = match profile {
+            RuntimeSourceCompilationProfile::NativeHost => image::manifest_bytes(),
+            RuntimeSourceCompilationProfile::Portable => image::portable_manifest_bytes(),
         };
         Self {
             profile,
             package,
-            native,
             manifest,
         }
     }

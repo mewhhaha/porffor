@@ -203,3 +203,23 @@ The anchors below preserve existing historical links:
 
 <a id="opt-in-iteration-tooling--2026-10-11"></a>
 [Iteration tooling checkpoint](batch-workflow-history-20261021.md#opt-in-iteration-tooling--2026-10-11).
+
+
+### Cached metadata diagnostics
+
+A metadata-only rustc check against exact cached release externs can catch type
+and borrow errors before LLVM/codegen. Treat it as a diagnostic: it does not
+produce a product image or establish source/package/native acceptance. The
+product build and appropriate native/conformance scopes remain mandatory.
+Keep scratch source trees physically separate. Check resolved destination parents
+before copying overrides; a symlink to the checkout can invalidate the source
+freeze even when no existing tracked file is overwritten.
+
+Preserve completed outputs by digest before staging them into tmpfs, accounting
+for the inherited cgroup budget as well as tmpfs capacity. Compare actual
+filesystem free space: removing lower-layer originals from an overlay filesystem
+can preserve all archive bytes yet reclaim no writable blocks. Before any rebuild,
+detach owned output symlinks for the crates/images being regenerated so a producer
+cannot overwrite a preserved historical target through its link. Never unlink a
+running executable. These operations do not authorize removing source, fixtures,
+current dependency inputs or unpreserved verification evidence.

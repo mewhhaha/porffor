@@ -269,8 +269,8 @@ selecting one does not initialize the other. Other raw identities use the
 original path. R is deserialized into the actual P Engine, not returned from a
 separate optimized Engine.
 
-The Engine's private native authority accepts only immutable include_bytes
-outputs from that Cargo producer. No file, cache blob or caller-provided native
+The Engine's private native authority accepts only immutable Cargo-produced
+linked arrays and their private verified decoder output. No file, cache blob or caller-provided native
 slice can enter its unsafe deserializer. A manifest binds source, target,
 configuration, the R image mode and closed set of execution modes, the closed
 R allocator identity, and both image digests to the actual admitted R key.
@@ -288,16 +288,28 @@ Native deserialization runs only inside the existing shared R/P cache factory.
 Portable native storage may use a private Cargo-produced compressed container.
 The producer first publishes its checked raw native image and unchanged v4
 manifest, then verifies an exact storage roundtrip. Runtime decoding admits the
-bounded output length, frame window and raw SHA-256 before immutable publication
-in a process-lifetime Box. Failure yields an empty optimization candidate and
-ordinary checked native compilation. The independent manifest still checks the
-decoded bytes before `Module::deserialize` into the actual Engine. Raw package
+bounded output length, frame window and raw SHA-256 before returning a private
+immutable `NativeRuntimeBytes`. Its fields have no public constructor or mutable
+projection. A mutex/weak lease shares simultaneous decodes without retaining a
+strong process-lifetime owner. Portable metadata/package admission is cached;
+every actual load independently compares the derived digest with the v4 native
+manifest before `Module::deserialize` into the actual Engine. NativeHost keeps
+its once-per-process package/native digest admission. Decoder failure remains an
+optimization miss and ordinary checked native compilation.
+
+Wasmtime 47's `load_code_bytes` calls `MmapVec::from_slice_with_alignment`, copying
+the caller slice into Module-owned `CodeMemory`. The final lease drops immediately
+after that call; `deserialize_raw`, whose borrowing contract differs, is unused.
+Cache misses, bypass and a separate execution mode can decode again. Concurrent
+loads share an immutable Arc only while deserializing; no Store or Module moves
+into this lease cache. Measure transient and retained RSS and repeated-load cost
+separately; freeing the Box does not itself prove an RSS reduction. Raw package
 authority, NativeHost arrays and public artifact/cache formats are unchanged.
 Package-only selection does not decode the native payload. Compressed pages and
 decoded ownership must both count toward RSS; storage compression is not a
 claim of reduced live JS memory or reduced deserialization cost.
 
-Runtime layout 15 adds four immutable non-null zero-length GC array globals
+Runtime layout 15 introduced four immutable non-null zero-length GC array globals
 (values, property entries, property indexes and private elements) to the shared
 R/P prefix. Their hidden storage identity has no mutable element. Ordinary
 objects still receive fresh property-storage records and prototype records;
@@ -306,6 +318,22 @@ Every mutation allocates or replaces backing before writing. Syntax-empty
 internal argument vectors may use the shared value array; spread/dynamic lists
 retain their existing construction path. Global ownership is per runtime
 instance/Store, and the layout version participates in package/cache identity.
+
+Current layout 16 flattens mutable BindingCell payloads into mutable i32 tag,
+i64 scalar and nullable eqref fields. StoredValue remains an immutable snapshot.
+Typed reads copy all three lanes into rooted locals; writes update all lanes,
+including a null reference on primitive writes, without an intervening call or
+allocation. TARGET import forwarding and initialization/const metadata retain
+separate ownership. Native direct-eval signature/field admission follows the
+actual inline schema; invocation snapshots remain immutable StoredValues.
+
+The profiling SDK can request Fast or SizeOptimized through
+`profile_wasm_execution_with_native_mode`; each result exposes its actual mode.
+The ordinary method/runner retains automatic dispatch and CodeTooLarge retry.
+Forced Fast does not silently retry. The `native_policy_probe` example emits
+separately labelled source/Wasm/executable-bound cohorts, with equal warmups,
+fresh realms, checksums and actual modes. These are not ordinary V8 reports;
+existing report compatibility checks are unchanged.
 
 Actual mapped-image accounting, bounded cache retention, oversized-module
 behavior, explicit bypass and agent bypass all retain their existing owner.

@@ -40,7 +40,9 @@ concrete Array length before descriptor lookup
 UTF-16 copying (P093/P094), and
 edge-specific trim/full-span String reuse with bulk partial copies (P096/P099).
 Partial strings own exact-size backing; shared empty arrays expose no mutable
-JS identity. Runtime layout 15 invalidates earlier R/P packages and cache keys.
+JS identity. Layout 15 added these globals; current layout 16 also gives mutable
+binding cells inline tag/scalar/reference words. Earlier R/P packages and cache
+keys remain inadmissible.
 Six semantic fixture families, completion controls and typed global-constant
 controls accompany the batch; measurements and native verification decide
 which candidates remain. No performance gain is claimed for this batch yet.
@@ -48,13 +50,39 @@ which candidates remain. No performance gain is claimed for this batch yet.
 The refinement also experiments with compressed **Portable native-image storage**
 to reduce the P153 executable cost. NativeHost and raw Portable package bytes stay
 unchanged. Cargo round-trips exact decoded native bytes; a bounded decoder checks
-length/hash and publishes a private immutable process-lifetime Box. Independent
+length/hash and derives an immutable decoded-byte lease. A private weak cache
+shares overlapping loads; the final lease releases the buffer after Wasmtime
+copies it into the destination Module. Independent
 v4 manifest admission and destination-Engine deserialization remain mandatory.
 Package-only emission does not decode native storage. Two standalone codec tests
 pass, including rejection of an oversized frame window; this is not yet a product
 timing, memory or full native result. Decompression CPU/residency must be measured,
 not described as a memory saving. This is adjacent P132/P133/P149 evidence, not
 automatic completion of those broader hills.
+
+The next candidate includes a signed-range ToUint32 shortcut after Number
+conversion (P058), a **runtime Number-tag** guard before update conversion (P061),
+and explicit forced native-policy diagnostic cohorts (P154). The IR's Number
+update kind describes ToNumeric's result domain; it does not permit skipping
+String/Boolean/Symbol conversion. Forced Fast cohorts fail rather than silently
+retry SizeOptimized; ordinary dispatch is unchanged. Binding-cell payload
+flattening is a supporting allocation/access experiment for P067, not completion
+of depth/handle caching or the scalar-local hills. Shared StoredValue snapshots
+remain immutable, with TDZ/const/import-alias ownership unchanged.
+
+The intermediate `a5b4a6c5d` experiment measured strong repeat/pad/trim/slice gains
+and smaller executables. Its exact 1,638-case replay returned **1,634 Success /
+4 Bug / 0 Crash / 0 NotImplemented**, the same four original failures. Its native
+run returned 3,135 passes and one stale global-count assertion (17 versus 21).
+That assertion is corrected in the candidate. The checkpoint also rejected an
+accidentally copied untracked scratch example; the file was removed and the
+rejected receipt retained. This is **not** a frozen-source acceptance checkpoint.
+A fresh product build, measurements and native/replay checkpoint remain required.
+
+P066's narrow resolved-local question is **Superseded by existing BindingStorage
+facts**: identifiers already select retained locals or emitted slot/hop pairs.
+Dynamic EnvironmentIdentifier/with/global resolution remains required. P067
+still pays repeated parent/cell access; payload flattening does not eliminate it.
 
 Its verification tooling removes Cargo-lock acquisition when incremental
 cleanup has nothing to delete; real deletion still locks and re-discovers the

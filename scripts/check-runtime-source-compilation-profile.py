@@ -16,7 +16,8 @@ FILES = tuple(A + name for name in (
 )) + tuple(E + name for name in (
     "lib.rs", "embedded_runtime.rs", "embedded_runtime/build.rs", "embedded_runtime/images.rs",
     "wasm_runtime_link.rs", "wasm_native_source_compiler.rs", "graph_observation.rs",
-))
+    "embedded_runtime/load.rs",
+)) + tuple("crates/scriptw-runtime-image/src/" + name for name in ("lib.rs", "native_storage.rs", "native_lease.rs"))
 
 
 def compact(source):
@@ -104,10 +105,30 @@ def check(root, overrides=None):
             "self.images.profile==runtime.source_compilation_profile()" in embedded and
             "RuntimeSourceCompilationProfile::Portable=>image::portable_package()," in c[E + "embedded_runtime/images.rs"] and
             "letpackage=Self::package_for_profile(profile);" in c[E + "embedded_runtime/images.rs"] and
-            re.search(r"RuntimeSourceCompilationProfile::Portable=>\{?\(image::portable_native\(\),image::portable_manifest_bytes\(\),?\)\}?", c[E + "embedded_runtime/images.rs"]) and
+            "RuntimeSourceCompilationProfile::Portable=>image::portable_manifest_bytes()," in c[E + "embedded_runtime/images.rs"] and
             "RuntimeSourceCompilationProfile::NativeHost=>image::package()," in c[E + "embedded_runtime/images.rs"] and
-            re.search(r"RuntimeSourceCompilationProfile::NativeHost=>\{?\(image::native\(\),image::manifest_bytes\(\),?\)\}?", c[E + "embedded_runtime/images.rs"]),
+            "RuntimeSourceCompilationProfile::NativeHost=>image::manifest_bytes()," in c[E + "embedded_runtime/images.rs"],
             "each embedded image is selected and admitted only for its exact source profile")
+    load = c[E + "embedded_runtime/load.rs"]
+    require("if!self.matches(runtime,mode){returnNone;}" in load and
+            "letimage=scriptw_runtime_image::portable_native()?;" in load and
+            "if!self.accepts_portable_native(&image){returnNone;}" in load and
+            "self.images.profile==RuntimeSourceCompilationProfile::Portable&&image.digest()==&self.manifest.native_digest" in load and
+            "None=>scriptw_runtime_image::native()," in load and
+            "Module::deserialize(engine,bytes)" in load and "drop(lease);" in load,
+            "per-load Portable bytes retain independent digest admission and transient immutable ownership")
+    image = "crates/scriptw-runtime-image/src/"
+    lease = c[image + "native_lease.rs"]
+    storage = c[image + "native_storage.rs"]
+    require("Mutex<Result<Weak<NativeRuntimeBytes>,()>>" in lease and
+            "Arc::downgrade(&image)" in lease and
+            "super::native_storage::decode(unsafe{&super::SCRIPTW_RUNTIME_PORTABLE_NATIVE})" in lease and
+            "pubstructNativeRuntimeBytes{bytes:Box<[u8]>,digest:[u8;32],}" in storage and
+            "pubfnbytes(&self)->&[u8]{&self.bytes}" in storage and
+            "pubfndigest(&self)->&[u8;32]{&self.digest}" in storage and
+            "letdigest:[u8;32]=Sha256::digest(&bytes).into();" in storage and
+            "ifbytes.len()!=length||digest!=expected" in storage,
+            "only verified immutable Cargo bytes enter weak leases with a derived digest")
     link = c[E + "wasm_runtime_link.rs"]
     require(link.count("RuntimeSourceCompilationProfile::from_module(program).ok()?==scriptw_aot_wasm::RuntimeSourceCompilationProfile::Portable") == 2 and
             "RuntimeSourceCompilationProfile::from_module(program.bytes)" in link and

@@ -101,6 +101,27 @@ class EmbeddedProfileGuards(unittest.TestCase):
             with self.subTest(before=before):
                 self.assertEqual(source.count(before), 1)
                 self.assertTrue(profile.check(ROOT, {path: source.replace(before, "missing_profile_proof")}))
+        path = profile.E + "embedded_runtime/load.rs"
+        source = (ROOT / path).read_text()
+        for before in ("if !self.matches(runtime, mode)", "if !self.accepts_portable_native(&image)", "image.digest() == &self.manifest.native_digest", "drop(lease);"):
+            with self.subTest(before=before):
+                self.assertEqual(source.count(before), 1)
+                self.assertTrue(profile.check(ROOT, {path: source.replace(before, "missing_native_admission_proof")}))
+
         path = profile.E + "embedded_runtime/images.rs"
         source = (ROOT / path).read_text()
         self.assertTrue(profile.check(ROOT, {path: source.replace("image::portable_package()", "image::package()")}))
+
+
+class TransientNativeImageGuards(unittest.TestCase):
+    def test_owned_digest_and_weak_lease_proofs_are_required(self):
+        self.assertEqual(profile.check(ROOT), [])
+        for path, before in [
+            ("crates/scriptw-runtime-image/src/native_lease.rs", "Arc::downgrade(&image)"),
+            ("crates/scriptw-runtime-image/src/native_storage.rs", "Sha256::digest(&bytes).into()"),
+            ("crates/scriptw-runtime-image/src/native_storage.rs", "digest != expected"),
+        ]:
+            with self.subTest(before=before):
+                source = (ROOT / path).read_text()
+                self.assertEqual(source.count(before), 1)
+                self.assertTrue(profile.check(ROOT, {path: source.replace(before, "missing_owned_byte_proof")}))

@@ -859,3 +859,35 @@ fn run_wasm_backend_succeeds_for_uri_codecs_fixture() {
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
 }
+
+#[test]
+fn numeric_updates_and_cell_writes_preserve_conversions_snapshots_and_aliases() {
+    for (fixture, expected) in [
+        ("wasm_uint32_range_fast_path.js", "uint32-range-controls:ok"),
+        (
+            "wasm_numeric_update_fast_path.js",
+            "numeric-update-controls:ok",
+        ),
+        (
+            "wasm_binding_cell_inline_payload.js",
+            "binding-cell-controls:ok",
+        ),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+            .args(["--jobs", "1", "run", "--execution-backend", "wasm-aot"])
+            .arg(fixture_path(fixture))
+            .output()
+            .expect("numeric and cell semantic controls should run");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{fixture}: {stdout}\nstderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("backend_used: WasmAot"),
+            "{fixture}: {stdout}"
+        );
+        assert!(stdout.contains(expected), "{fixture}: {stdout}");
+    }
+}

@@ -16,6 +16,7 @@ pub(crate) use program_instance::{
     ProgramLiteralCount, ProgramLiteralIndex, ProgramLiteralRoots, ProgramMetadataBytes,
     ProgramMetadataView,
 };
+mod binding_cell;
 mod program_string_descriptors;
 pub(crate) use program_string_descriptors::ProgramStringDescriptorTable;
 mod weak_host;

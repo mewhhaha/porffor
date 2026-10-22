@@ -87,14 +87,14 @@ fn precompiled_runtime_functions_reuse_stencils_without_reusing_stale_code() {
 }
 
 #[test]
-fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
+fn embedded_manifest_rejects_metadata_and_native_mismatches_before_deserialize() {
     for profile in [
         RuntimeSourceCompilationProfile::NativeHost,
         RuntimeSourceCompilationProfile::Portable,
     ] {
         let images = Images::for_profile(profile);
         if images.manifest.is_empty() {
-            assert!(images.package.is_empty() && images.native.is_empty());
+            assert!(images.package.is_empty());
             assert!(!cfg!(all(
                 target_endian = "little",
                 any(
@@ -111,20 +111,23 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
         let mut extended = images.manifest.to_vec();
         extended.push(0);
         assert!(manifest::Manifest::decode(&extended).is_none());
-        assert!(EmbeddedNativeRuntime::admit(images).is_some());
-        assert_eq!(
-            digests::images(images, 1).unwrap(),
-            digests::images(images, 2).unwrap(),
-            "both image digests must be identical under serial and bounded concurrent admission"
-        );
-        let mut previous_version = images.manifest.to_vec();
-        previous_version[8..12].copy_from_slice(&3_u32.to_le_bytes());
-        assert!(manifest::Manifest::decode(&previous_version).is_none());
-        // Both optimization modes and the producer allocator have closed domains.
+        let bundle = EmbeddedNativeRuntime::admit(images).unwrap();
+        if profile == RuntimeSourceCompilationProfile::NativeHost {
+            assert_eq!(
+                digests::images(images.package, scriptw_runtime_image::native(), 1),
+                digests::images(images.package, scriptw_runtime_image::native(), 2)
+            );
+        } else {
+            let native = scriptw_runtime_image::portable_native().unwrap();
+            assert!(bundle.accepts_portable_native(&native));
+        }
+        let mut previous = images.manifest.to_vec();
+        previous[8..12].copy_from_slice(&3_u32.to_le_bytes());
+        assert!(manifest::Manifest::decode(&previous).is_none());
         for (offset, unknown) in [(16, 2), (17, 3), (18, 2), (17, 255)] {
-            let mut unknown_mode = images.manifest.to_vec();
-            unknown_mode[offset] = unknown;
-            assert!(manifest::Manifest::decode(&unknown_mode).is_none());
+            let mut changed = images.manifest.to_vec();
+            changed[offset] = unknown;
+            assert!(manifest::Manifest::decode(&changed).is_none());
         }
         for field in [
             "source",
@@ -134,28 +137,40 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
             "execution mode",
             "runtime register allocation",
             "package digest",
-            "native digest",
         ] {
-            let mut manifest = manifest::Manifest::decode(images.manifest).unwrap();
+            let mut changed = manifest::Manifest::decode(images.manifest).unwrap();
             match field {
-                "source" => manifest.source[0] ^= 1,
-                "target" => manifest.target.push_str("-different"),
-                "configuration" => manifest.configuration += 1,
-                "runtime mode" => manifest.modes.runtime = WasmNativeCompilationMode::Fast,
-                "execution mode" => manifest.modes.execution = manifest::ExecutionModes::Fast,
+                "source" => changed.source[0] ^= 1,
+                "target" => changed.target.push_str("-different"),
+                "configuration" => changed.configuration += 1,
+                "runtime mode" => changed.modes.runtime = WasmNativeCompilationMode::Fast,
+                "execution mode" => changed.modes.execution = manifest::ExecutionModes::Fast,
                 "runtime register allocation" => {
-                    manifest.modes.register_allocation =
-                        manifest::RuntimeRegisterAllocation::SinglePass;
+                    changed.modes.register_allocation =
+                        manifest::RuntimeRegisterAllocation::SinglePass
                 }
-                "package digest" => manifest.package_digest[0] ^= 1,
-                "native digest" => manifest.native_digest[0] ^= 1,
+                "package digest" => changed.package_digest[0] ^= 1,
                 _ => unreachable!(),
             }
-            // Only metadata is mutated. No corrupted native code reaches deserialize.
             assert!(
-                EmbeddedNativeRuntime::admit_manifest(images, manifest).is_none(),
+                EmbeddedNativeRuntime::admit_manifest(images, changed).is_none(),
                 "{field}"
             );
+        }
+        let mut changed = manifest::Manifest::decode(images.manifest).unwrap();
+        changed.native_digest[0] ^= 1;
+        match profile {
+            RuntimeSourceCompilationProfile::NativeHost => {
+                assert!(EmbeddedNativeRuntime::admit_manifest(images, changed).is_none())
+            }
+            RuntimeSourceCompilationProfile::Portable => {
+                let metadata = EmbeddedNativeRuntime::admit_manifest(images, changed).unwrap();
+                let native = scriptw_runtime_image::portable_native().unwrap();
+                assert!(
+                    !metadata.accepts_portable_native(&native),
+                    "native digest must reject before deserialize"
+                );
+            }
         }
         let other_profile = match profile {
             RuntimeSourceCompilationProfile::NativeHost => {
@@ -166,27 +181,30 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
             }
         };
         let other = Images::for_profile(other_profile);
-        let manifest = manifest::Manifest::decode(images.manifest).unwrap();
-        assert_ne!(
-            manifest.runtime_key,
-            manifest::Manifest::decode(other.manifest)
-                .unwrap()
-                .runtime_key
-        );
-        assert!(EmbeddedNativeRuntime::admit_manifest(
-            Images {
-                native: other.native,
-                ..images
-            },
-            manifest::Manifest::decode(images.manifest).unwrap()
-        )
-        .is_none());
+        let original = manifest::Manifest::decode(images.manifest).unwrap();
+        let other_manifest = manifest::Manifest::decode(other.manifest).unwrap();
+        assert_ne!(original.runtime_key, other_manifest.runtime_key);
+        assert_ne!(original.native_digest, other_manifest.native_digest);
+        // The public leaf type has no arbitrary-byte constructor. Swap the
+        // independent expected digest instead; actual bytes remain Cargo-owned.
+        let mut changed = manifest::Manifest::decode(images.manifest).unwrap();
+        changed.native_digest = other_manifest.native_digest;
+        match profile {
+            RuntimeSourceCompilationProfile::NativeHost => {
+                assert!(EmbeddedNativeRuntime::admit_manifest(images, changed).is_none())
+            }
+            RuntimeSourceCompilationProfile::Portable => {
+                let metadata = EmbeddedNativeRuntime::admit_manifest(images, changed).unwrap();
+                assert!(!metadata
+                    .accepts_portable_native(&scriptw_runtime_image::portable_native().unwrap()));
+            }
+        }
         assert!(EmbeddedNativeRuntime::admit_manifest(
             Images {
                 package: other.package,
                 ..images
             },
-            manifest
+            original
         )
         .is_none());
     }

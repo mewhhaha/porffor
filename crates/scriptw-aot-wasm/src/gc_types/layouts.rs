@@ -1029,7 +1029,11 @@ gc_layout_registry! {
             IMPORT_CELLS: GcRef<BindingCellTable>, Immutable, NonNullable;
         }
         struct BindingCell => BindingCellSchema {
-            VALUE: GcRef<StoredValue>, Mutable, NonNullable;
+            // Mutable cell storage owns its payload. StoredValue remains an
+            // immutable snapshot for properties, completions and references.
+            TAG: I32Value, Mutable, NonNullable;
+            SCALAR: I64Value, Mutable, NonNullable;
+            REFERENCE: AnyGcRef, Mutable, Nullable;
             INITIALIZED: bool, Mutable, NonNullable;
             MUTABLE: bool, Immutable, NonNullable;
             IMMUTABLE_STRICT: bool, Immutable, NonNullable;
