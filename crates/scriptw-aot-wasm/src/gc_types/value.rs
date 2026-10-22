@@ -1218,6 +1218,15 @@ impl<T: GcHeapType> GcRootGlobal<T> {
         GcStackReference::new()
     }
 }
+impl<T: GcArrayHeapType> EmptyArrayGlobal<T> {
+    /// The declaration owns a non-null, immutable global containing exactly the
+    /// registered zero-length array type. It is a root in this runtime instance.
+    pub(super) fn load(self, function: &mut Function) -> GcStackReference<T> {
+        function.instruction(&Instruction::GlobalGet(self.index()));
+        GcStackReference::new()
+    }
+}
+
 impl<T: GcHeapType> GcStackReference<T, NonNullable> {
     pub(crate) fn nullable(self) -> GcStackReference<T, Nullable> {
         GcStackReference::new()
@@ -1636,6 +1645,34 @@ impl RuntimeSchema {
         table.load(self, function);
         emit_root_set(function, self.registered_symbols);
     }
+    pub(crate) fn empty_value_array(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<ValueArray> {
+        self.empty_arrays.values.load(function)
+    }
+
+    pub(crate) fn empty_property_table(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<PropertyTable> {
+        self.empty_arrays.properties.load(function)
+    }
+
+    pub(crate) fn empty_property_index(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<OrdinaryPropertyIndex> {
+        self.empty_arrays.property_index.load(function)
+    }
+
+    pub(crate) fn empty_private_elements(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<PrivateElementTable> {
+        self.empty_arrays.private_elements.load(function)
+    }
+
     pub(crate) fn pooled_strings_initialized(&self, function: &mut Function) {
         emit_root_get(function, self.pooled_strings);
         function.instruction(&Instruction::RefIsNull);
@@ -2786,6 +2823,111 @@ impl StringConstruction {
             array_type_index_src: index,
         });
     }
+    /// Copy a selected interval into private construction storage, keeping
+    /// partial slices independent of their source backing allocation.
+    pub(crate) fn copy_units_range_from(
+        &self,
+        destination_index: I32Local,
+        source: &GcLocal<CodeUnitArray>,
+        source_index: I32Local,
+        length: I32Local,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) {
+        self.units.load(schema, function);
+        destination_index.load(function);
+        source.load(schema, function);
+        source_index.load(function);
+        length.load(function);
+        let index = schema.array_type::<CodeUnitArray>().type_index().raw();
+        function.instruction(&Instruction::ArrayCopy {
+            array_type_index_dst: index,
+            array_type_index_src: index,
+        });
+    }
+
+    /// Fill a span with the exact UTF-16 prefix of a repeated immutable pattern.
+    /// Seed one pattern, then copy the initialized prefix in doubling chunks.
+    /// No published string is mutable and no intermediate strings are exposed.
+    pub(crate) fn copy_repeated_units_from(
+        &self,
+        destination_index: I32Local,
+        source: &GcLocal<CodeUnitArray>,
+        extent: I32Local,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) {
+        let length = schema.reserve_i32_local(function);
+        let copied = schema.reserve_i32_local(function);
+        let count = schema.reserve_i32_local(function);
+        let position = schema.reserve_i32_local(function);
+        extent.load(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(source, schema, function);
+        length.store(function);
+        length.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // Repeat has zero extent for an empty source; pad returns before here.
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        extent.load(function);
+        length.load(function);
+        extent.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32LtU);
+        function.instruction(&Instruction::Select);
+        count.store(function);
+        self.copy_units_from(destination_index, source, count, schema, function);
+        count.load(function);
+        copied.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        copied.load(function);
+        extent.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        extent.load(function);
+        copied.load(function);
+        function.instruction(&Instruction::I32Sub);
+        count.store(function);
+        count.load(function);
+        copied.load(function);
+        count.load(function);
+        copied.load(function);
+        function.instruction(&Instruction::I32LtU);
+        function.instruction(&Instruction::Select);
+        count.store(function);
+        destination_index.load(function);
+        copied.load(function);
+        function.instruction(&Instruction::I32Add);
+        position.store(function);
+        self.units.load(schema, function);
+        position.load(function);
+        self.units.load(schema, function);
+        destination_index.load(function);
+        count.load(function);
+        let array = schema.array_type::<CodeUnitArray>().type_index().raw();
+        function.instruction(&Instruction::ArrayCopy {
+            array_type_index_dst: array,
+            array_type_index_src: array,
+        });
+        copied.load(function);
+        count.load(function);
+        function.instruction(&Instruction::I32Add);
+        copied.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(position, function);
+        schema.release_i32_local(count, function);
+        schema.release_i32_local(copied, function);
+        schema.release_i32_local(length, function);
+    }
+
     /// Reallocate this unpublished backing while preserving its used prefix.
     pub(crate) fn grow(
         &self,

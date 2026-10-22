@@ -284,6 +284,17 @@ while product admission still requires the exact supported mode set. The shared
 module-cache key remains the execution Engine's mode and raw Wasm digest, so
 an image compiled in a different mode cannot cross Engine ownership.
 Native deserialization runs only inside the existing shared R/P cache factory.
+
+Runtime layout 15 adds four immutable non-null zero-length GC array globals
+(values, property entries, property indexes and private elements) to the shared
+R/P prefix. Their hidden storage identity has no mutable element. Ordinary
+objects still receive fresh property-storage records and prototype records;
+JS-visible arrays, arguments/rest objects and proxy argument arrays stay fresh.
+Every mutation allocates or replaces backing before writing. Syntax-empty
+internal argument vectors may use the shared value array; spread/dynamic lists
+retain their existing construction path. Global ownership is per runtime
+instance/Store, and the layout version participates in package/cache identity.
+
 Actual mapped-image accounting, bounded cache retention, oversized-module
 behavior, explicit bypass and agent bypass all retain their existing owner.
 The bundle retains metadata, never a native Module or mutable Store state.

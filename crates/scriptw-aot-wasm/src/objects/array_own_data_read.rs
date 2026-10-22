@@ -27,20 +27,11 @@ impl FunctionBuilder<'_> {
             target.cast_reference::<ArrayObject>(schema, function),
             function,
         );
-        let header = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<ArrayObject>()
-                .field(ArrayObjectSchema::OBJECT)
-                .read(&array, schema, function)
-                .reference(),
-            function,
-        );
-        // Named and Symbol properties keep the same precedence as the full
-        // Array [[GetOwnProperty]] operation. The key is already coerced.
-        let descriptor = self.emit_ordinary_own_descriptor_reference(&header, key, function)?;
+        // Array length is a nonconfigurable intrinsic stored only in LENGTH.
+        // Constructors and Array [[DefineOwnProperty]] never publish that key
+        // into the ordinary header, so resolve it before named-property probes.
+        // This arm admits concrete Arrays only; proxies retain their own path.
         let value = schema.reserve_value_local(function);
-        descriptor.load(schema, function).is_null(function);
-        self.open_frame(ControlFrameKind::If, function);
         let name = schema.reserve_gc_local(function).initialize(
             self.emit_interned_string_reference("length", function)?,
             function,
@@ -62,6 +53,17 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I32Const(1));
         handled.store(function);
         function.instruction(&Instruction::Else);
+        let header = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ArrayObject>()
+                .field(ArrayObjectSchema::OBJECT)
+                .read(&array, schema, function)
+                .reference(),
+            function,
+        );
+        let descriptor = self.emit_ordinary_own_descriptor_reference(&header, key, function)?;
+        descriptor.load(schema, function).is_null(function);
+        self.open_frame(ControlFrameKind::If, function);
         let index = schema.reserve_i32_local(function);
         let indexed = schema.reserve_i32_local(function);
         self.emit_property_key_array_index(key, index, indexed, function)?;
@@ -79,10 +81,6 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         schema.release_i32_local(indexed, function);
         schema.release_i32_local(index, function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        length_key.clear(function);
-        name.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         descriptor.load(schema, function).is_null(function);
@@ -124,9 +122,13 @@ impl FunctionBuilder<'_> {
         present.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        value.clear(function);
         descriptor.clear(function);
         header.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        length_key.clear(function);
+        name.clear(function);
+        value.clear(function);
         array.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);

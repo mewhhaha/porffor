@@ -18,6 +18,7 @@ mod number_to_string;
 mod property_key_hash;
 mod relational_comparison;
 mod string_trim;
+pub(crate) use string_trim::EcmaTrimMode;
 mod to_object;
 
 /// A rooted String or Symbol already accepted as an ECMAScript property key.
@@ -2847,80 +2848,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_gc_string_trim_range(
-        &mut self,
-        string: &GcLocal<StringValue>,
-        start: I64Local,
-        end: I64Local,
-        function: &mut Function,
-    ) {
-        let schema = self.runtime_schema();
-        let cursor = schema.reserve_i64_local(function);
-        let unit = schema.reserve_i64_local(function);
-        let units = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<StringValue>()
-                .field(StringValueSchema::CODE_UNITS)
-                .read(string, schema, function)
-                .reference(),
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        start.store(function);
-        schema
-            .array_type::<CodeUnitArray>()
-            .length(&units, schema, function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        end.store(function);
-        self.open_frame(ControlFrameKind::Block, function);
-        self.open_frame(ControlFrameKind::Loop, function);
-        start.load(function);
-        end.load(function);
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_gc_string_code_unit_i32(string, start, function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        unit.store(function);
-        self.emit_ecmascript_whitespace_i32(unit, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        start.load(function);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        start.store(function);
-        function.instruction(&Instruction::Br(0));
-        self.pop_control(ControlFrameKind::Loop);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.open_frame(ControlFrameKind::Block, function);
-        self.open_frame(ControlFrameKind::Loop, function);
-        start.load(function);
-        end.load(function);
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        end.load(function);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        cursor.store(function);
-        self.emit_gc_string_code_unit_i32(string, cursor, function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        unit.store(function);
-        self.emit_ecmascript_whitespace_i32(unit, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        cursor.load(function);
-        end.store(function);
-        function.instruction(&Instruction::Br(0));
-        self.pop_control(ControlFrameKind::Loop);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        units.clear(function);
-        schema.release_i64_local(unit, function);
-        schema.release_i64_local(cursor, function);
-    }
-
     pub(crate) fn emit_canonical_numeric_index_string(
         &mut self,
         string: &GcLocal<StringValue>,
@@ -3534,8 +3461,8 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    /// Materializes exactly the selected UTF-16 interval. Numeric parsers use
-    /// this after grammar validation, retaining the original String throughout.
+    /// Select an already-validated UTF-16 interval. A full-span result can
+    /// reuse the immutable value; partial results own exact-size backing.
     pub(crate) fn emit_gc_string_slice(
         &self,
         string: &GcLocal<StringValue>,
@@ -3544,10 +3471,29 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> crate::gc_types::GcStackReference<StringValue> {
         let schema = self.runtime_schema();
+        let result = schema
+            .reserve_gc_local(function)
+            .initialize(string.load(schema, function), function);
+        let source = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(string, schema, function)
+                .reference(),
+            function,
+        );
+        start.load(function);
+        function.instruction(&Instruction::I64Eqz);
+        end.load(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&source, schema, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         let length = schema.reserve_i32_local(function);
-        let index = schema.reserve_i32_local(function);
-        let source_index = schema.reserve_i64_local(function);
-        let unit = schema.reserve_i32_local(function);
         end.load(function);
         start.load(function);
         function.instruction(&Instruction::I64Sub);
@@ -3559,35 +3505,28 @@ impl<'a> FunctionBuilder<'a> {
             length,
             function,
         );
-        function.instruction(&Instruction::I32Const(0));
-        index.store(function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        index.load(function);
+        // Empty intervals previously skipped every source access. Keep that
+        // behavior even if an internal caller supplies an out-of-range empty
+        // interval; array.copy validates its source index even for zero bytes.
         length.load(function);
-        function.instruction(&Instruction::I32GeU);
-        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let zero = schema.reserve_i32_local(function);
+        let source_index = schema.reserve_i32_local(function);
+        zero.set_constant(0, function);
         start.load(function);
-        index.load(function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I32WrapI64);
         source_index.store(function);
-        self.emit_gc_string_code_unit_i32(string, source_index, function);
-        unit.store(function);
-        construction.write(index, unit, schema, function);
-        index.load(function);
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::I32Add);
-        index.store(function);
-        function.instruction(&Instruction::Br(0));
+        construction.copy_units_range_from(zero, &source, source_index, length, schema, function);
+        schema.release_i32_local(source_index, function);
+        schema.release_i32_local(zero, function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        let result = construction.publish(schema, function);
-        schema.release_i32_local(unit, function);
-        schema.release_i64_local(source_index, function);
-        schema.release_i32_local(index, function);
+        result.replace(construction.publish(schema, function), function);
         schema.release_i32_local(length, function);
-        result
+        function.instruction(&Instruction::End);
+        source.clear(function);
+        let selected = result.load(schema, function);
+        result.clear(function);
+        selected
     }
 
     pub(crate) fn compile_loose_equality_i32(
@@ -6089,6 +6028,15 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         let schema = self.runtime_schema();
+        // String values are immutable. Identity proves equality, including when
+        // ASCII case folding is requested; distinct equal strings still use the
+        // exact code-unit comparison below.
+        left.load(schema, function);
+        right.load(schema, function);
+        function.instruction(&Instruction::RefEq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        result.set_constant(1, function);
+        function.instruction(&Instruction::Else);
         let left_units_slot = schema.reserve_gc_local(function);
         let left_units = left_units_slot.initialize(
             schema
@@ -6174,6 +6122,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
         function.instruction(&Instruction::End);
 
         schema.release_i32_local(right_unit, function);

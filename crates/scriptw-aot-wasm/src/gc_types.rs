@@ -17,6 +17,9 @@ mod layouts;
 pub(crate) mod native_payload;
 pub(crate) use layouts::*;
 
+mod empty_arrays;
+use empty_arrays::{EmptyArrayGlobal, EmptyArrays};
+
 mod value;
 pub(crate) use value::*;
 mod host;
@@ -396,6 +399,7 @@ impl RuntimeGcTypes {
         let collection_key_hash_counter = CollectionKeyHashCounterGlobal::declare(&mut globals);
         let atomics_async_waiters_head = GcRootGlobal::declare(&self.layouts, &mut globals);
         let atomics_async_waiters_tail = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let empty_arrays = EmptyArrays::declare(&self.layouts, &mut globals);
         let snapshot =
             snapshot.then(|| snapshot::SnapshotRoots::declare(&self.layouts, &mut globals));
         let module_guards_first = globals.len();
@@ -428,6 +432,7 @@ impl RuntimeGcTypes {
             collection_key_hash_counter,
             atomics_async_waiters_head,
             atomics_async_waiters_tail,
+            empty_arrays,
             snapshot,
             module_guards: ModuleGuardGlobals {
                 first: module_guards_first,
@@ -670,6 +675,7 @@ pub(crate) struct RuntimeSchema {
     collection_key_hash_counter: CollectionKeyHashCounterGlobal,
     atomics_async_waiters_head: GcRootGlobal<AtomicsAsyncWaiter>,
     atomics_async_waiters_tail: GcRootGlobal<AtomicsAsyncWaiter>,
+    empty_arrays: EmptyArrays,
     snapshot: Option<snapshot::SnapshotRoots>,
     module_guards: ModuleGuardGlobals,
 }

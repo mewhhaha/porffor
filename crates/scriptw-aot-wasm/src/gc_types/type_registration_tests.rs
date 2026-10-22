@@ -258,3 +258,79 @@ fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_typ
         );
     }
 }
+
+#[test]
+fn empty_storage_globals_are_nonnull_immutable_zero_length_arrays() {
+    for kind in [
+        ModuleKind::Runtime(crate::RuntimeSourceCompilationProfile::NativeHost),
+        ModuleKind::Runtime(crate::RuntimeSourceCompilationProfile::Portable),
+        ModuleKind::Standalone,
+    ] {
+        let (module, bytes) = encoded(kind);
+        let schema = module.globals().schema();
+        let expected = [
+            (
+                schema.empty_arrays.values.index(),
+                schema.array_type::<ValueArray>().type_index().raw(),
+            ),
+            (
+                schema.empty_arrays.properties.index(),
+                schema.array_type::<PropertyTable>().type_index().raw(),
+            ),
+            (
+                schema.empty_arrays.property_index.index(),
+                schema
+                    .array_type::<OrdinaryPropertyIndex>()
+                    .type_index()
+                    .raw(),
+            ),
+            (
+                schema.empty_arrays.private_elements.index(),
+                schema
+                    .array_type::<PrivateElementTable>()
+                    .type_index()
+                    .raw(),
+            ),
+        ];
+        let mut checked = 0;
+        for payload in Parser::new(0).parse_all(&bytes) {
+            if let Payload::GlobalSection(globals) = payload.unwrap() {
+                for (index, global) in globals.into_iter().enumerate() {
+                    let Some((_, array)) = expected.iter().find(|(slot, _)| *slot == index as u32)
+                    else {
+                        continue;
+                    };
+                    let global = global.unwrap();
+                    assert!(!global.ty.mutable && !global.ty.shared);
+                    assert_eq!(
+                        global.ty.content_type,
+                        wasmparser::ValType::Ref(
+                            wasmparser::RefType::new(
+                                false,
+                                wasmparser::HeapType::Concrete(wasmparser::UnpackedIndex::Module(
+                                    *array
+                                ))
+                            )
+                            .unwrap()
+                        )
+                    );
+                    let mut operators = global.init_expr.get_operators_reader();
+                    assert!(matches!(operators.read().unwrap(),
+                        wasmparser::Operator::ArrayNewFixed { array_type_index, array_size: 0 }
+                        if array_type_index == *array));
+                    assert!(matches!(
+                        operators.read().unwrap(),
+                        wasmparser::Operator::End
+                    ));
+                    assert!(operators.eof());
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 4);
+        assert_eq!(
+            module.globals().runtime_global_types().len(),
+            module.globals().schema().module_guards.first as usize
+        );
+    }
+}

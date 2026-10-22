@@ -700,3 +700,44 @@ fn run_wasm_backend_succeeds_for_string_substr_numeric_stress_fixture() {
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
 }
+
+#[test]
+fn string_copy_search_and_identity_paths_preserve_observable_semantics() {
+    for (fixture, expected) in [
+        ("wasm_string_bulk_copy_semantics.js", "string-bulk-copy:ok"),
+        (
+            "wasm_string_search_tail_semantics.js",
+            "string-search-tail:ok",
+        ),
+        (
+            "wasm_string_identity_equality.js",
+            "string-identity-equality:ok",
+        ),
+        (
+            "wasm_array_length_fast_path.js",
+            "array-length-fast-path:ok",
+        ),
+        (
+            "wasm_string_slice_trim_semantics.js",
+            "string-slice-trim:ok",
+        ),
+        ("wasm_shared_empty_storage.js", "shared-empty-storage:ok"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+            .args(["--jobs", "1", "run", "--execution-backend", "wasm-aot"])
+            .arg(fixture_path(fixture))
+            .output()
+            .expect("performance semantic controls should run");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{fixture}: {stdout}\nstderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("backend_used: WasmAot"),
+            "{fixture}: {stdout}"
+        );
+        assert!(stdout.contains(expected), "{fixture}: {stdout}");
+    }
+}

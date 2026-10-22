@@ -106,18 +106,12 @@ impl FunctionBuilder<'_> {
         let zero = schema.reserve_i32_local(function);
         function.instruction(&Instruction::I32Const(0));
         zero.store(function);
-        let entries = schema.reserve_gc_local(function).initialize(
-            schema
-                .array_type::<PropertyTable>()
-                .filled(GcOperand::null(schema), zero, function),
-            function,
-        );
-        let index = schema.reserve_gc_local(function).initialize(
-            schema
-                .array_type::<OrdinaryPropertyIndex>()
-                .filled(GcOperand::i32(0), zero, function),
-            function,
-        );
+        let entries = schema
+            .reserve_gc_local(function)
+            .initialize(schema.empty_property_table(function), function);
+        let index = schema
+            .reserve_gc_local(function)
+            .initialize(schema.empty_property_index(function), function);
         let properties = schema.reserve_gc_local(function).initialize(
             schema.struct_type::<OrdinaryPropertyStorage>().construct(
                 (
@@ -130,14 +124,8 @@ impl FunctionBuilder<'_> {
             function,
         );
         let private_elements_slot = schema.reserve_gc_local(function);
-        let private_elements = private_elements_slot.initialize(
-            schema.array_type::<PrivateElementTable>().filled(
-                GcOperand::null(schema),
-                zero,
-                function,
-            ),
-            function,
-        );
+        let private_elements =
+            private_elements_slot.initialize(schema.empty_private_elements(function), function);
         let object = schema.struct_type::<OrdinaryObject>().construct(
             (
                 GcOperand::reference(&prototype_record, schema),

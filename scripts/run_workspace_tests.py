@@ -576,17 +576,22 @@ def run(args, root):
         }
 
     def release_incremental(case):
+        # No deletion needs no Cargo lock. In particular, library namespaces are
+        # always preserved and --no-test-incremental usually leaves no matches.
+        # Skipping an empty cleanup is safe if another producer creates a cache
+        # after this probe: we do not touch it. Actual deletion still holds the
+        # Cargo lock and discovers the current candidates again under that lock.
         prefix = case["target"].replace("-", "_") + "-"
-        removed = []
-        for cache in (profile_root / "incremental").glob(prefix + "*"):
-            if cache.is_dir():
-                # Library and library-test incremental namespaces overlap. Preserve
-                # them rather than guessing current Cargo graph identities.
-                if case["kind"] == "lib":
-                    continue
-                shutil.rmtree(cache)
-                removed.append(cache.name)
-        case["released_incremental"] = removed
+        root = profile_root / "incremental"
+        case["released_incremental"] = []
+        if case["kind"] == "lib" or not any(p.is_dir() for p in root.glob(prefix + "*")):
+            return
+        with (profile_root / ".cargo-lock").open("a+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            for cache in root.glob(prefix + "*"):
+                if cache.is_dir():
+                    shutil.rmtree(cache)
+                    case["released_incremental"].append(cache.name)
 
     def save():
         if not (
@@ -1228,11 +1233,7 @@ def run(args, root):
             else:
                 executable.unlink()
                 case["executable_released"] = True
-            # No build is active in this orchestrator. Serialize cache cleanup with
-            # any other Cargo producer; running test ELFs do not read incremental.
-            with (profile_root / ".cargo-lock").open("a+b") as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                release_incremental(case)
+            release_incremental(case)
         del active[cpu]
         save()
         print("END", entry["label"], case["state"], case["outcomes"], flush=True)
@@ -1728,9 +1729,7 @@ def run(args, root):
                     case.update(
                         state="build-failed", seconds=round(time.monotonic() - start, 3)
                     )
-                    with (profile_root / ".cargo-lock").open("a+b") as lock:
-                        fcntl.flock(lock, fcntl.LOCK_EX)
-                        release_incremental(case)
+                    release_incremental(case)
                     seal_build_logs(case, [buildlog, errlog])
                     save()
                     print("BUILD FAILED", label, flush=True)

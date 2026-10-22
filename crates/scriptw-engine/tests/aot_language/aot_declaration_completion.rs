@@ -758,3 +758,24 @@ fn owned_classic_for_and_custom_eval_calls_keep_their_owners() {
         "boolean(true)",
     );
 }
+
+#[test]
+fn successful_calls_in_declarations_keep_the_prior_script_completion() {
+    assert_completion(
+        "23; function value() { return 9; } var result = value();",
+        "number(23",
+    );
+    assert_completion(
+        "47; var callable = function () { return {}; }; var retained = callable();",
+        "number(47",
+    );
+}
+
+#[test]
+fn throwing_calls_in_declarations_keep_the_exact_abrupt_value() {
+    assert_completion(
+        "var sentinel = {}; function fail() { throw sentinel; } var caught = false; \
+         try { var value = fail(); } catch (error) { caught = error === sentinel; } caught;",
+        "boolean(true)",
+    );
+}

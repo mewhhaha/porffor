@@ -1163,7 +1163,15 @@ impl FunctionBuilder<'_> {
                 self.emit_prepared_tail_call(callee, &receiver, &list, function)?;
             }
         }
+        // A normal call supplies an expression value, not a new statement
+        // completion. Only the abrupt path needs the whole completion tuple.
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
         self.completion().copy_from(&result, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         self.emit_propagate_current_throw_if_needed(function);
         output.copy_from(result.value(), function);
         result.clear(function);

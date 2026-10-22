@@ -744,6 +744,12 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> GcLocal<ValueArray> {
         let schema = self.runtime_schema();
+        if arguments.is_empty() {
+            return schema
+                .reserve_gc_local(function)
+                .initialize(schema.empty_value_array(function), function);
+        }
+
         let stored: Vec<GcLocal<StoredValue>> = arguments
             .iter()
             .map(|value| {

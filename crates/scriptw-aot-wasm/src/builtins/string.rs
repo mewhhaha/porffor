@@ -67,11 +67,7 @@ enum StringSearchOperation {
     EndsWith,
     Includes,
 }
-enum StringTrimOperation {
-    Both,
-    Start,
-    End,
-}
+use crate::operations::EcmaTrimMode as StringTrimOperation;
 
 impl FunctionBuilder<'_> {
     fn emit_native_string_abrupt_exit(
@@ -595,15 +591,7 @@ impl FunctionBuilder<'_> {
             let s = b.runtime_schema();
             let start = s.reserve_i64_local(f);
             let end = s.reserve_i64_local(f);
-            b.emit_gc_string_trim_range(string, start, end, f);
-            match operation {
-                StringTrimOperation::Both => {}
-                StringTrimOperation::Start => b.emit_native_gc_string_length(string, end, f),
-                StringTrimOperation::End => {
-                    f.instruction(&Instruction::I64Const(0));
-                    start.store(f);
-                }
-            }
+            b.emit_gc_string_trim_range_mode(string, start, end, operation, f);
             let selected = s
                 .reserve_gc_local(f)
                 .initialize(b.emit_gc_string_slice(string, start, end, f), f);
@@ -658,7 +646,7 @@ impl FunctionBuilder<'_> {
             let argument=s.reserve_value_local(f); let position_argument=s.reserve_value_local(f);
             let pending=s.reserve_completion(f); let result=s.reserve_value_local(f);
             let length=s.reserve_i64_local(f); let needle_length=s.reserve_i64_local(f); let position=s.reserve_i64_local(f); let cursor=s.reserve_i64_local(f); let offset=s.reserve_i64_local(f); let source_index=s.reserve_i64_local(f); let found_index=s.reserve_i64_local(f); let bits=s.reserve_i64_local(f);
-            let is_regexp=s.reserve_i32_local(f); let equal=s.reserve_i32_local(f); let found=s.reserve_i32_local(f); let unit=s.reserve_i32_local(f);
+            let is_regexp=s.reserve_i32_local(f); let equal=s.reserve_i32_local(f); let found=s.reserve_i32_local(f); let unit=s.reserve_i32_local(f); let last_unit=s.reserve_i32_local(f); let first_unit=s.reserve_i32_local(f); let prefix_length=s.reserve_i64_local(f);
             b.emit_native_gc_string_length(string,length,f);
             b.emit_builtin_arg_to_value(0,&argument,f); b.emit_builtin_arg_to_value(1,&position_argument,f);
             let reject=match &operation {
@@ -693,6 +681,22 @@ impl FunctionBuilder<'_> {
             if matches!(&operation,StringSearchOperation::EndsWith) {
                 b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
             }
+            // Cache immutable needle endpoints after observable coercions.
+            // Check the head first so early-prefix misses avoid a tail read.
+            // Candidate bounds below precede every haystack access.
+            needle_length.load(f); f.instruction(&Instruction::I64Eqz);
+            b.open_frame(ControlFrameKind::If,f);
+            prefix_length.set_constant(0,f); last_unit.set_constant(0,f); first_unit.set_constant(0,f);
+            f.instruction(&Instruction::Else);
+            needle_length.load(f); f.instruction(&Instruction::I64Const(1)); f.instruction(&Instruction::I64Sub); prefix_length.store(f);
+            offset.set_constant(0,f);
+            b.emit_gc_string_code_unit_i32(&needle,offset,f); first_unit.store(f);
+            prefix_length.load(f); f.instruction(&Instruction::I64Eqz); f.instruction(&Instruction::I32Eqz);
+            b.open_frame(ControlFrameKind::If,f);
+            b.emit_gc_string_code_unit_i32(&needle,prefix_length,f); last_unit.store(f);
+            f.instruction(&Instruction::Else); first_unit.load(f); last_unit.store(f);
+            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
+            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
             f.instruction(&Instruction::I32Const(0)); found.store(f);
             f.instruction(&Instruction::I64Const(-1)); found_index.store(f);
             let searched=b.open_frame(ControlFrameKind::Block,f);
@@ -714,8 +718,25 @@ impl FunctionBuilder<'_> {
             cursor.load(f); length.load(f); needle_length.load(f); f.instruction(&Instruction::I64Sub); f.instruction(&Instruction::I64GtU); b.emit_branch_if_to_target(searched,f);
             f.instruction(&Instruction::I32Const(1)); equal.store(f);
             f.instruction(&Instruction::I64Const(0)); offset.store(f);
-            let compared=b.open_frame(ControlFrameKind::Block,f); let compare=b.open_frame(ControlFrameKind::Loop,f);
-            offset.load(f); needle_length.load(f); f.instruction(&Instruction::I64GeU); b.emit_branch_if_to_target(compared,f);
+            let compared=b.open_frame(ControlFrameKind::Block,f);
+            needle_length.load(f); f.instruction(&Instruction::I64Eqz); f.instruction(&Instruction::I32Eqz);
+            b.open_frame(ControlFrameKind::If,f);
+            b.emit_gc_string_code_unit_i32(string,cursor,f); first_unit.load(f); f.instruction(&Instruction::I32Ne);
+            b.open_frame(ControlFrameKind::If,f);
+            equal.set_constant(0,f); b.emit_branch_to_target(compared,f);
+            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
+            offset.set_constant(1,f);
+            prefix_length.load(f); f.instruction(&Instruction::I64Eqz); f.instruction(&Instruction::I32Eqz);
+            b.open_frame(ControlFrameKind::If,f);
+            cursor.load(f); prefix_length.load(f); f.instruction(&Instruction::I64Add); source_index.store(f);
+            b.emit_gc_string_code_unit_i32(string,source_index,f); last_unit.load(f); f.instruction(&Instruction::I32Ne);
+            b.open_frame(ControlFrameKind::If,f);
+            equal.set_constant(0,f); b.emit_branch_to_target(compared,f);
+            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
+            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
+            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
+            let compare=b.open_frame(ControlFrameKind::Loop,f);
+            offset.load(f); prefix_length.load(f); f.instruction(&Instruction::I64GeU); b.emit_branch_if_to_target(compared,f);
             cursor.load(f); offset.load(f); f.instruction(&Instruction::I64Add); source_index.store(f);
             b.emit_gc_string_code_unit_i32(string,source_index,f); unit.store(f);
             b.emit_gc_string_code_unit_i32(&needle,offset,f); unit.load(f); f.instruction(&Instruction::I32Ne);
@@ -744,7 +765,7 @@ impl FunctionBuilder<'_> {
                 StringSearchOperation::StartsWith|StringSearchOperation::EndsWith|StringSearchOperation::Includes=>result.set_boolean(found,f),
             }
             output.set_normal(&result,f);
-            s.release_i32_local(unit,f); s.release_i32_local(found,f); s.release_i32_local(equal,f); s.release_i32_local(is_regexp,f);
+            s.release_i64_local(prefix_length,f); s.release_i32_local(first_unit,f); s.release_i32_local(last_unit,f); s.release_i32_local(unit,f); s.release_i32_local(found,f); s.release_i32_local(equal,f); s.release_i32_local(is_regexp,f);
             s.release_i64_local(bits,f); s.release_i64_local(found_index,f); s.release_i64_local(source_index,f); s.release_i64_local(offset,f); s.release_i64_local(cursor,f); s.release_i64_local(position,f); s.release_i64_local(needle_length,f); s.release_i64_local(length,f);
             needle.clear(f); result.clear(f); pending.clear(f); position_argument.clear(f); argument.clear(f); Ok(())
         })
@@ -762,11 +783,7 @@ impl FunctionBuilder<'_> {
             let count = s.reserve_i64_local(f);
             let length = s.reserve_i64_local(f);
             let target = s.reserve_i64_local(f);
-            let index = s.reserve_i64_local(f);
-            let source_index = s.reserve_i64_local(f);
             let allocated = s.reserve_i32_local(f);
-            let ordinal = s.reserve_i32_local(f);
-            let unit = s.reserve_i32_local(f);
             b.emit_builtin_arg_to_value(0, &argument, f);
             b.emit_value_to_number_payload(&argument, &pending, f)?;
             b.emit_native_string_abrupt_exit(&pending, output, exit, f);
@@ -823,43 +840,24 @@ impl FunctionBuilder<'_> {
             f.instruction(&Instruction::I32WrapI64);
             allocated.store(f);
             let construction = StringConstruction::allocate(s, s.reserve_gc_local(f), allocated, f);
-            f.instruction(&Instruction::I64Const(0));
-            index.store(f);
-            let done = b.open_frame(ControlFrameKind::Block, f);
-            let next = b.open_frame(ControlFrameKind::Loop, f);
-            index.load(f);
-            target.load(f);
-            f.instruction(&Instruction::I64GeU);
-            b.emit_branch_if_to_target(done, f);
-            index.load(f);
-            length.load(f);
-            f.instruction(&Instruction::I64RemU);
-            source_index.store(f);
-            b.emit_gc_string_code_unit_i32(string, source_index, f);
-            unit.store(f);
-            index.load(f);
-            f.instruction(&Instruction::I32WrapI64);
-            ordinal.store(f);
-            construction.write(ordinal, unit, s, f);
-            index.load(f);
-            f.instruction(&Instruction::I64Const(1));
-            f.instruction(&Instruction::I64Add);
-            index.store(f);
-            b.emit_branch_to_target(next, f);
-            b.pop_control(ControlFrameKind::Loop);
-            f.instruction(&Instruction::End);
-            b.pop_control(ControlFrameKind::Block);
-            f.instruction(&Instruction::End);
+            let source_units = s.reserve_gc_local(f).initialize(
+                s.struct_type::<StringValue>()
+                    .field(StringValueSchema::CODE_UNITS)
+                    .read(string, s, f)
+                    .reference(),
+                f,
+            );
+            let zero = s.reserve_i32_local(f);
+            zero.set_constant(0, f);
+            construction.copy_repeated_units_from(zero, &source_units, allocated, s, f);
+            s.release_i32_local(zero, f);
+            source_units.clear(f);
             let repeated = s
                 .reserve_gc_local(f)
                 .initialize(construction.publish(s, f), f);
             b.emit_native_string_normal_reference(&repeated, output, f);
             repeated.clear(f);
-            s.release_i32_local(unit, f);
-            s.release_i32_local(ordinal, f);
             s.release_i32_local(allocated, f);
-            s.release_i64_local(source_index, f);
-            s.release_i64_local(index, f);
             s.release_i64_local(target, f);
             s.release_i64_local(length, f);
             s.release_i64_local(count, f);
@@ -903,11 +901,7 @@ impl FunctionBuilder<'_> {
             let target = s.reserve_i64_local(f);
             let fill_length = s.reserve_i64_local(f);
             let fill_count = s.reserve_i64_local(f);
-            let index = s.reserve_i64_local(f);
-            let source_index = s.reserve_i64_local(f);
             let allocated = s.reserve_i32_local(f);
-            let ordinal = s.reserve_i32_local(f);
-            let unit = s.reserve_i32_local(f);
             b.emit_native_gc_string_length(string, length, f);
             b.emit_builtin_arg_to_value(0, &target_argument, f);
             b.emit_builtin_arg_to_value(1, &filler_argument, f);
@@ -959,78 +953,58 @@ impl FunctionBuilder<'_> {
             f.instruction(&Instruction::I32WrapI64);
             allocated.store(f);
             let construction = StringConstruction::allocate(s, s.reserve_gc_local(f), allocated, f);
-            f.instruction(&Instruction::I64Const(0));
-            index.store(f);
-            let done = b.open_frame(ControlFrameKind::Block, f);
-            let next = b.open_frame(ControlFrameKind::Loop, f);
-            index.load(f);
-            target.load(f);
-            f.instruction(&Instruction::I64GeU);
-            b.emit_branch_if_to_target(done, f);
+            let source_units = s.reserve_gc_local(f).initialize(
+                s.struct_type::<StringValue>()
+                    .field(StringValueSchema::CODE_UNITS)
+                    .read(string, s, f)
+                    .reference(),
+                f,
+            );
+            let fill_units = s.reserve_gc_local(f).initialize(
+                s.struct_type::<StringValue>()
+                    .field(StringValueSchema::CODE_UNITS)
+                    .read(&filler, s, f)
+                    .reference(),
+                f,
+            );
+            let source_count = s.reserve_i32_local(f);
+            let fill_extent = s.reserve_i32_local(f);
+            let zero = s.reserve_i32_local(f);
+            length.load(f);
+            f.instruction(&Instruction::I32WrapI64);
+            source_count.store(f);
+            fill_count.load(f);
+            f.instruction(&Instruction::I32WrapI64);
+            fill_extent.store(f);
+            zero.set_constant(0, f);
             match &operation {
                 StringPadOperation::Start => {
-                    index.load(f);
-                    fill_count.load(f);
-                    f.instruction(&Instruction::I64LtU);
-                    b.open_frame(ControlFrameKind::If, f);
-                    index.load(f);
-                    fill_length.load(f);
-                    f.instruction(&Instruction::I64RemU);
-                    source_index.store(f);
-                    b.emit_gc_string_code_unit_i32(&filler, source_index, f);
-                    unit.store(f);
-                    f.instruction(&Instruction::Else);
-                    index.load(f);
-                    fill_count.load(f);
-                    f.instruction(&Instruction::I64Sub);
-                    source_index.store(f);
-                    b.emit_gc_string_code_unit_i32(string, source_index, f);
-                    unit.store(f);
+                    construction.copy_repeated_units_from(zero, &fill_units, fill_extent, s, f);
+                    construction.copy_units_from(fill_extent, &source_units, source_count, s, f);
                 }
                 StringPadOperation::End => {
-                    index.load(f);
-                    length.load(f);
-                    f.instruction(&Instruction::I64LtU);
-                    b.open_frame(ControlFrameKind::If, f);
-                    b.emit_gc_string_code_unit_i32(string, index, f);
-                    unit.store(f);
-                    f.instruction(&Instruction::Else);
-                    index.load(f);
-                    length.load(f);
-                    f.instruction(&Instruction::I64Sub);
-                    fill_length.load(f);
-                    f.instruction(&Instruction::I64RemU);
-                    source_index.store(f);
-                    b.emit_gc_string_code_unit_i32(&filler, source_index, f);
-                    unit.store(f);
+                    construction.copy_units_from(zero, &source_units, source_count, s, f);
+                    construction.copy_repeated_units_from(
+                        source_count,
+                        &fill_units,
+                        fill_extent,
+                        s,
+                        f,
+                    );
                 }
             }
-            b.pop_control(ControlFrameKind::If);
-            f.instruction(&Instruction::End);
-            index.load(f);
-            f.instruction(&Instruction::I32WrapI64);
-            ordinal.store(f);
-            construction.write(ordinal, unit, s, f);
-            index.load(f);
-            f.instruction(&Instruction::I64Const(1));
-            f.instruction(&Instruction::I64Add);
-            index.store(f);
-            b.emit_branch_to_target(next, f);
-            b.pop_control(ControlFrameKind::Loop);
-            f.instruction(&Instruction::End);
-            b.pop_control(ControlFrameKind::Block);
-            f.instruction(&Instruction::End);
+            s.release_i32_local(zero, f);
+            s.release_i32_local(fill_extent, f);
+            s.release_i32_local(source_count, f);
+            fill_units.clear(f);
+            source_units.clear(f);
             let padded = s
                 .reserve_gc_local(f)
                 .initialize(construction.publish(s, f), f);
             b.emit_native_string_normal_reference(&padded, output, f);
             padded.clear(f);
             filler.clear(f);
-            s.release_i32_local(unit, f);
-            s.release_i32_local(ordinal, f);
             s.release_i32_local(allocated, f);
-            s.release_i64_local(source_index, f);
-            s.release_i64_local(index, f);
             s.release_i64_local(fill_count, f);
             s.release_i64_local(fill_length, f);
             s.release_i64_local(target, f);

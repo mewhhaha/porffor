@@ -2085,10 +2085,8 @@ wasm_string_trim="crates/scriptw-aot-wasm/src/operations/string_trim.rs"
 wasm_string_operations="crates/scriptw-aot-wasm/src/operations.rs"
 require_file "$wasm_string_trim"
 require_module_decl "$wasm_string_operations" string_trim
-require_exact_line_count "$wasm_string_trim" 'enum EcmaTrimMode {' 1 'private closed UTF-16 trim boundary domain'
-if grep -Eq '^pub(\([^)]*\))?[[:space:]]+enum[[:space:]]+EcmaTrimMode' "$wasm_string_trim"; then
-  fail "$wasm_string_trim must keep its trim boundary selector private"
-fi
+require_exact_line_count "$wasm_string_trim" 'pub(crate) enum EcmaTrimMode {' 1 'crate-local closed UTF-16 trim boundary domain'
+require_exact_line_count "$wasm_string_operations" 'pub(crate) use string_trim::EcmaTrimMode;' 1 'shared crate-local trim policy reexport'
 for trim_entry in start:Start end:End both:Both; do
   trim_method="${trim_entry%%:*}"
   trim_mode="${trim_entry#*:}"
@@ -2097,12 +2095,16 @@ for trim_entry in start:Start end:End both:Both; do
   require_fixed_string_count "$wasm_string_trim" \
     "self.emit_ecmascript_trim_payload_from_locals(string, EcmaTrimMode::${trim_mode}," 1 'closed trim mode selection'
 done
-require_regex_count "$wasm_string_operations" \
+require_regex_count "$wasm_string_trim" \
   '^[[:space:]]*pub\(crate\)[[:space:]]+fn[[:space:]]+emit_gc_string_trim_range[[:space:]]*\(' 1 'shared GC UTF-16 trim range owner'
+require_regex_count "$wasm_string_trim" \
+  '^[[:space:]]*pub\(crate\)[[:space:]]+fn[[:space:]]+emit_gc_string_trim_range_mode[[:space:]]*\(' 1 'shared mode-specific GC trim range owner'
 require_regex_count "$wasm_string_operations" \
   '^[[:space:]]*pub\(crate\)[[:space:]]+fn[[:space:]]+emit_ecmascript_whitespace_i32[[:space:]]*\(' 1 'shared ECMAScript whitespace policy owner'
 require_fixed_string_count "$wasm_string_trim" \
-  'self.emit_gc_string_trim_range(string, start, end, function);' 1 'typed GC trim range consumer'
+  'self.emit_gc_string_trim_range_mode(string, start, end, mode, function);' 1 'typed GC trim range consumer'
+require_fixed_string_count "$wasm_string_trim" \
+  'self.emit_gc_string_trim_range_mode(string, start, end, EcmaTrimMode::Both, function);' 1 'numeric callers preserve both-edge policy'
 if grep -Eq 'ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8' "$wasm_string_trim" "$wasm_builtins_mod"; then
   fail 'String trimming must use the shared UTF-16 whitespace owner rather than a byte-pattern table'
 fi

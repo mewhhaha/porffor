@@ -31,6 +31,24 @@ order, ABBA diagnostics and failed attempts are retained. P001–P005 remain ope
 until the broader attribution and representative-workload decisions are made.
 The other hills remain Proposed unless a linked decision below states otherwise.
 
+The next coherent experiment batch is **unverified**: shared immutable
+zero-length private storage and syntax-empty argument vectors (P016/P078),
+String identity equality (P024), concrete Array length before descriptor lookup
+(P041), abrupt-only indirect-call completion copying (P079), bulk repeat/pad
+UTF-16 copying (P093/P094), bounded endpoint search filtering (P095), and
+edge-specific trim/full-span String reuse with bulk partial copies (P096/P099).
+The search filter retains its existing worst-case interior scan complexity.
+Partial strings own exact-size backing; shared empty arrays expose no mutable
+JS identity. Runtime layout 15 invalidates earlier R/P packages and cache keys.
+Six semantic fixture families, completion controls and typed global-constant
+controls accompany the batch; measurements and native verification decide
+which candidates remain. No performance gain is claimed for this batch yet.
+
+Its verification tooling removes Cargo-lock acquisition when incremental
+cleanup has nothing to delete; real deletion still locks and re-discovers the
+candidates. The fake Test262 CLI subset keeps all 187 verdict checks but reuses
+bounded case workers with a fresh execution realm and explicit deadlines.
+
 ## Starting evidence
 
 The [verified baseline](rust-rewrite/v8-baseline.md) and
