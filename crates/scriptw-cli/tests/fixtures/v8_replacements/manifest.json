@@ -1,0 +1,82 @@
+{
+  "schema": "scriptw-v8-workloads-v1",
+  "execution": [
+    {
+      "file": "literal-callback.js",
+      "stdout": "526336:-144773120:2048:xx:Y,\n",
+      "source_sha256": "f48234c3a826c540c135023ee2fcf3449dc265b720029a8398b999637d82f824",
+      "boundary": "2048 matches; 256-unit reusable piece where present; input/template setup and sampled output checksum included."
+    },
+    {
+      "file": "literal-plain-template.js",
+      "stdout": "526336:-144773120:0:xx:Y,\n",
+      "source_sha256": "702ed58e919fd58ccde8c68bc210943ae40e5d1e8e4e8c20da0c9db83986e822",
+      "boundary": "2048 matches; 256-unit reusable piece where present; input/template setup and sampled output checksum included."
+    },
+    {
+      "file": "literal-dollar-template.js",
+      "stdout": "534528:1679783424:0:[x:$,\n",
+      "source_sha256": "445086edbd3e7a3b74d94ae2bb477ffb96d105652abec3395efe1ea0e5b6602c",
+      "boundary": "2048 matches; 256-unit reusable piece where present; input/template setup and sampled output checksum included."
+    },
+    {
+      "file": "literal-delete.js",
+      "stdout": "2048:1378572288:0:,,:,,\n",
+      "source_sha256": "7207bf2e318371e9f21f3ac4b9b7018142ac2defa08e5a5244fda2bc2ac9426c",
+      "boundary": "2048 matches; 256-unit reusable piece where present; input/template setup and sampled output checksum included."
+    },
+    {
+      "file": "literal-no-match.js",
+      "stdout": "128:-863013888:65536:zz:zz\n",
+      "source_sha256": "de3a0d5bccc5d31e8468b628aebaf5edfc464ca4d2286b0997cdd3e1207cd46d",
+      "boundary": "512 separate replacements, short plain template; receiver construction and sampled final checksum included."
+    },
+    {
+      "file": "literal-one-match.js",
+      "stdout": "14:-1362445404:7168:be:er\n",
+      "source_sha256": "89353e4fafa47c4c43b686e7a5c892f930ac9400c585f71add2816dd5ef8432e",
+      "boundary": "512 separate replacements, short plain template; receiver construction and sampled final checksum included."
+    },
+    {
+      "file": "regexp-callback.js",
+      "stdout": "526336:-144773120:2048:xx:Y,\n",
+      "source_sha256": "4a356746ee0b2a602bc74177eaf2da4ea3d92a1f7a811b92702c6aa344e9f699",
+      "boundary": "2048 matches; 256-unit reusable piece where present; input/template setup and sampled output checksum included."
+    },
+    {
+      "file": "regexp-plain-template.js",
+      "stdout": "526336:-144773120:0:xx:Y,\n",
+      "source_sha256": "2c543ec6e6e079ba200111cb5650dda2532a207f51d627b23b4301cba30873de",
+      "boundary": "2048 matches; 256-unit reusable piece where present; input/template setup and sampled output checksum included."
+    },
+    {
+      "file": "regexp-dollar-template.js",
+      "stdout": "534528:1679783424:0:[x:$,\n",
+      "source_sha256": "9ccf99646e2ef9925ee77daa57fcf9f3ac784ab9984bd9ad90948972f316f58a",
+      "boundary": "2048 matches; 256-unit reusable piece where present; input/template setup and sampled output checksum included."
+    },
+    {
+      "file": "regexp-delete.js",
+      "stdout": "2048:1378572288:0:,,:,,\n",
+      "source_sha256": "8a45fb62252f2768b6c65290b39e4cd0bdb7bdd4513368464a6974d12eb6c1ec",
+      "boundary": "2048 matches; 256-unit reusable piece where present; input/template setup and sampled output checksum included."
+    },
+    {
+      "file": "regexp-no-match.js",
+      "stdout": "128:-863013888:65536:zz:zz\n",
+      "source_sha256": "3846ef2acf5ee15e1a3307c9d2bf085e8e93ce550137bf9c6b4054285d090002",
+      "boundary": "512 separate replacements, short plain template; receiver construction and sampled final checksum included."
+    },
+    {
+      "file": "regexp-one-match.js",
+      "stdout": "14:-1362445404:7168:be:er\n",
+      "source_sha256": "657ddd534660ba18c174ce1d1e251b91a3d24e2fe0b72055120842f6ee9ee9d8",
+      "boundary": "512 separate replacements, short plain template; receiver construction and sampled final checksum included."
+    }
+  ],
+  "policy": "Whole workload includes setup, callbacks and output/completion; not replacement-only instrumentation.",
+  "startup": {
+    "file": "startup.js",
+    "stdout": "scriptw-startup-ok\n"
+  }
+}

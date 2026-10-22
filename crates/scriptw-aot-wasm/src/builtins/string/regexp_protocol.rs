@@ -1,3 +1,4 @@
+use super::replacement_pieces::ReplacementPieces;
 use super::*;
 use crate::functions::{NonArrayRealmIntrinsicSlot, OrdinaryDefaultPrototype};
 use crate::runtime_helpers::{
@@ -1576,9 +1577,16 @@ impl FunctionBuilder<'_> {
             s.array_type::<ValueArray>().length(&results, s, f);
             f.instruction(&Instruction::I64ExtendI32U);
             count.store(f);
-            let accumulated = s
-                .reserve_gc_local(f)
-                .initialize(b.emit_native_string_static("", f), f);
+            // All observable exec/flag/lastIndex and replacement conversions
+            // have completed before this empty-result identity return.
+            count.load(f);
+            f.instruction(&Instruction::I64Eqz);
+            b.open_frame(ControlFrameKind::If, f);
+            b.emit_native_string_normal_reference(input, output, f);
+            b.emit_branch_to_target(exit, f);
+            b.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            let pieces = ReplacementPieces::new(s, f);
             let replacement_text = s
                 .reserve_gc_local(f)
                 .initialize(b.emit_native_string_static("", f), f);
@@ -1757,11 +1765,8 @@ impl FunctionBuilder<'_> {
             let preserved = s
                 .reserve_gc_local(f)
                 .initialize(b.emit_gc_string_slice(input, next_source, position, f), f);
-            accumulated.replace(b.emit_concat_gc_strings(&accumulated, &preserved, f), f);
-            accumulated.replace(
-                b.emit_concat_gc_strings(&accumulated, &replacement_text, f),
-                f,
-            );
+            pieces.append(b, &preserved, output, exit, f)?;
+            pieces.append(b, &replacement_text, output, exit, f)?;
             preserved.clear(f);
             position.load(f);
             match_length.load(f);
@@ -1788,10 +1793,11 @@ impl FunctionBuilder<'_> {
                 b.emit_gc_string_slice(input, next_source, input_length, f),
                 f,
             );
-            accumulated.replace(b.emit_concat_gc_strings(&accumulated, &tail, f), f);
+            pieces.append(b, &tail, output, exit, f)?;
             tail.clear(f);
             b.pop_control(ControlFrameKind::If);
             f.instruction(&Instruction::End);
+            let accumulated = pieces.publish(b, f);
             b.emit_native_string_normal_reference(&accumulated, output, f);
             replacement_text.clear(f);
             accumulated.clear(f);

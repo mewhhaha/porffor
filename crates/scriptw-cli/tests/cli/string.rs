@@ -3,6 +3,36 @@
 use crate::*;
 
 #[test]
+fn replacement_assembly_preserves_effects_roots_utf16_and_catchable_overflow() {
+    for (fixture, expected) in [
+        (
+            "wasm_replacement_piece_assembly.js",
+            "replacement-piece-assembly-ok",
+        ),
+        (
+            "wasm_replacement_aggregate_overflow.js",
+            "replacement-aggregate-overflow-ok",
+        ),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+            .args(["--jobs", "1", "run", "--execution-backend", "wasm-aot"])
+            .arg(fixture_path(fixture))
+            .output()
+            .expect("replacement assembly controls should run");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{fixture}: {stdout}\nstderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("backend_used: WasmAot") && stdout.contains(expected),
+            "{fixture}: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn multiargument_concat_preserves_coercion_order_abrupts_and_utf16() {
     let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
         .args(["run", "--execution-backend", "wasm-aot"])

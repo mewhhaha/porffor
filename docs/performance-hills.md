@@ -129,6 +129,17 @@ The ledger now has **18 explicit terminal hill decisions**, seven partial/open
 outcomes and **135 remaining proposed/unresolved hills**. Rejected and superseded
 hills are decisions, not shipped performance improvements.
 
+The next coherent batch investigates **P107 replacement assembly**. Literal and
+RegExp replacement paths collect completed rooted String pieces, validate total
+UTF-16 length before publication, and copy once into exact-size output. Empty
+pieces/no-match output and token-free substitution templates avoid unnecessary
+assembly. Fixtures cover observable coercion/exec/callback ordering, overlapping
+custom matches, named-capture admission, GC roots, UTF-16 and catchable aggregate
+overflow. Twelve Node-validated workloads include callback/plain/`$` templates,
+deletion, no-match and single-match controls. **Product Wasm validation,
+performance acceptance and new-source native/Test262 checks are pending.** This
+prepared experiment closes no additional hill and does not change README scores.
+
 Iteration audit: the product rebuild compiled the emitter for both opt1/no-debug
 host and opt3/line-table product graphs. Transitive features also differ, so
 simply aligning one package profile does not establish reusable units. Do not

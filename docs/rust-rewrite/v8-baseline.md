@@ -59,6 +59,28 @@ Scriptw product build. CLI Intl tests independently repeat SDK/CLI P emission;
 existing exact raw-R caches can be shared only within matching profile/selection
 identities. Slow test spans have not been attributed to startup alone.
 
+The next replacement experiment has twelve source fixtures in
+`crates/scriptw-cli/tests/fixtures/v8_replacements`. They use the existing
+`benchmark-v8.py --fixtures … --skip-startup` interface and exact-output checks;
+whole-workload timings include receiver/template construction and output
+checksum. Callback and plain/dollar-template cohorts separate whole-result
+assembly from substitution work; deletion/no-match/single-match controls check
+the small cases. No measurements or acceptance are claimed for that source yet.
+
+The opt-in `scripts/test-shared-runtime-images/preserve-output-rustc` wrapper
+composes the existing quota-bounded LLVM jobserver without altering rustc
+arguments. `SCRIPTW_PRESERVED_OUTPUT_INVENTORY` names a JSON object with absolute
+`cargo_target_dir` and `files` entries (`original`, `storage`, `sha256`);
+`SCRIPTW_OUTPUT_PROTECTION_LOG` names an append-only intent journal. Every owned
+output alias for the rebuilding rustc unit is validated before any is detached.
+The preserved payload stays intact, unrelated dependency aliases stay attached,
+and queries remain literal. The inventory must contain only task-owned aliases.
+Build-script-produced runtime image outputs still require separate protection;
+this wrapper only intercepts rustc. `SCRIPTW_TEST_CODEGEN_JOBS=auto` requires
+serial Cargo and a finite inherited cloud budget. Nine ownership/argument controls and
+a tiny real-Cargo probe pass; an actual Scriptw build has not yet measured the
+iteration-time benefit.
+
 ## Second execution batch — published 2026-10-22
 
 Measured compiler: `86518905134e401bd9533697e1d93007558e54cf`, product source

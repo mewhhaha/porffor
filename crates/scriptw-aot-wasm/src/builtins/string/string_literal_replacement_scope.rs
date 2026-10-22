@@ -1,4 +1,5 @@
-use super::regexp_substitution::{NamedSubstitutionCaptures, SubstitutionCaptureList};
+use super::regexp_substitution::{NamedSubstitutionCaptures, SubstitutionCaptures};
+use super::replacement_pieces::ReplacementPieces;
 use super::*;
 use crate::functions::ArgumentListConstruction;
 
@@ -274,11 +275,18 @@ impl FunctionBuilder<'_> {
         s.array_type::<ValueArray>().length(&positions, s, f);
         f.instruction(&Instruction::I64ExtendI32U);
         count.store(f);
-        let captures = SubstitutionCaptureList::new(s, f).finish(self, f);
+        // Search/replacement conversions and the entire positions List already
+        // completed. No match needs no result assembly or further user code.
+        count.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_native_string_normal_reference(input, output, f);
+        self.emit_branch_to_target(exit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let captures = SubstitutionCaptures::empty(s, f);
         let named = NamedSubstitutionCaptures::absent(s, f);
-        let accumulated = s
-            .reserve_gc_local(f)
-            .initialize(self.emit_native_string_static("", f), f);
+        let pieces = ReplacementPieces::new(s, f);
         f.instruction(&Instruction::I64Const(0));
         end_of_last_match.store(f);
         f.instruction(&Instruction::I64Const(0));
@@ -323,8 +331,8 @@ impl FunctionBuilder<'_> {
         let converted = s
             .reserve_gc_local(f)
             .initialize(pending.value().cast_reference::<StringValue>(s, f), f);
-        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &preserved, f), f);
-        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &converted, f), f);
+        pieces.append(self, &preserved, output, exit, f)?;
+        pieces.append(self, &converted, output, exit, f)?;
         converted.clear(f);
         f.instruction(&Instruction::Else);
         let substituted = self.emit_regexp_get_substitution(
@@ -338,11 +346,8 @@ impl FunctionBuilder<'_> {
             exit,
             f,
         )?;
-        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &preserved, f), f);
-        accumulated.replace(
-            self.emit_concat_gc_strings(&accumulated, &substituted, f),
-            f,
-        );
+        pieces.append(self, &preserved, output, exit, f)?;
+        pieces.append(self, &substituted, output, exit, f)?;
         substituted.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
@@ -364,8 +369,9 @@ impl FunctionBuilder<'_> {
             self.emit_gc_string_slice(input, end_of_last_match, input_length, f),
             f,
         );
-        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &tail, f), f);
+        pieces.append(self, &tail, output, exit, f)?;
         tail.clear(f);
+        let accumulated = pieces.publish(self, f);
         self.emit_native_string_normal_reference(&accumulated, output, f);
         accumulated.clear(f);
         named.clear(f);

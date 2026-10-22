@@ -11,6 +11,7 @@ mod regexp_legacy;
 pub(in crate::builtins) use regexp_legacy::RegExpLegacyAccessorKind;
 mod regexp_protocol;
 mod regexp_substitution;
+mod replacement_pieces;
 mod string_code_unit_range;
 mod string_literal_replacement_scope;
 mod string_well_formed_operation;

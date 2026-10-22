@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Detach inventoried immutable output links only when rustc rebuilds that unit.
+
+A transparent Cargo RUSTC_WRAPPER; argument/profile/linker choices stay literal.
+Runtime-image build-script outputs must be protected separately before Cargo.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import runpy
+import sys
+
+
+def option(arguments, name):
+    for i, value in enumerate(arguments):
+        if value == name:
+            if i + 1 == len(arguments):
+                raise ValueError(f'missing {name} value')
+            return arguments[i + 1]
+        if value.startswith(name + '='):
+            return value[len(name) + 1:]
+    return None
+
+
+def output_candidates(arguments):
+    """Cargo's named outputs and canonical aliases, never dependency inputs."""
+    if any(v == '--print' or v.startswith('--print=') for v in arguments):
+        return set()
+    name = option(arguments, '--crate-name')
+    directory = option(arguments, '--out-dir')
+    if name is None or directory is None:
+        return set()
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*', name):
+        raise ValueError('invalid Cargo crate name')
+    suffix = ''
+    for i, value in enumerate(arguments):
+        codegen = arguments[i + 1] if value == '-C' and i + 1 < len(arguments) else value[2:] if value.startswith('-C') else ''
+        if codegen.startswith('extra-filename='):
+            suffix = codegen.removeprefix('extra-filename=')
+    if suffix and not re.fullmatch(r'-[A-Za-z0-9_]+', suffix):
+        raise ValueError('invalid Cargo extra filename')
+    out = Path(directory).resolve()
+    paths = {out / (name + suffix), out / (name + suffix + '.d')}
+    paths.update(out / ('lib' + name + suffix + ext) for ext in ['.rlib', '.rmeta', '.so', '.a', '.dylib'])
+    if out.name == 'deps':
+        paths.add(out.parent / name)
+        paths.update(out.parent / ('lib' + name + ext) for ext in ['.rlib', '.rmeta', '.so', '.a', '.dylib'])
+    elif out.name == 'examples':
+        paths.add(out / name)
+    return paths
+
+
+def protect_outputs(arguments, inventory_path, log_path):
+    candidates = output_candidates(arguments)
+    if not candidates:
+        return []
+    inventory = json.loads(Path(inventory_path).read_text())
+    target = Path(inventory['cargo_target_dir']).resolve()
+    admitted = []
+    for record in inventory['files']:
+        path = Path(record['original'])
+        if not path.is_absolute() or not path.parent.resolve().is_relative_to(target):
+            raise ValueError('inventory output is outside the Cargo target directory')
+        if path not in candidates or not path.is_symlink():
+            continue
+        expected = Path(record['storage']).resolve(strict=True)
+        actual = path.resolve(strict=True)
+        if actual != expected or not actual.is_file():
+            raise ValueError('preserved output link changed ownership')
+        wanted = record['sha256']
+        if not re.fullmatch('[0-9a-f]{64}', wanted):
+            raise ValueError('invalid preserved output digest')
+        with actual.open('rb') as source:
+            digest = hashlib.file_digest(source, 'sha256').hexdigest()
+        if digest != wanted:
+            raise ValueError('preserved output bytes changed')
+        admitted.append((path, actual, dict(original=str(path), storage=str(actual),
+            sha256=digest, bytes=actual.stat().st_size, pid=os.getpid(), state='detach-intent')))
+    # Validate every matching alias before detaching any one. Historical bytes
+    # are never edited; a rejected second alias leaves the first intact too.
+    rows = []
+    for path, actual, row in admitted:
+        descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            payload = (json.dumps(row, separators=(',', ':')) + '\n').encode()
+            if os.write(descriptor, payload) != len(payload):
+                raise OSError('could not record output protection')
+        finally:
+            os.close(descriptor)
+        # Recheck after recording so a changed link cannot be silently removed.
+        if not path.is_symlink() or path.resolve(strict=True) != actual:
+            raise ValueError('preserved link changed before detachment')
+        path.unlink()
+        rows.append(row)
+    return rows
+
+
+def main():
+    command = sys.argv[1:]
+    if not command:
+        raise ValueError('expected the real rustc executable')
+    inventory = os.environ.get('SCRIPTW_PRESERVED_OUTPUT_INVENTORY')
+    log = os.environ.get('SCRIPTW_OUTPUT_PROTECTION_LOG')
+    if bool(inventory) != bool(log):
+        raise ValueError('output protection needs both inventory and log paths')
+    helper = runpy.run_path(str(Path(__file__).with_name('test-rustc')))
+    environment, descriptors = helper['compiler_environment'](command, os.environ)
+    try:
+        if inventory:
+            protect_outputs(command[1:], inventory, log)
+        os.execve(command[0], command, environment)
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, KeyError) as error:
+        print(f'preserve-output-rustc: {error}', file=sys.stderr)
+        raise SystemExit(2)
