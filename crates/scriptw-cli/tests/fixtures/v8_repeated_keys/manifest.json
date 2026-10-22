@@ -1,0 +1,54 @@
+{
+  "schema": "scriptw-v8-workloads-v1",
+  "startup": {
+    "file": "startup.js",
+    "stdout": "scriptw-startup-ok\n"
+  },
+  "execution": [
+    {
+      "file": "map-get-short.js",
+      "stdout": "258048\n",
+      "work": "64 short keys, 128 repeated map-get rounds; setup and checksum included"
+    },
+    {
+      "file": "map-get-long.js",
+      "stdout": "258048\n",
+      "work": "64 long keys, 128 repeated map-get rounds; setup and checksum included"
+    },
+    {
+      "file": "map-get-numeric.js",
+      "stdout": "258048\n",
+      "work": "64 numeric keys, 128 repeated map-get rounds; setup and checksum included"
+    },
+    {
+      "file": "set-has-short.js",
+      "stdout": "8192\n",
+      "work": "64 short keys, 128 repeated set-has rounds; setup and checksum included"
+    },
+    {
+      "file": "set-has-long.js",
+      "stdout": "8192\n",
+      "work": "64 long keys, 128 repeated set-has rounds; setup and checksum included"
+    },
+    {
+      "file": "set-has-numeric.js",
+      "stdout": "8192\n",
+      "work": "64 numeric keys, 128 repeated set-has rounds; setup and checksum included"
+    },
+    {
+      "file": "property-get-short.js",
+      "stdout": "258048\n",
+      "work": "64 short keys, 128 repeated property-get rounds; setup and checksum included"
+    },
+    {
+      "file": "property-get-long.js",
+      "stdout": "258048\n",
+      "work": "64 long keys, 128 repeated property-get rounds; setup and checksum included"
+    },
+    {
+      "file": "property-get-numeric.js",
+      "stdout": "258048\n",
+      "work": "64 numeric keys, 128 repeated property-get rounds; setup and checksum included"
+    }
+  ]
+}

@@ -112,13 +112,24 @@ fn reused_worker_requests_have_fresh_realms_and_exact_independent_snapshots() {
     use std::process::Stdio;
     use std::time::{Duration, Instant};
     let root = fixture("reuse");
+    fs::create_dir_all(root.join("suite/harness")).unwrap();
+    fs::write(
+        root.join("suite/harness/assert.js"),
+        "// This fixture checks harness isolation with explicit throws.\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("suite/harness/worker-isolation.js"),
+        "if ('__harnessMarker' in globalThis) throw 95; globalThis.__harnessMarker = 1;\n",
+    )
+    .unwrap();
     for (name, source) in [
         ("failure", "throw 17;"),
         ("first", "globalThis.__caseMarker = 17; Object.prototype.__caseMarker = 23; Array.prototype.push = function () { throw 91; }; Promise.resolve().then(function () { globalThis.__jobMarker = 29; }); new WeakRef({value: 1});"),
         ("second", "if ('__caseMarker' in globalThis || '__caseMarker' in Object.prototype || '__jobMarker' in globalThis) throw 92; var values = []; if (values.push(7) !== 1 || values[0] !== 7) throw 93; var key = {}; var map = new WeakMap([[key, 42]]); if (map.get(key) !== 42) throw 94;"),
     ] {
         fs::write(root.join(format!("suite/test/language/deadline/{name}.js")),
-            format!("/*---\nflags: [raw]\n---*/\n{source}\n")).unwrap();
+            format!("/*---\nflags: [onlyStrict]\nincludes: [worker-isolation.js]\n---*/\nif (__harnessMarker !== 1) throw 96;\n{source}\n")).unwrap();
     }
     let output_path = root.join("server.stdout");
     let error_path = root.join("server.stderr");
@@ -146,7 +157,7 @@ fn reused_worker_requests_have_fresh_realms_and_exact_independent_snapshots() {
             "{}",
             serde_json::json!({
                 "sequence": sequence,
-                "test_id": format!("raw-script:language/deadline/{name}.js"),
+                "test_id": format!("strict-script:language/deadline/{name}.js"),
                 "snapshot_dir": root.join(name),
                 "snapshot_name": name,
             })
@@ -187,7 +198,7 @@ fn reused_worker_requests_have_fresh_realms_and_exact_independent_snapshots() {
     assert!(identity.status.success());
     let identity: serde_json::Value = serde_json::from_slice(&identity.stdout).unwrap();
     for (index, name) in ["failure", "first", "second"].into_iter().enumerate() {
-        let id = format!("raw-script:language/deadline/{name}.js");
+        let id = format!("strict-script:language/deadline/{name}.js");
         assert_eq!(replies[index]["sequence"], index + 1);
         assert_eq!(replies[index]["test_id"], id);
         assert_eq!(

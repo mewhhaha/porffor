@@ -74,6 +74,9 @@ pub(super) fn serve(config: SuiteConfig, run: RunConfig) -> Result<(), String> {
     {
         return Err("case worker server requires fresh, unsharded single-case requests".into());
     }
+    // The suite/harness is immutable for this bounded session. Cache source
+    // bytes, never its executed JS state: every request still gets a new Engine.
+    let preludes = std::cell::OnceCell::new();
     let mut input = std::io::stdin().lock();
     let mut output = std::io::stdout().lock();
     for sequence in 1..=CASE_LIMIT {
@@ -83,6 +86,10 @@ pub(super) fn serve(config: SuiteConfig, run: RunConfig) -> Result<(), String> {
         if request.sequence != sequence {
             return Err("case worker request sequence is out of order".into());
         }
+        let preludes = preludes
+            .get_or_init(|| super::load_preludes(&config))
+            .as_ref()
+            .map_err(String::clone)?;
         let mut case_config = config.clone();
         case_config.snapshot_dir = request.snapshot_dir;
         case_config.reuse_case_workers = true;
@@ -92,7 +99,7 @@ pub(super) fn serve(config: SuiteConfig, run: RunConfig) -> Result<(), String> {
         // This existing entry discovers exactly one ID and creates/join a new
         // execution thread. The Engine, Realm, Store, roots and agents belong
         // only to this request and are gone before its snapshot is acknowledged.
-        let summary = super::run_case_worker(case_config, case_run)?;
+        let summary = super::run_case_worker_with_preludes(case_config, case_run, Some(preludes))?;
         let outcome = match summary.verdict()? {
             ConformanceRunVerdict::Passed { total } if total.get() == 1 => Outcome::Passed,
             ConformanceRunVerdict::Failed { total, failed }

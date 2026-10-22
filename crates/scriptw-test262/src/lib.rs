@@ -2887,9 +2887,16 @@ fn manifest_for_selected_cases(
 /// This entry is for executable owners implementing `test262 __case-worker`.
 /// Normal conformance execution must use `run_full`, `run_shard` or the matrix.
 #[doc(hidden)]
-pub fn run_case_worker(
+pub fn run_case_worker(config: SuiteConfig, run_config: RunConfig) -> Result<RunSummary, String> {
+    run_case_worker_with_preludes(config, run_config, None)
+}
+
+// Only the sequential server supplies a frozen, immutable harness store. A
+// one-shot worker keeps the existing per-invocation loading behavior.
+fn run_case_worker_with_preludes(
     mut config: SuiteConfig,
     run_config: RunConfig,
+    preludes: Option<&PreludeStore>,
 ) -> Result<RunSummary, String> {
     if run_config.resume
         || run_config.shard_index != 0
@@ -2913,7 +2920,10 @@ pub fn run_case_worker(
     }
     config.execution_role = CaseExecutionRole::SingleCaseWorker(requested);
     config.case_runner_bin = None;
-    run_full_with_manifest(&config, run_config, manifest)
+    match preludes {
+        Some(preludes) => run_full_with_manifest_and_preludes(&config, run_config, manifest, preludes),
+        None => run_full_with_manifest(&config, run_config, manifest),
+    }
 }
 
 /// Implements the versioned private sequential case worker protocol. Normal
@@ -2934,11 +2944,20 @@ fn run_full_with_manifest(
     manifest: SuiteManifest,
 ) -> Result<RunSummary, String> {
     let preludes = load_preludes(config)?;
+    run_full_with_manifest_and_preludes(config, run_config, manifest, &preludes)
+}
+
+fn run_full_with_manifest_and_preludes(
+    config: &SuiteConfig,
+    run_config: RunConfig,
+    manifest: SuiteManifest,
+    preludes: &PreludeStore,
+) -> Result<RunSummary, String> {
     let checkpoint_run_identity = CheckpointRunIdentity::full();
     let results = execute_cases(
         config,
         &manifest,
-        &preludes,
+        preludes,
         &manifest.cases,
         &run_config,
         &checkpoint_run_identity,

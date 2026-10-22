@@ -3,14 +3,20 @@ use super::*;
 /// A hash remains paired with its rooted key for one internal lookup/update.
 /// No user callback may intervene; bucket selection still follows table growth.
 #[must_use]
-struct PreparedCollectionKey<'key> {
+pub(super) struct PreparedCollectionKey<'key> {
     value: &'key ValueLocals,
     hash: I64Local,
 }
 
+impl PreparedCollectionKey<'_> {
+    pub(super) fn release(self, builder: &FunctionBuilder<'_>, f: &mut Function) {
+        builder.runtime_schema().release_i64_local(self.hash, f);
+    }
+}
+
 // Every table index is an offset in a GC array. Tombstones retain history order.
 impl FunctionBuilder<'_> {
-    fn emit_collection_prepare_key<'key>(
+    pub(super) fn emit_collection_prepare_key<'key>(
         &mut self,
         key: &'key ValueLocals,
         f: &mut Function,
@@ -69,11 +75,11 @@ impl FunctionBuilder<'_> {
     ) -> Result<(), EmitError> {
         let prepared = self.emit_collection_prepare_key(key, f);
         let result = self.emit_collection_find_prepared_map(record, &prepared, index, found, f);
-        self.runtime_schema().release_i64_local(prepared.hash, f);
+        prepared.release(self, f);
         result
     }
 
-    fn emit_collection_find_prepared_map(
+    pub(super) fn emit_collection_find_prepared_map(
         &mut self,
         record: &GcLocal<MapObject>,
         prepared: &PreparedCollectionKey<'_>,
@@ -400,13 +406,26 @@ impl FunctionBuilder<'_> {
         value: &ValueLocals,
         f: &mut Function,
     ) -> Result<(), EmitError> {
+        let prepared = self.emit_collection_prepare_key(key, f);
+        let result = self.emit_collection_put_prepared_map(record, &prepared, value, f);
+        prepared.release(self, f);
+        result
+    }
+
+    pub(super) fn emit_collection_put_prepared_map(
+        &mut self,
+        record: &GcLocal<MapObject>,
+        prepared: &PreparedCollectionKey<'_>,
+        value: &ValueLocals,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
         let s = self.runtime_schema();
+        let key = prepared.value;
         let index = s.reserve_i64_local(f);
         let found = s.reserve_i32_local(f);
         let cursor = s.reserve_i32_local(f);
         let live = s.reserve_i64_local(f);
-        let prepared = self.emit_collection_prepare_key(key, f);
-        self.emit_collection_find_prepared_map(record, &prepared, index, found, f)?;
+        self.emit_collection_find_prepared_map(record, prepared, index, found, f)?;
         found.load(f);
         self.open_frame(ControlFrameKind::If, f);
         let table = s.reserve_gc_local(f).initialize(
@@ -514,7 +533,6 @@ impl FunctionBuilder<'_> {
         table.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
-        s.release_i64_local(prepared.hash, f);
         s.release_i64_local(live, f);
         s.release_i32_local(cursor, f);
         s.release_i32_local(found, f);
@@ -670,7 +688,7 @@ impl FunctionBuilder<'_> {
     ) -> Result<(), EmitError> {
         let prepared = self.emit_collection_prepare_key(key, f);
         let result = self.emit_collection_find_prepared_set(record, &prepared, index, found, f);
-        self.runtime_schema().release_i64_local(prepared.hash, f);
+        prepared.release(self, f);
         result
     }
 
@@ -1083,7 +1101,7 @@ impl FunctionBuilder<'_> {
         table.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
-        s.release_i64_local(prepared.hash, f);
+        prepared.release(self, f);
         s.release_i64_local(live, f);
         s.release_i32_local(cursor, f);
         s.release_i32_local(found, f);

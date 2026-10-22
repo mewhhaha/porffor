@@ -43,7 +43,19 @@ impl FunctionBuilder<'_> {
             )?,
         }
         self.emit_collection_normalize_zero(&key, f);
-        self.emit_collection_find_map(&map, &key, index, found, f)?;
+        // The value-only path cannot call user code between lookup and insertion.
+        // The computed path deliberately discards its lookup hash before callback.
+        let prepared = match source {
+            MapGetOrInsertValueSource::ValueArgument => {
+                Some(self.emit_collection_prepare_key(&key, f))
+            }
+            MapGetOrInsertValueSource::ComputedCallback => None,
+        };
+        if let Some(prepared) = &prepared {
+            self.emit_collection_find_prepared_map(&map, prepared, index, found, f)?;
+        } else {
+            self.emit_collection_find_map(&map, &key, index, found, f)?;
+        }
         found.load(f);
         self.open_frame(ControlFrameKind::If, f);
         self.emit_collection_read_map(&map, index, &key, &value, f);
@@ -62,9 +74,16 @@ impl FunctionBuilder<'_> {
         }
         // put probes the current owner again: a callback may clear, grow,
         // delete/reinsert, or insert this key. Its computed value wins.
-        self.emit_collection_put_map(&map, &key, &value, f)?;
+        if let Some(prepared) = &prepared {
+            self.emit_collection_put_prepared_map(&map, prepared, &value, f)?;
+        } else {
+            self.emit_collection_put_map(&map, &key, &value, f)?;
+        }
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
+        if let Some(prepared) = prepared {
+            prepared.release(self, f);
+        }
         self.completion().set_normal(&value, f);
         s.release_i32_local(found, f);
         s.release_i64_local(index, f);

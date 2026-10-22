@@ -40,13 +40,18 @@ runtime-empty extension is not another hill.
 
 Next coherent work:
 
-1. Finish value-only Map.getOrInsert hash sharing. Outer lookup still hashes
-   before its inner put; callback getOrInsertComputed must retain fresh lookup.
-   Root-owned `/tmp/scriptw-performance-batch16` has hash-bound emitter,
-   harness-reuse, semantic and throughput drafts. Both emitter and Test262
-   metadata-only checks pass; product/native/performance acceptance is not done.
-   Its worker draft shares only immutable prelude bytes within each 64-request
-   session, with fresh Engine/Realm/Store and exact snapshots per request.
+1. Verify the applied value-only Map.getOrInsert hash batch. One hash remains
+   paired with the rooted normalized key through find/put; callback
+   getOrInsertComputed keeps its fresh post-callback hash and probe. The worker
+   also shares immutable prelude source bytes within each 64-request session;
+   every request still executes them in a fresh Engine/Realm/Store, with exact
+   independent snapshots. Extended controls cover growth, equal strings, mixed
+   keys, GC, callback reentry/throws and per-request harness execution.
+   Both library metadata-only checks pass. Product/native/performance acceptance
+   is pending. Root tools and exact22-file source bindings are under
+   `/tmp/scriptw-performance-batch16`; no layout/helper ABI changes.
+   Run the10-case screen/ABBA, ordinary report and real64-case worker diagnostic
+   before native acceptance and the original Map/Set+four-failure replay.
 2. Keep the default CLI chunk count. The [four-chunk observation](docs/rust-rewrite/verification-cli-queue-observation-20261022.json)
    passes all 858 bodies but takes 783.161s versus the earlier two-chunk 757.216s.
    Sampled group peaks are 31.45 versus 32.00 GiB; individual native RSS maxima

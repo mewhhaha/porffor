@@ -1,0 +1,29 @@
+{
+  "schema": "scriptw-wasmtime-workloads-v1",
+  "execution": [
+    {
+      "file": "map-direct-long-fresh.js",
+      "stdout": "4200\n",
+      "work": "128 keys, 16 fresh containers; all setup, insertions and checks included",
+      "oracle": "fixed arithmetic checksum and per-call value checks; Map proposal unsupported by pinned Node, no V8 comparison"
+    },
+    {
+      "file": "map-direct-long-hit.js",
+      "stdout": "4080\n",
+      "work": "128 keys, 16 fresh containers; all setup, insertions and checks included",
+      "oracle": "fixed arithmetic checksum and per-call value checks; Map proposal unsupported by pinned Node, no V8 comparison"
+    },
+    {
+      "file": "map-direct-numeric-fresh.js",
+      "stdout": "4200\n",
+      "work": "128 keys, 16 fresh containers; all setup, insertions and checks included",
+      "oracle": "fixed arithmetic checksum and per-call value checks; Map proposal unsupported by pinned Node, no V8 comparison"
+    },
+    {
+      "file": "map-computed-long-fresh.js",
+      "stdout": "4200\n",
+      "work": "128 keys, 16 fresh containers; all setup, insertions and checks included",
+      "oracle": "fixed arithmetic checksum and per-call value checks; Map proposal unsupported by pinned Node, no V8 comparison"
+    }
+  ]
+}
