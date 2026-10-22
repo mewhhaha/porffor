@@ -1,0 +1,29 @@
+{
+  "schema": "scriptw-v8-workloads-v1",
+  "startup": {
+    "file": "startup.js",
+    "stdout": "scriptw-startup-ok\n"
+  },
+  "execution": [
+    {
+      "file": "imul-direct.js",
+      "stdout": "516252645\n",
+      "work": "50000 checked integer recurrence steps via imul-direct; whole invocation includes setup"
+    },
+    {
+      "file": "imul-alias.js",
+      "stdout": "516252645\n",
+      "work": "50000 checked integer recurrence steps via imul-alias; whole invocation includes setup"
+    },
+    {
+      "file": "imul-patched.js",
+      "stdout": "516252645\n",
+      "work": "50000 checked integer recurrence steps via imul-patched; whole invocation includes setup"
+    },
+    {
+      "file": "imul-coercion.js",
+      "stdout": "3355563741\n",
+      "work": "5000 checked integer recurrence steps via imul-coercion; whole invocation includes setup"
+    }
+  ]
+}

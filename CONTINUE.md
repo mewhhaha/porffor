@@ -45,25 +45,27 @@ are published separately from paired controls.
 
 Next coherent work:
 
-1. Verify the root-owned **P020/P081 prepared-key and numeric Math.imul draft**,
-   outside the checkout
-   under `/tmp/scriptw-performance-batch17/source`. Its metadata-only Rust check
-   passes. Expanded stock-Node collection controls, numeric controls and actual
-   distinct-realm Node oracles pass. The computed insertion proposal still uses
-   repository assertions because stock Node lacks it. No product
-   build/compiled fixture/measurement/native/Test262 acceptance is claimed yet.
-   Exact two ordinary Number arguments and Continue-only calls can bypass argv
-   after concrete FunctionObject, immutable StandardBuiltin/MathImul and actual
-   current-Realm identity proof. Evaluate receiver/property/arguments once in
-   their original order; wrappers, coercions, patched methods, cross-realm and
-   other arities retain generic dispatch. Reuse existing modulo conversion.
-   Prepared hashes also cover computed insertion, groupBy, cross-owner Set
-   operations and lookup/unlink deletion. Keep current-table probing after user
-   effects and the immutable key/identity hash invariant. These paths remain
-   unaccepted until measurement and broad checks. Keep the draft separate until
-   applied as a complete source/test/docs batch;
-   freeze actual producers, run semantic controls and balanced performance,
-   then native acceptance and original Math/call/proxy/realm Test262 scopes.
+1. Verify the applied **P020/P081 prepared-key and numeric Math.imul batch**.
+   Root tools/source bindings are under `/tmp/scriptw-performance-batch17`.
+   The AOT library metadata check passes. All four expanded semantic controls
+   pass on accepted frozen44 before this implementation; stock Node validates
+   numeric/collection controls and actual distinct-realm oracles. The proposal
+   getOrInsert control keeps repository assertions because Node lacks the API.
+   Candidate45 product/measurement/native/Test262 acceptance is pending.
+   Prepared keys now own a private rooted value snapshot, so callers cannot
+   change the value while retaining its old hash. They cover computed insertion,
+   groupBy, cross-owner Set operations and lookup/unlink deletion, with fresh
+   current-table probing after callbacks and growth. No GC layout/helper ABI change.
+   The exact two-argument numeric Math.imul route proves concrete FunctionObject,
+   immutable StandardBuiltin/MathImul and current-Realm identity after all operand
+   effects. Wrappers, patched callees, coercions, foreign realms, other arities,
+   spreads/captures and tail returns retain generic dispatch. Reuse the original
+   modulo conversion and completion propagation. New tests cover 361 numeric
+   pairs, once-only evaluation, mutation, proxies/revocation, abrupt coercion,
+   GC, cross-realm errors and native caller reflection. Ten deterministic new
+   performance workloads cover direct/generic numeric calls and collection paths.
+   Freeze actual static producers, run semantic controls and balanced measurements,
+   then native acceptance and exact original Math/Map/Set/call/proxy/realm cases.
 2. Keep the default CLI chunk count. The [four-chunk observation](docs/rust-rewrite/verification-cli-queue-observation-20261022.json)
    passes all 858 bodies but takes 783.161s versus the earlier two-chunk 757.216s.
    Sampled group peaks are 31.45 versus 32.00 GiB; individual native RSS maxima

@@ -186,8 +186,14 @@ families, 4,035 native passes and 1,169/1,173 targeted Test262 successes. P020
 stays partial for callbacks and other internal collection paths. Immutable harness source reuse
 keeps per-case JS state fresh; its diagnostic does not isolate a speedup. P154's
 new real policy comparison is mixed, so default Fast stays. No new hill is closed.
-Next: verify guarded numeric Math.imul invocation (P081), then investigate
-repeated long-string key hashing (P023/P112) before a string-layout cache decision.
+The next P020/P081 batch is applied with acceptance pending. Prepared keys own
+rooted snapshots across callbacks and current-owner groupBy/Set/unlink paths.
+Numeric Math.imul gets an actual identity/Realm/Number guard after argument
+side effects, with generic fallback and unchanged tail/throw paths. Metadata
+checking and accepted-compiler fixture foundations pass; candidate product,
+measurements, native tests and original Test262 acceptance remain open. This
+candidate is counted among unresolved work, with no new accepted hill decision.
+Then investigate repeated long-string key hashing (P023/P112) before a layout cache.
 The opt-in four-chunk CLI queue keeps two live libtest processes and passes
 [74 tooling checks plus a real 858-ID inventory](rust-rewrite/verification-cli-queue-20261022.json).
 Its [complete 858-body observation](rust-rewrite/verification-cli-queue-observation-20261022.json)

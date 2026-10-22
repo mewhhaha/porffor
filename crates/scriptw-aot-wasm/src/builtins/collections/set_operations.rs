@@ -287,24 +287,28 @@ impl FunctionBuilder<'_> {
             }
             SetKeysOperation::Union => self.emit_collection_put_set(result, &value, f)?,
             SetKeysOperation::Intersection => {
-                self.emit_collection_find_set(source, &value, index, found, f)?;
+                let prepared = self.emit_collection_prepare_key(&value, f);
+                self.emit_collection_find_prepared_set(source, &prepared, index, found, f)?;
                 found.load(f);
                 self.open_frame(ControlFrameKind::If, f);
-                self.emit_collection_put_set(result, &value, f)?;
+                self.emit_collection_put_prepared_set(result, &prepared, f)?;
                 self.pop_control(ControlFrameKind::If);
                 f.instruction(&Instruction::End);
+                prepared.release(self, f);
             }
             SetKeysOperation::SymmetricDifference => {
                 // Membership consults the current receiver, not the copied result.
                 // Duplicate iterator keys therefore do not repeatedly toggle.
-                self.emit_collection_find_set(source, &value, index, found, f)?;
+                let prepared = self.emit_collection_prepare_key(&value, f);
+                self.emit_collection_find_prepared_set(source, &prepared, index, found, f)?;
                 found.load(f);
                 self.open_frame(ControlFrameKind::If, f);
-                self.emit_collection_delete_set(result, &value, found, f)?;
+                self.emit_collection_delete_prepared_set(result, &prepared, found, f)?;
                 f.instruction(&Instruction::Else);
-                self.emit_collection_put_set(result, &value, f)?;
+                self.emit_collection_put_prepared_set(result, &prepared, f)?;
                 self.pop_control(ControlFrameKind::If);
                 f.instruction(&Instruction::End);
+                prepared.release(self, f);
             }
             SetKeysOperation::Disjoint | SetKeysOperation::Superset => {
                 self.emit_collection_find_set(source, &value, index, found, f)?;

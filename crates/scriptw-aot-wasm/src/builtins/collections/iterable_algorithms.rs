@@ -386,7 +386,8 @@ impl FunctionBuilder<'_> {
                 key.copy_from(pending.value(), f);
             }
         }
-        self.emit_collection_find_map(&groups, &key, index, found, f)?;
+        let prepared = self.emit_collection_prepare_key(&key, f);
+        self.emit_collection_find_prepared_map(&groups, &prepared, index, found, f)?;
         found.load(f);
         self.open_frame(ControlFrameKind::If, f);
         self.emit_collection_read_map(&groups, index, &key, &list_value, f);
@@ -419,11 +420,12 @@ impl FunctionBuilder<'_> {
         let args = self.emit_pre_evaluated_arg_vector(&[&item], f);
         let list = self.emit_array_from_argument_list(&args, f)?;
         list_value.set_reference(&list, s, f);
-        self.emit_collection_put_map(&groups, &key, &list_value, f)?;
+        self.emit_collection_put_prepared_map(&groups, &prepared, &list_value, f)?;
         list.clear(f);
         args.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
+        prepared.release(self, f);
         self.emit_increment_local(position, 1, f);
         item.set_undefined(f);
         key.set_undefined(f);

@@ -1,0 +1,39 @@
+{
+  "schema": "scriptw-v8-workloads-v1",
+  "startup": {
+    "file": "startup.js",
+    "stdout": "scriptw-startup-ok\n"
+  },
+  "execution": [
+    {
+      "file": "map-groupby-long.js",
+      "stdout": "2064\n",
+      "work": "eight fresh Map.groupBy of512 items/256long keys; whole invocation including setup"
+    },
+    {
+      "file": "object-groupby-long.js",
+      "stdout": "2064\n",
+      "work": "eight fresh Object.groupBy of512 items/256long keys; whole invocation including setup"
+    },
+    {
+      "file": "set-intersection-long.js",
+      "stdout": "1024\n",
+      "work": "eight key-iterator intersections, 256/128long keys; whole invocation including setup"
+    },
+    {
+      "file": "set-symmetric-difference-long.js",
+      "stdout": "2048\n",
+      "work": "eight symmetric differences, 256/256long keys; whole invocation including setup"
+    },
+    {
+      "file": "map-delete-long.js",
+      "stdout": "2048\n",
+      "work": "eight fresh256long-key Maps including insertion, deletion and checks; whole invocation including setup"
+    },
+    {
+      "file": "set-delete-long.js",
+      "stdout": "2048\n",
+      "work": "eight fresh256long-key Sets including insertion, deletion and checks; whole invocation including setup"
+    }
+  ]
+}

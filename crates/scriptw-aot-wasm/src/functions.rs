@@ -38,6 +38,7 @@ mod function_name;
 mod function_object_allocation;
 mod native_direct_eval;
 mod native_direct_eval_factory;
+mod numeric_imul_call;
 mod source_callable_factories;
 use function_object_allocation::FunctionAllocationInputs;
 mod function_realm;
@@ -1154,13 +1155,35 @@ impl FunctionBuilder<'_> {
             None => receiver.set_undefined(function),
         }
         let list = self.emit_call_args_vector(arguments, function)?;
+        self.emit_indirect_call_with_argv_to_value(
+            callee,
+            &receiver,
+            &list,
+            continuation,
+            output,
+            function,
+        )?;
+        list.clear(function);
+        receiver.clear(function);
+        Ok(())
+    }
+
+    fn emit_indirect_call_with_argv_to_value(
+        &mut self,
+        callee: &crate::gc_types::ValueLocals,
+        receiver: &crate::gc_types::ValueLocals,
+        list: &crate::gc_types::GcLocal<crate::gc_types::ValueArray>,
+        continuation: &CallContinuation,
+        output: &crate::gc_types::ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
         let result = schema.reserve_completion(function);
         match continuation {
-            CallContinuation::Continue => self.emit_function_or_proxy_call_with_argv(
-                callee, &receiver, &list, &result, function,
-            )?,
+            CallContinuation::Continue => self
+                .emit_function_or_proxy_call_with_argv(callee, receiver, list, &result, function)?,
             CallContinuation::Return => {
-                self.emit_prepared_tail_call(callee, &receiver, &list, function)?;
+                self.emit_prepared_tail_call(callee, receiver, list, function)?;
             }
         }
         // A normal call supplies an expression value, not a new statement
@@ -1175,8 +1198,6 @@ impl FunctionBuilder<'_> {
         self.emit_propagate_current_throw_if_needed(function);
         output.copy_from(result.value(), function);
         result.clear(function);
-        list.clear(function);
-        receiver.clear(function);
         Ok(())
     }
 
@@ -1202,16 +1223,26 @@ impl FunctionBuilder<'_> {
             function,
         )?;
         self.emit_propagate_current_throw_if_needed(function);
-        // The original primitive or object receiver reaches Call unchanged;
-        // only the actual callee's this-mode decides boxing or global-this.
-        self.emit_indirect_call_from_locals(
+        // Preserve the original receiver and actual property result. The
+        // numeric candidate validates identity after evaluating both operands.
+        if !self.try_emit_numeric_imul_method_call(
             &callee,
-            Some(&receiver),
+            &receiver,
+            key,
             arguments,
             continuation,
             output,
             function,
-        )?;
+        )? {
+            self.emit_indirect_call_from_locals(
+                &callee,
+                Some(&receiver),
+                arguments,
+                continuation,
+                output,
+                function,
+            )?;
+        }
         callee.clear(function);
         receiver.clear(function);
         Ok(())

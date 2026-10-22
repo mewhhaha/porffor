@@ -107,4 +107,28 @@ try {
 }
 assert(changing.get("abrupt") === "retained side effect", "abrupt callback mutation remains");
 
+// A prepared raw hash must survive user effects without retaining old buckets.
+var revocableKey = Proxy.revocable({}, {});
+var stableObject = { toString() { throw new Error("object key must not coerce"); } };
+var stableKeys = [NaN, -0, stableObject, revocableKey.proxy, Symbol("stable"), 12345678901234567890n,
+  "stable\ud800:" + "z".repeat(1024)];
+for (var keyIndex = 0; keyIndex < stableKeys.length; ++keyIndex) {
+  var owner = new Map([["discard", -1]]);
+  var stableKey = stableKeys[keyIndex];
+  var expected = keyIndex + 5000;
+  var callbackCount = 0;
+  assert(owner.getOrInsertComputed(stableKey, function (seen) {
+    ++callbackCount;
+    assert(Object.is(seen, stableKey) || (seen === 0 && stableKey === 0 && 1 / seen === Infinity), "canonical callback key");
+    owner.clear();
+    for (var growth = 0; growth < 517; ++growth) owner.set("growth:" + growth, growth);
+    if (keyIndex === 3) revocableKey.revoke();
+    owner.set(stableKey, -1);
+    if (typeof gc === "function") gc();
+    return expected;
+  }) === expected, "stable callback result");
+  assert(callbackCount === 1 && owner.get(stableKey) === expected, "computed wins after fresh re-probe");
+  assert(owner.size === 518, "one current key after growth");
+}
+
 true;

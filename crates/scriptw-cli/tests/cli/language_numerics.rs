@@ -895,3 +895,47 @@ fn numeric_updates_and_cell_writes_preserve_conversions_snapshots_and_aliases() 
         assert!(stdout.contains(expected), "{fixture}: {stdout}");
     }
 }
+
+#[test]
+fn run_wasm_backend_preserves_numeric_imul_callee_and_operand_guards() {
+    let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+        .args(["run", "--execution-backend", "wasm"])
+        .arg(fixture_path("wasm_numeric_imul_guard.js"))
+        .output()
+        .expect("run command should run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("backend_used: WasmAot") && stdout.contains("boolean(true)"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn run_wasm_backend_preserves_numeric_imul_realm_and_native_caller_guards() {
+    let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+        .args([
+            "--host-surface",
+            "test262",
+            "run",
+            "--execution-backend",
+            "wasm",
+        ])
+        .arg(fixture_path("wasm_numeric_imul_realms.js"))
+        .output()
+        .expect("run command should run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("backend_used: WasmAot") && stdout.contains("boolean(true)"),
+        "{stdout}"
+    );
+}

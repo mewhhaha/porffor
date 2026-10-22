@@ -60,4 +60,77 @@ check(mapCount === mixedMap.size && setCount === mixedSet.size, 'live iterators 
 mixedMap.clear(); mixedSet.clear();
 mixedMap.set(object1, 7); mixedSet.add(object1);
 check(mixedMap.size === 1 && mixedMap.get(object1) === 7 && mixedSet.size === 1 && mixedSet.has(object1), 'clear and reuse');
+// GroupBy shares its canonical callback key through lookup and first insertion.
+const groupKeys = mixed.concat(keys.slice(0, 64));
+const groupInputs = [];
+for (let i = 0; i < groupKeys.length; ++i) {
+  for (let copy = 0; copy < 3; ++copy) {
+    const key = typeof groupKeys[i] === 'string' ? ('!' + groupKeys[i]).slice(1) : groupKeys[i];
+    groupInputs.push({key, index: i * 3 + copy});
+  }
+}
+let callbackIndex = 0;
+const grouped = Map.groupBy(groupInputs, (item, index) => {
+  check(index === callbackIndex++ && item === groupInputs[index], 'groupBy callback order');
+  if ((index === 19 || index === 130) && typeof gc === 'function') gc();
+  return item.key;
+});
+check(grouped.size === groupKeys.length && callbackIndex === groupInputs.length, 'groupBy unique keys');
+for (let i = 0; i < groupKeys.length; ++i) {
+  const group = grouped.get(groupKeys[i]);
+  check(group.length === 3 && group.every((item, copy) => item.index === i * 3 + copy), 'groupBy ordered values');
+}
+const objectGroupKeys = keys.slice(0, 64).concat([symbol1, symbol2]);
+const objectGrouped = Object.groupBy(objectGroupKeys.concat(objectGroupKeys), value => value);
+check(Object.getPrototypeOf(objectGrouped) === null, 'object groupBy prototype');
+check(Reflect.ownKeys(objectGrouped).length === objectGroupKeys.length, 'object groupBy canonical keys');
+for (const key of objectGroupKeys) check(objectGrouped[key].length === 2, 'object grouped duplicate key');
+
+// Iterator callbacks can mutate the receiver; every membership uses current data.
+const receiverSet = new Set(mixed.concat(keys.slice(0, 64)));
+const intersectionKeys = [keys[0], symbol1, NaN, -0, object1, 'missing', 'late', ('!' + keys[0]).slice(1)];
+const setLike = {
+  size: intersectionKeys.length,
+  has() { throw new Error('must use keys, not has'); },
+  keys() {
+    let position = 0;
+    return { next() {
+      if (position === 1) {
+        receiverSet.delete(NaN);
+        receiverSet.add('late');
+        if (typeof gc === 'function') gc();
+      }
+      return position < intersectionKeys.length ? {done: false, value: intersectionKeys[position++]} : {done: true};
+    }};
+  }
+};
+const intersection = receiverSet.intersection(setLike);
+check(intersection.size === 5, 'intersection duplicate/mutation size');
+const intersectionOrder = [keys[0], symbol1, 0, object1, 'late'];
+check([...intersection].every((key, i) => Object.is(key, intersectionOrder[i])), 'intersection current lookup and order');
+const differenceSource = new Set([keys[0], symbol1]);
+const duplicateKeys = [keys[0], ('!' + keys[0]).slice(1), symbol1, symbol1, 'new', 'new'];
+const symmetric = differenceSource.symmetricDifference({
+  size: duplicateKeys.length, has() { throw new Error('must use keys'); },
+  keys() { return duplicateKeys.values(); }
+});
+check(symmetric.size === 1 && symmetric.has('new'), 'symmetric difference duplicates do not toggle');
+const manyKeys = keys.slice(0, 517).concat(keys.slice(0, 517));
+const grown = new Set([object1]).symmetricDifference({
+  size: manyKeys.length, has() { throw new Error('must use keys'); }, keys() { return manyKeys.values(); }
+});
+check(grown.size === 518 && grown.has(object1) && keys.slice(0, 517).every(key => grown.has(key)), 'cross-owner growth');
+
+// Unlink reuses the found key hash for collisions, mixed keys and revoked proxies.
+const revocable = Proxy.revocable({}, {});
+const deleteKeys = mixed.concat([revocable.proxy]);
+const deleteMap = new Map(deleteKeys.map((key, index) => [key, index]));
+const deleteSet = new Set(deleteKeys);
+revocable.revoke();
+if (typeof gc === 'function') gc();
+for (const key of deleteKeys) {
+  check(deleteMap.delete(key) && deleteSet.delete(key), 'mixed/proxy unlink');
+  check(!deleteMap.delete(key) && !deleteSet.delete(key), 'unlink absent no-op');
+}
+check(deleteMap.size === 0 && deleteSet.size === 0, 'all mixed keys deleted');
 print('prepared-collection-hash-ok');
