@@ -41,11 +41,14 @@ Native acceptance is **3,568 passed / 0 failed / 0 ignored**: AOT 444, engine
 Source and linker remained unchanged throughout; all ignored controls were
 explicitly enabled. Seven product/test image payloads and manifests are verified
 byte-identical. Six actual compiled CLI semantic fixture families pass. The
-**9,411-execution Test262 replay is running separately**, with four workers after
-native verification drained and existing per-case deadlines retained. It adds
-204 array-expression executions to the preceding 9,207-case selection. Neither
-partial replay results nor this scoped native checkpoint refresh full-suite
-counts; all four upstream-tracked failures remain open.
+**9,411-execution Test262 replay returns 9,407 Success / 4 Bug / 0 Crash /
+0 NotImplemented**, with exactly the original four upstream-tracked failures.
+[Final replay evidence](performance-kept-packaging-replay-20261022.json) supplements
+the earlier immutable native/measurement snapshot, which records replay pending.
+Four workers ran after native verification drained, with existing per-case
+deadlines retained. This adds 204 array-expression executions to the preceding
+9,207-case selection. This affected replay and scoped native checkpoint do not
+refresh full-suite counts; all four tracked failures remain open.
 
 The product build took **8m44s**. Cargo timings identify repeated AOT LLVM work
 and two Intl feature/profile variants as major costs; runtime-image production
@@ -178,7 +181,7 @@ families, actual Cargo producers and 24 unique Wasm programs. Object nine-key an
 9.917→10.109 ms and retained rows 1,369.244→1,395.373 ms. These descriptive
 Wasmtime-only cohorts are separate from ordinary V8 scores and do not isolate
 each combined change. The packaging-only product and scoped native acceptance
-are now published above; its expanded Test262 replay remains pending.
+and its completed expanded Test262 replay are now published above.
 
 
 ## First execution batch — published 2026-10-22

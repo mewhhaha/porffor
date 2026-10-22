@@ -60,9 +60,9 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
 The **2026-10-22 packaging checkpoint** passes **3,568 native tests** across
-seven affected targets. Its **9,411-case Test262 replay is running**. The preceding
-verified compiler returned **9,203 passed / 4 failed** in its 9,207-case replay,
-with exactly the same four tracked failures and no crashes/unimplemented cases.
+seven affected targets. Its **9,411-case Test262 replay returns 9,407 passed /
+4 failed**, with exactly the same four tracked failures and no crashes or
+unimplemented cases.
 [Source-bound verification](docs/rust-rewrite/v8-baseline.md#release-packaging-checkpoint--published-2026-10-22).
 The chart below reconciles that full baseline with the exact original-failure
 replay and an audited standalone Wasm scope split. A fresh full run of the

@@ -123,8 +123,10 @@ strip diagnostic. The [packaging checkpoint](rust-rewrite/v8-baseline.md#release
 at `b59303ebe` now passes **3,568 scoped native tests** and six compiled semantic
 families, with unchanged source/linker and byte-identical product/test images.
 The actual 277.03 MiB CLI gives cold/cached ordinary medians 1,059.284 / 818.785 ms
-and now supplies the README table. Its expanded **9,411-case Test262 replay is
-running**. Process RSS is unchanged; no isolated execution gain is claimed.
+and now supplies the README table. Its expanded **9,411-case Test262 replay
+returns 9,407 Success / 4 Bug / 0 Crash / 0 NotImplemented**. The four failures
+are exactly the original tracked disagreements. [Replay evidence](rust-rewrite/performance-kept-packaging-replay-20261022.json).
+Process RSS is unchanged; no isolated execution gain is claimed.
 The ledger now has **18 explicit terminal hill decisions**, seven partial/open
 outcomes and **135 remaining proposed/unresolved hills**. Rejected and superseded
 hills are decisions, not shipped performance improvements.

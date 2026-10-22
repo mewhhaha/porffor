@@ -68,7 +68,10 @@ is accepted at `b59303ebe`: **3,568 native passes**, no failures/ignored tests,
 unchanged source/linker, seven identical product/test image payloads/manifests
 and six compiled semantic families. Its 277.03 MiB CLI and actual seven-sample
 Wasmtime/V8 report now supply the README table. The expanded **9,411-case
-Test262 replay is running**; full-suite counts remain unchanged. The backlog
+Test262 replay returns 9,407 Success / 4 Bug / 0 Crash / 0 NotImplemented**,
+with exactly the original four failures. [Final replay evidence](performance-kept-packaging-replay-20261022.json)
+supplements the immutable native/measurement publication; full-suite counts
+remain unchanged. The backlog
 still has 18 explicit terminal decisions, seven partial/open outcomes and 135
 proposed/unresolved hills.
 
