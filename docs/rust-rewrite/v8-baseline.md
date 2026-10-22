@@ -7,9 +7,12 @@ Measured compiler: `2cb9fc53d514669a1f47eb37feb96add24d2912b`.
 retain frozen static release producers, raw emitted Wasm and observations,
 semantic controls, native transcripts, source fences and preservation receipts.
 This compiler's ordinary report now supplies the README table. The wider
-**15,899-execution Test262 replay is running separately**, after native tests
-finished; the preceding verified affected replay remains 406 Success / 4 Bug.
-No fresh full-suite or all-feature result is claimed.
+[**15,899-execution Test262 replay**](performance-key-arguments-replay-20261022.json)
+returns **15,895 Success / 4 Bug / 0 Crash / 0 NotImplemented**, preserving exactly
+the original four tracked failure IDs. Four reused case workers ran after native
+tests drained, with original per-case deadlines and frozen executable identity.
+The earlier 693-file measurement snapshot records replay pending; this separate
+final publication closes that gate. No fresh full-suite/all-feature result is claimed.
 
 **P020 is partial, with measured execution gains.** Map/Set insertion and ordinary
 property append retain a hash tied to the rooted canonical key through internal
@@ -82,6 +85,14 @@ of old-source units and historical test images keeps the two-GiB Cargo reserve;
 fresh dependencies are retained. These correctness runs are not memory benchmarks.
 
 Iteration: the product build takes **6m54s** in this changed-source observation.
+Cargo records **169.36s** in runtime-image production and **185.02s** across two
+AOT Rust units: opt1 build-side **76.78s**, opt3 product **108.24s**. Their codegen
+portions are 48.2s and 72.5s. They have different profiles and real graph roles;
+matching one flag would not make them a shared unit. An isolated warm incremental
+AOT experiment is a candidate, with its own artifact/disk costs; crate splitting
+alone is not a measured improvement. The runtime producer spends about 164.6s
+compiling changed NativeHost/Portable native functions; R emission/admission is
+about 2.2s. Reuse must retain exact source/stencil identities.
 NativeHost reuses 1,019 stencils and compiles 1,165; Portable reuses 1,270 and
 compiles 914. Runtime argument-vector emission changes many shared bodies, so
 this has fewer cache hits than the preceding three-function replacement edit.

@@ -63,10 +63,10 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
 The **2026-10-22 key/argument checkpoint** passes **3,572 native tests** across
 seven affected targets and nine compiled semantic fixture families. Its wider
-**15,899-case Test262 replay is running**. The preceding replacement replay
-remains **406 passed / 4 failed** in 410 cases, with exactly the four tracked
-failures; the earlier 9,411-case campaign returned 9,407 passed. These are
-separate scopes. [Source-bound verification and measured tradeoffs](docs/rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22).
+**15,899-case Test262 replay returns 15,895 passed / 4 failed**, with exactly
+the four tracked failures and no crashes or unimplemented cases.
+[Final replay evidence](docs/rust-rewrite/performance-key-arguments-replay-20261022.json).
+These are affected scopes, not a fresh full-suite campaign. [Source-bound verification and measured tradeoffs](docs/rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22).
 The chart below reconciles the complete 2026-10-20 baseline with the exact
 original-failure replay and an audited standalone Wasm scope split. A fresh full
 run of the repaired compiler is still pending.

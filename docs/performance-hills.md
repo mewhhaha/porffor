@@ -22,7 +22,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
 | P004 | **Diagnostic complete; no speedup claim** | Empty-body, empty-loop, scalar-expression and scalar-return controls print checked outputs under both runtime orders. Seven samples after ten warmups quantify minimally observable execution/setup, with raw phases and no subtraction from published scores. [Receipts](rust-rewrite/performance-replacement-20261022.json). |
-| P020 | **Partial: prepared insertion hashes verified** | Map/Set insertion and ordinary append reuse the rooted key's hash through internal lookup/insertion. ABBA long fresh Map/Set/property medians improve 65.135→55.338 / 65.953→51.507 / 112.415→95.054 ms. Non-callback `Map.getOrInsert` still repeats the outer lookup hash; callback lookup freshness stays intact. Nine compiled families and 3,572 native passes; wider 15,899-case replay pending. [Evidence](rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22). |
+| P020 | **Partial: prepared insertion hashes verified** | Map/Set insertion and ordinary append reuse the rooted key's hash through internal lookup/insertion. ABBA long fresh Map/Set/property medians improve 65.135→55.338 / 65.953→51.507 / 112.415→95.054 ms. Non-callback `Map.getOrInsert` still repeats the outer lookup hash; callback lookup freshness stays intact. Nine compiled families, 3,572 native passes and 15,895/15,899 affected Test262 successes; exactly four original failures remain. [Evidence](rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22). |
 | P107 | **Verified improvement with explicit tradeoffs** | Original→final screen: literal callback 456.100→7.507 ms; RegExp callback 2,410.068→101.373 ms. Direct short two-match eight-round medians: 45.926→45.548 ms. Intermediate→final ABBA retains a 37.8% RegExp dollar-template slowdown. Six compiled families, exact overflow, 3,569 native passes and 406/410 affected Test262 successes with the four original failures. [Boundaries](rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22). |
 | P040 | **Rejected: no reliable gain** in the old unoptimized Portable/Fast cohort | The read-heavy row case rose 168.957 → 181.914 ms; ABBA controls also failed to establish a gain. Implementation removed, semantic fixtures and raw failed attempts retained. A different optimized-R cohort would require a new measured hypothesis. |
 | P091 | **Verified improvement** | Ordered, rooted multiargument concat preserves coercion and abrupt completion. Focused large-part ABBA round medians fall 24.719 → 7.796 ms and 120.461 → 8.944 ms (3.17× / 13.47×). Small-arity controls, six focused fixtures, the broad native checkpoint and original-case replay pass. |
@@ -174,7 +174,8 @@ The [key/argument checkpoint](rust-rewrite/v8-baseline.md#key-and-argument-check
 at `2cb9fc53d` passes 3,572 native tests and nine compiled semantic families.
 P020's insertion paths improve in direct ABBA, while non-callback
 `Map.getOrInsert` remains open. P078 now covers runtime-empty internal vectors;
-this extends its existing hill. The wider 15,899-case Test262 replay is running.
+this extends its existing hill. The wider [15,899-case Test262 replay](rust-rewrite/performance-key-arguments-replay-20261022.json)
+returns 15,895 Success / 4 original Bug / 0 Crash / 0 NotImplemented.
 Ordinary retained rows are slower than their preceding ordinary report; a direct
 ABBA does not reproduce that loss. Startup comparisons remain explicit and
 separate. The actual new ordinary Wasmtime/V8 report supplies the README.
@@ -183,7 +184,10 @@ Next: finish the non-callback getOrInsert hash scope, then measure repeated
 long-string key hashing (P023/P112) before any string-layout cache decision.
 The opt-in four-chunk CLI queue keeps two live libtest processes and passes
 [74 tooling checks plus a real 858-ID inventory](rust-rewrite/verification-cli-queue-20261022.json).
-Its memory/elapsed benefit is unmeasured, so the default remains unchanged.
+Its [complete 858-body observation](rust-rewrite/verification-cli-queue-observation-20261022.json)
+takes 783.161s versus the earlier two-chunk 757.216s. Sampled group peaks are
+31.45 versus 32.00 GiB, with different cache/file-page state. This does not
+establish a speed or causal memory win; the default remains unchanged.
 
 Verification tooling also avoids taking Cargo's incremental-cleanup lock when
 there is nothing to delete. Actual deletion still locks and re-discovers its

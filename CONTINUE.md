@@ -32,31 +32,39 @@ Latest [key/argument checkpoint](docs/rust-rewrite/v8-baseline.md#key-and-argume
 source `2cb9fc53d`, **3,572 native passes / zero failed/ignored**, nine compiled
 semantic families, unchanged source/linker and seven matching product/test images.
 Actual ordinary README scores, slower observations and separate balanced controls
-are published. **The 15,899-case Test262 replay is running** after native drain,
-using the frozen `/tmp/scriptw-performance-candidate-2cb9fc53d/scriptw`.
-Retain the four original failures; do not refresh full-suite chart counts from
-this scope. P020 stays partial; P078's runtime-empty extension is not another hill.
+are published. The [final 15,899-case Test262 replay](docs/rust-rewrite/performance-key-arguments-replay-20261022.json)
+returns **15,895 Success / 4 Bug / 0 Crash / 0 NotImplemented**, with exactly
+the four original failures, using the frozen `2cb9fc53d` compiler after native
+drain. Full-suite chart counts remain unchanged. P020 stays partial; P078's
+runtime-empty extension is not another hill.
 
 Next coherent work:
 
 1. Finish value-only Map.getOrInsert hash sharing. Outer lookup still hashes
    before its inner put; callback getOrInsertComputed must retain fresh lookup.
-   Root-owned `/tmp/scriptw-performance-batch16` has two formatted, hash-bound
-   drafts; metadata/product/native/performance acceptance is not done.
-2. Measure the shipped opt-in four-chunk CLI scheduler at the same two live
-   libtest ceiling, after the wider replay drains. `--cli-partition-count 4`
-   retains all native bodies, inventories, stalls, cache limits and exclusivity.
-   [74 tooling checks and the exact 858-ID inventory](docs/rust-rewrite/verification-cli-queue-20261022.json)
-   pass; the default stays unchanged and memory/speed benefit is unmeasured.
-   The exact native CLI is held by hard link at
+   Root-owned `/tmp/scriptw-performance-batch16` has hash-bound emitter,
+   harness-reuse, semantic and throughput drafts. Both emitter and Test262
+   metadata-only checks pass; product/native/performance acceptance is not done.
+   Its worker draft shares only immutable prelude bytes within each 64-request
+   session, with fresh Engine/Realm/Store and exact snapshots per request.
+2. Keep the default CLI chunk count. The [four-chunk observation](docs/rust-rewrite/verification-cli-queue-observation-20261022.json)
+   passes all 858 bodies but takes 783.161s versus the earlier two-chunk 757.216s.
+   Sampled group peaks are 31.45 versus 32.00 GiB; individual native RSS maxima
+   4.77 versus 5.26 GiB. Cache/file-page state differs, so this is not a causal
+   memory/speed comparison. Original bodies, stalls, CPU pool and cache ceilings
+   match. Opt-in flag stays available; default stays unchanged.
+   The exact native CLI remains held at
    `target/performance-hills-20261021-attribution/candidate43-held-cli-native`.
-3. Measure repeated long-string Map/Set and property hits before P023/P112.
-   One shared hash helper and one StringConstruction publication point make a
+3. Inspect the completed frozen43 repeated-key baseline in
+   `target/performance-hills-20261021-attribution/candidate43-repeated-key-baseline`.
+   Its 13 checked cases include nine stock-Node-compatible repeated lookups and
+   four Wasmtime-only getOrInsert controls; stock Node lacks those proposal APIs.
+   This is whole-invocation throughput, not isolated hash timing. Before P023/P112,
+   one shared hash helper and one StringConstruction publication point make a
    raw cached u64 possible, but it costs eight payload bytes per String plus
    engine alignment and requires GC layout version 15→16/admission rebuilds.
    Compiler-only static facts avoid that ABI but need new provenance/dispatch.
-4. Complete wider replay publication, broader default/release acceptance and
-   remaining performance hills. Use source fences and exact original IDs.
+4. Complete broader default/release acceptance and remaining performance hills. Use source fences and exact original IDs.
 
 A frozen replay may continue while later source work proceeds; do not change
 its compiler, pinned fixtures, workers, deadlines or saved results. Cloud tools

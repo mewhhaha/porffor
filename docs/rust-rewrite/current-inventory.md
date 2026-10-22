@@ -13,9 +13,10 @@ The [key/argument checkpoint](v8-baseline.md#key-and-argument-checkpoint--publis
 passes **3,572 release native tests / 0 failed / 0 ignored** across seven complete
 affected targets and nine compiled semantic families. Source/linker stay unchanged;
 seven independent product/test image payloads/manifests match. A wider
-**15,899-case Test262 replay is running** with the frozen compiler after native
-verification drained. Previous verified scope remains 406/410, with the original
-four failures. Full-suite/all-feature acceptance and chart counts are unchanged.
+[15,899-case Test262 replay](performance-key-arguments-replay-20261022.json)
+returns **15,895 Success / 4 Bug / 0 Crash / 0 NotImplemented**, preserving exactly
+the original four failure IDs. It used the frozen compiler after native
+verification drained. Full-suite/all-feature acceptance and chart counts are unchanged.
 
 Prepared insertion hashes improve long-key Map/Set/property ABBA medians by
 15.0% / 21.9% / 15.4%. Runtime-empty internal argv extends P078; mutable JS state
@@ -28,7 +29,10 @@ universal-speedup claim. Status: **20 terminal, eight partial/open, 132 proposed
 of 160 hills. Historical checkpoints below retain their original source limits.
 The [opt-in CLI chunk scheduler](verification-cli-queue-20261022.json) passes 74
 tooling controls and an exact four-way real 858-ID inventory check. It preserves
-two live libtests and default policy; memory/elapsed benefit remains unmeasured.
+two live libtests and default policy. Its [complete 858-body observation](verification-cli-queue-observation-20261022.json)
+passes but takes 783.161s versus the earlier two-chunk 757.216s. Sampled group
+peaks are 31.45 versus 32.00 GiB; cache/file-page state differs. This single
+comparison establishes no speed or causal memory benefit, so the default stays.
 
 The first eight maintenance hills are complete: obsolete product routes are
 retired, runner setup is clearer, LDML parsing has one owner, and current guidance
@@ -120,7 +124,7 @@ At that replacement checkpoint the ledger had **20 terminal decisions, seven
 partial/open outcomes and 133 proposed/unresolved hills**. Its planned insertion
 hash/argv work is now the measured key/argument checkpoint above. Remaining
 value-only getOrInsert scope and static/repeated key hashing stay open; the
-opt-in four-chunk queue still needs measured native benefit.
+opt-in four-chunk queue does not establish a benefit in its first complete observation.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic

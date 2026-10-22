@@ -164,8 +164,13 @@ checks** and four real filtered inventories whose disjoint union is the exact
 **858-test** frozen CLI at `2cb9fc53d`. The real-inventory check ran no test bodies.
 The queue integration uses tiny fake libtests with an isolated cloud-launch stub;
 separate resource-policy controls check actual admission behavior. Extra chunks
-add process and inventory startups; memory/elapsed benefit is **unmeasured**.
-Keep the default until an idle, source-bound comparison supports changing it.
+add process and inventory startups. The [complete 858-body observation](verification-cli-queue-observation-20261022.json)
+takes **783.161s**, against the preceding two-chunk **757.216s**, with no failures
+or ignored tests and unchanged source during the run. The sampled group maximum
+is **31.45 GiB**, versus **32.00 GiB** while the earlier native CLI was alive.
+Largest sampled native-process RSS is 4.77 versus 5.26 GiB. These are distinct
+cache/file-page cohorts, not causal memory or speed evidence; no OOM occurred.
+Keep the default unchanged.
 
 ## Full Test262 measurement and publication
 
