@@ -6,22 +6,22 @@ it in a Rust application. WebAssembly is the sole output target.
 
 ## Benchmarks vs V8
 
-Measured on 2026-10-21 at compiler source `621ba89ca`. Medians of seven samples;
+Measured on 2026-10-22 at compiler source `865189051`. Medians of seven samples;
 all workload outputs checked against Node. V8 is faster in these measured cases.
 
 | Measurement | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start | 1,252.743 ms | 33.321 ms |
-| Cached start | 974.579 ms | 32.486 ms |
-| Execute: 10,000 integer steps | 7.261 ms | 2.420 ms |
-| Execute: 500 objects | 18.510 ms | 0.059 ms |
-| Execute: 8,192 retained objects | 1,458.465 ms | 4.230 ms |
+| Cold start | 1,354.242 ms | 39.741 ms |
+| Cached start | 955.276 ms | 35.109 ms |
+| Execute: 10,000 integer steps | 7.081 ms | 2.376 ms |
+| Execute: 500 objects | 17.072 ms | 0.057 ms |
+| Execute: 8,192 retained objects | 1,506.380 ms | 3.347 ms |
 
 | Peak process RSS | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start (median) | 384.22 MiB | 27.12 MiB |
-| Cached start (median) | 350.68 MiB | 27.12 MiB |
-| Retained-object run (one process) | 439.73 MiB | 53.21 MiB |
+| Cold start (median) | 382.81 MiB | 27.12 MiB |
+| Cached start (median) | 349.89 MiB | 27.12 MiB |
+| Retained-object run (one process) | 392.80 MiB | 53.12 MiB |
 
 AMD EPYC 9V74; 32 GiB memory limit; four-CPU cloud quota. Both runtimes pinned
 to one CPU. Wasmtime 47.0.0; Node 24.19.0 / V8 13.6.233.17-node.51.
@@ -33,9 +33,10 @@ ten warmups. Process RSS includes host/runtime overhead; the retained-object
 peak also includes compilation and warmups. It is not JavaScript heap usage.
 The Rust compiler uses `release`; generated program modules use Fast compilation.
 NativeHost and Portable have separate matching optimized runtime images.
-The new batch improves measured execution, but adds about 116 MiB to the
-executable; a paired startup check measured about 58 ms cold / 22 ms cached
-overhead. These small workloads are a local baseline.
+Portable native-image storage is compressed, and decoded load buffers are
+transient. The CLI is 479.10 MiB, 57.12 MiB smaller than the preceding verified
+batch. These small workloads are a local baseline; short timing differences
+overlap across paired controls.
 [Methodology, raw evidence and reproduction](docs/rust-rewrite/v8-baseline.md).
 The [performance tooling](docs/rust-rewrite/v8-baseline.md#current-performance-and-memory-tooling)
 also records memory, runtime phases and code size, with selected-workload and
@@ -58,6 +59,9 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 **All four remain counted as failures.** Upstream tracking does not change their results.
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
+The **2026-10-22 performance batch** passes **3,567 native tests** across seven
+affected targets. Its expanded **9,207-execution Test262 replay is running**.
+[Source-bound performance verification](docs/rust-rewrite/v8-baseline.md#second-execution-batch--published-2026-10-22).
 The chart below reconciles that full baseline with the exact original-failure
 replay and an audited standalone Wasm scope split. A fresh full run of the
 repaired compiler is still pending.

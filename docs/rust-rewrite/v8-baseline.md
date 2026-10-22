@@ -1,5 +1,72 @@
 # Local Wasmtime versus V8 baseline
 
+## Second execution batch — published 2026-10-22
+
+Measured compiler: `86518905134e401bd9533697e1d93007558e54cf`, product source
+fingerprint `7e96c784036365a6f8f7da1a84bcbdb841e17feb847ceda76800714cc8e93266`.
+The [README table](../../README.md#benchmarks-vs-v8) now uses this source's
+seven-sample, ten-warmup Wasmtime/V8 report. The
+[portable evidence](performance-second-wave-20261022.json) retains complete
+ordinary reports, the 61-case corpus, paired controls, rejected variants,
+Cargo producers, native acceptance and host profiles. Assets retain the verified
+gzip+base64 format described below; executable images, archives and private
+caches are excluded.
+
+Native acceptance is **3,567 passed / 0 failed / 0 ignored** across AOT library
+444, engine library 974, builtins 541, language 324, realm/modules 428, CLI 853
+and runtime-image library 3. All ignored controls were explicitly enabled.
+The two checkpoint receipts have identical source maps and unchanged source;
+product/test raw, native, compressed and manifest image bytes match. This is
+scoped default-feature verification, not full-workspace/all-feature acceptance.
+Ten compiled semantic fixture families and all 61 ordinary corpus cases pass.
+The final-source **9,207-execution Test262 replay is running**. The intermediate
+F replay's 1,634 Success / 4 Bug is retained as history, not final-source truth.
+The README conformance graph still describes its existing reconciled checkpoints.
+
+The kept batch shares immutable empty private storage, shortens concrete array
+length and normal-call completion paths, bulk-copies repeat/pad/partial slices,
+reuses full Strings, and shares identical-operand descriptor snapshots. Binding
+payload flattening, signed-range conversion and runtime Number-tag branches
+were rejected and removed. Layout remains 15. Paired short controls overlap:
+F→final cohort medians are integer 7.775→7.667 ms, objects 19.384→17.732 ms and
+retained rows 1,506.528→1,469.976 ms. These descriptive diagnostics use a separate
+cohort from the README; they do not establish isolated per-change contributions.
+
+Here C denotes `621ba89ca` and F denotes `a5b4a6c5d`.
+The preceding C→F ABBA string controls establish the larger changes: repeat
+169.226→19.993 ms, padEnd 4.460→1.498 ms, trimStart 24.120→1.617 ms, trimEnd
+24.129→1.390 ms, full slice 6.691→1.475 ms and partial slice 6.860→2.618 ms.
+The final ordinary corpus records 23.834 / 1.847 / 1.472 / 1.600 / 1.384 / 2.352 ms
+for those cases. These are separate source-bound cohorts; do not multiply ratios
+or call them a direct C→final paired effect. Final repeat/partial-slice observations
+are slower than the matching F ordinary report. No universal speedup is claimed.
+
+Portable native storage now occupies **21,713,669 bytes**, decoding to
+**80,992,360 bytes**. NativeHost/raw package bytes and independent manifest,
+digest and actual destination-Engine checks remain required. A weak lease shares
+concurrent loads and releases decoded storage after Wasmtime copies it into its
+own Module mapping. Final CLI size is **502,376,224 bytes**, **57.12 MiB smaller**
+than the preceding accepted batch's 562,274,800 bytes.
+
+The retained-row run records median invocation process RSS **373.68 MiB** and a
+separate whole-child high-water peak **392.80 MiB** (one observation). The preceding
+accepted report recorded 439.91 / 439.73 MiB; F's retained decoded buffer recorded
+454.86 / 454.66 MiB. These are combined-batch process measurements with different
+boundaries, including runtime/caches and, for the whole child, compilation and
+warmups. They are not live JS heap sizes. GC capacity remains 64 MiB. V8's final
+invocation RSS endpoint is 49.38 MiB; its whole-child peak is 53.12 MiB. Those
+boundaries must not be merged into one heap comparison.
+
+Four separately instrumented cached CLI profiles attribute **64.38–74.32%** of
+65–74 user CPU samples per child to SHA-256, with no lost samples. Full loaded
+executable binding currently hashes approximately 500 MB once per fresh process.
+This is whole-child host attribution, not ordinary startup timing or a JS-span
+profile. A separately labelled debug-stripped copy is prepared, with allocated
+ELF code/data equality and distinct full executable identity verified. Its paired
+startup timing is pending while correctness work runs. Ordinary producer/hash
+checks and compiler-bound cache identity remain intact.
+
+
 ## First execution batch — published 2026-10-22
 
 Measured compiler: `621ba89ca04a3522192b97afdd2c9fae617009a7`, product source

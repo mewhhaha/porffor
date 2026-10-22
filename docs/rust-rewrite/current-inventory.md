@@ -33,22 +33,28 @@ record 2,687 passing ordinary native tests and a 186-execution Test262 replay:
 182 Success / the same four Bug results. This is not a fresh full Test262 or
 all-feature workspace checkpoint; published conformance counts are unchanged.
 
-The next performance candidate is not yet an accepted checkpoint. Its preceding
-intermediate experiment replayed 1,638 exact original/affected executions:
-1,634 Success and the same four Bug results, with no crashes/unimplemented cases.
-Its 3,135-pass native run also had a stale global-count assertion and a rejected
-source-stability guard. Both causes are corrected. A subsequent layout-16
-binding experiment did not establish a closure benefit and is removed; its
-numeric/object controls also regressed. The narrowed layout-15 numeric,
-descriptor-snapshot and transient-image candidate requires a fresh build,
-measurements and verification. No accepted baseline/conformance counts change
-from those provisional runs.
+The [second performance batch](v8-baseline.md#second-execution-batch--published-2026-10-22)
+is accepted at `865189051` for the measured corpus and **3,567 scoped native
+tests**, with zero failures/ignored tests and unchanged source. Product and test
+runtime image bytes match. It retains shared immutable empty storage, bulk
+repeat/pad/trim/slice operations, shorter array-length/normal-call routes,
+identical-operand descriptor snapshots and transient decoded Portable images.
+The CLI shrinks by 57.12 MiB against the preceding accepted batch; retained-row
+invocation process RSS is 373.68 MiB and the separate whole-child peak is
+392.80 MiB. These are process measurements, not live GC bytes. The README now
+uses the new seven-sample Wasmtime/V8 report.
 
-Tighter controls also reject the `232824a91` numeric branch experiments; both
-are removed while their fixtures/results remain. The next candidate keeps the
-original numeric paths and current layout 15. Startup host sampling identifies
-SHA-256 as roughly 64–74% of sampled user CPU, making hashing/phase attribution
-the next measured setup opportunity without weakening integrity admission.
+Its **9,207-execution Test262 replay is running**. The intermediate F experiment's
+1,634 Success / 4 Bug replay is historical; neither that nor partial final results
+refresh the full-suite graph. Rejected layout-16 binding and numeric-branch
+experiments remain removed, with their evidence retained. Layout remains 15 and
+bindings retain immutable StoredValue snapshots. Performance work remains open.
+
+Startup host sampling identifies SHA-256 as roughly 64–74% of sampled user CPU.
+A separately identified debug-stripped copy is prepared with allocated ELF
+sections verified equal, full executable hashing preserved and separate caches;
+its paired timing waits for correctness work to finish. No ordinary default
+compiler-policy or integrity-admission change follows from that preparation.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic

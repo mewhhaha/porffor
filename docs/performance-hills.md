@@ -16,6 +16,9 @@ Its ordinary native checkpoint passes **2,687 tests**. The 186-execution origina
 Test262 replay returns **182 Success / 4 Bug**, preserving the four tracked
 upstream failures. No fresh full-suite conformance claim is made.
 
+In paired evidence below, C is the first accepted `621ba89ca` batch, F is the
+intermediate `a5b4a6c5d` experiment, and final is `865189051`.
+
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
 | P040 | **Rejected: no reliable gain** in the old unoptimized Portable/Fast cohort | The read-heavy row case rose 168.957 → 181.914 ms; ABBA controls also failed to establish a gain. Implementation removed, semantic fixtures and raw failed attempts retained. A different optimized-R cohort would require a new measured hypothesis. |
@@ -27,6 +30,15 @@ upstream failures. No fresh full-suite conformance claim is made.
 | P067 | **Rejected: inline binding payload experiment; broader access work remains** | Candidate `35fa9b048` did not establish a closure gain against `a5b4a6c5d`: paired round medians were 105.404 → 105.770 ms for captured reads, 109.845 → 113.622 ms for captured updates and 951.665 → 938.452 ms for closure construction, with overlapping rounds. The layout change is removed. Existing immutable StoredValue snapshots and layout 15 remain; resolved depth/handle caching is still open. |
 | P058 | **Rejected: signed-range branch experiment** | Broad conversion and then bitwise-only variants did not establish a reliable gain across the controls. The tighter case-wise ABBAABBA check retained an integer/imul regression. Original exact modulo lowering is restored, with edge/coercion fixtures and all raw observations retained. A different specialization needs a new hypothesis. |
 | P061 | **Rejected: runtime Number-tag branch experiment; proven scalar work remains** | Global numeric updates improved, but the combined numeric experiments regressed ordinary integer/imul controls. Both branch experiments are removed; this does not attribute that loss to P061 alone. Retain conversion-order fixtures and investigate raw-value proofs with P056/P057 rather than assuming the IR's ToNumeric result kind proves the input tag. |
+| P016 / P078 | **Implemented and verified; latency contribution not isolated** | Four immutable zero-length GC-array globals replace per-object empty private arrays; syntax-empty argv shares only immutable empty storage. Fresh object/storage/prototype records and mutable JS argument/array state remain independent. Final semantic controls and all 3,567 scoped native tests pass. Scaled no-argument-call rounds overlap; no isolated speed claim. |
+| P018 | **Kept a narrower allocation reduction** | Getter/setter snapshots share one immutable StoredValue only for the same compiler operand, including the common absent-accessor value. Public descriptors remain fresh and independently replaceable. Reflection, accessor replacement, freeze, GC-root and delete/reinsert controls pass. Broader descriptor representation work remains open; paired object results cover the combined batch. |
+| P041 | **Shorter route retained; throughput gain inconclusive** | Concrete Array length is read before generic descriptor dispatch, with proxy/exotic fallback preserved. Small and scaled length controls overlap; semantic controls and native acceptance pass. |
+| P079 | **Implemented and verified; latency contribution not isolated** | Normal indirect calls copy the expression value; throws preserve the full completion. Declaration/statement completion, catch/finally and no-argument controls pass. |
+| P093 / P094 | **Verified bulk-copy improvements** | Repeat doubles an existing UTF-16 seed; padding copies receiver/filler spans without intermediate strings. C→F paired repeat/padEnd round medians fall 169.226→19.993 ms and 4.460→1.498 ms. Final-source 61-case controls retain these paths and record 23.834 / 1.847 ms in their separate ordinary cohort. |
+| P096 / P099 | **Verified bulk-copy and reuse improvements** | Edge-specific trim scans and full-span String reuse avoid unnecessary copying; partial slices own exact-size backing. C→F paired trimStart/trimEnd/whole-slice/partial-slice medians are 24.120→1.617, 24.129→1.390, 6.691→1.475 and 6.860→2.618 ms. Final ordinary medians are 1.472 / 1.600 / 1.384 / 2.352 ms; these separate cohorts are not a direct final-source paired effect. |
+| P132 / P133 / P149 | **Measured component improvement; broader hills remain open** | Compressed Portable storage plus transient decoded leases reduce final CLI size by 57.12 MiB against the preceding accepted batch. Retained-row invocation RSS is 373.68 MiB (preceding accepted report: 439.91); whole-child peaks are 392.80 / 439.73 MiB. These distinct process boundaries are not live-GC bytes or isolated per-change attribution. Independent manifest/digest/Engine admission remains mandatory. |
+| P154 | **Diagnostic implemented; policy decision open** | Explicit Fast/SizeOptimized cohorts report requested/actual modes, compile/emission spans, native cache outcomes, code size, checksums and memory. Forced Fast does not silently retry another policy. Two-mode/two-execution SDK controls pass. Existing diagnostic results show no universal default-policy winner; first module phases still combine R admission and P compilation. |
+| P066 | **Superseded by existing resolved-local facts** | BindingStorage already selects retained locals or emitted slot/hop pairs. Dynamic EnvironmentIdentifier/with/global resolution remains required. P067's broader parent/cell-access work stays open. |
 
 The deterministic 43-case attribution corpus covers construction, retained-row
 read-pass scaling, call, string, collection and Intl controls. Read-pass scaling
@@ -36,92 +48,58 @@ order, ABBA diagnostics and failed attempts are retained. P001–P005 remain ope
 until the broader attribution and representative-workload decisions are made.
 The other hills remain Proposed unless a linked decision below states otherwise.
 
-The next coherent experiment batch is **unverified**: shared immutable
-zero-length private storage and syntax-empty argument vectors (P016/P078),
-concrete Array length before descriptor lookup
-(P041), abrupt-only indirect-call completion copying (P079), bulk repeat/pad
-UTF-16 copying (P093/P094), and
-edge-specific trim/full-span String reuse with bulk partial copies (P096/P099).
-Partial strings own exact-size backing; shared empty arrays expose no mutable
-JS identity. Layout 15 added these globals. Binding cells retain their immutable
-StoredValue snapshots. Earlier R/P packages and cache keys remain inadmissible;
-the rejected layout-16 experiment is also outside current layout admission.
-Six semantic fixture families, completion controls and typed global-constant
-controls accompany the batch; measurements and native verification decide
-which candidates remain. No performance gain is claimed for this batch yet.
+The second batch is published on **2026-10-22** at source
+`86518905134e401bd9533697e1d93007558e54cf`, with
+[source-bound receipts](rust-rewrite/performance-second-wave-20261022.json) and
+[measurement boundaries](rust-rewrite/v8-baseline.md#second-execution-batch--published-2026-10-22).
+Its frozen-source native checkpoint passes **3,567 tests** across seven affected
+targets, including all ignored controls. The final 61-case corpus and ten compiled
+semantic fixture families pass. The expanded **9,207-execution Test262 replay is
+running**; neither partial results nor the historical full-suite counts establish
+fresh full-suite acceptance.
 
-The refinement also experiments with compressed **Portable native-image storage**
-to reduce the P153 executable cost. NativeHost and raw Portable package bytes stay
-unchanged. Cargo round-trips exact decoded native bytes; a bounded decoder checks
-length/hash and derives an immutable decoded-byte lease. A private weak cache
-shares overlapping loads; the final lease releases the buffer after Wasmtime
-copies it into the destination Module. Independent
-v4 manifest admission and destination-Engine deserialization remain mandatory.
-Package-only emission does not decode native storage. Two standalone codec tests
-pass, including rejection of an oversized frame window; this is not yet a product
-timing, memory or full native result. Decompression CPU/residency must be measured,
-not described as a memory saving. This is adjacent P132/P133/P149 evidence, not
-automatic completion of those broader hills.
+The accepted code keeps layout **15**, immutable StoredValue binding snapshots,
+shared empty private arrays, bulk String operations and the narrower descriptor
+snapshot optimization. The layout-16 binding experiment and both numeric branch
+experiments are removed. All raw rejected variants and controls remain in the
+portable receipts. The 160-item backlog remains in progress.
 
-The next candidate retains explicit forced native-policy diagnostic cohorts
-(P154), but removes both numeric branch experiments. The IR's Number
-update kind describes ToNumeric's result domain; it does not permit skipping
-String/Boolean/Symbol conversion. Forced Fast cohorts fail rather than silently
-retry SizeOptimized; ordinary dispatch is unchanged. The original exact modulo
-and numeric-update conversion paths remain authoritative. The narrowed
-`232824a91` candidate also failed the tighter timing controls, so it is not an
-accepted performance checkpoint. No per-experiment loss attribution is claimed.
-Shared StoredValue snapshots remain immutable, with TDZ/const/import-alias
-ownership unchanged. The new P018 allocation experiment shares a snapshot only
-when getter and setter are the **same compiler operand**, avoiding a duplicate
-absent-accessor allocation without runtime equality or a new GC layout.
+The intermediate `a5b4a6c5d` replay returned **1,634 Success / 4 Bug / 0 Crash /
+0 NotImplemented**. Its native run had 3,135 passes and a stale global-count
+assertion; an accidentally copied untracked scratch example also invalidated its
+source freeze. Both diagnoses and the rejected receipt are retained. Final
+acceptance uses new matching source maps and fixes that assertion. The subsequent
+`35fa9b048` and `232824a91` products passed their focused semantic/corpus controls
+but failed the tighter performance controls. They are diagnostic history.
 
-The intermediate `a5b4a6c5d` experiment measured strong repeat/pad/trim/slice gains
-and smaller executables. Its exact 1,638-case replay returned **1,634 Success /
-4 Bug / 0 Crash / 0 NotImplemented**, the same four original failures. Its native
-run returned 3,135 passes and one stale global-count assertion (17 versus 21).
-That assertion is corrected in the candidate. The checkpoint also rejected an
-accidentally copied untracked scratch example; the file was removed and the
-rejected receipt retained. This is **not** a frozen-source acceptance checkpoint.
-A fresh product build, measurements and native/replay checkpoint remain required.
+Compressed Portable storage preserves raw package bytes, NativeHost storage and
+v4 manifest admission. A bounded decoder validates framing, length, window and
+hash before publishing an immutable lease. A weak cache shares overlapping loads
+without retaining a decoded buffer after Wasmtime copies it into an Engine-owned
+Module. Package-only emission does not decode the native image. Codec,
+concurrent ownership, independent native-digest and actual Engine-admission
+controls pass; product/test image files are byte-identical.
 
-The frozen `35fa9b048` product passes nine compiled semantic fixture families
-and the 61-case ordinary measurement corpus. Releasing transient Portable native
-bytes lowers median sampled retained-row invocation RSS from 454.86 to
-376.79 MiB against the preceding compressed-storage experiment; these are
-process RSS samples, not live GC bytes. Its ordinary paired integer/object
-controls regress, so it is **not accepted** as a performance checkpoint.
-The next candidate removes the unhelpful binding layout and both numeric
-branch changes before broad native verification. All raw observations
-and rejected experiments remain retained.
+F→final case-wise ABBAABBA integer/object controls give cohort medians
+7.775→7.667 ms and 19.384→17.732 ms; ABBA retained rows give
+1,506.528→1,469.976 ms. These are medians of invocation medians, with overlapping
+rounds and no significance claim. The ordinary README run is a separate V8
+comparison. Repeat and partial-slice final ordinary observations are slower than
+F's corresponding report; every raw observation is retained rather than calling
+all workloads improved.
 
-Its explicit P-policy ABBA cohort also finds no universal default-policy win:
-Fast → SizeOptimized round medians are 8.618 → 7.088 ms (integer),
-18.266 → 19.077 ms (small objects), 1,544.402 → 1,463.607 ms (retained rows),
-14.805 → 9.728 ms (bitwise loop), and 111.862 → 86.856 ms (captured updates).
-These same-source, fresh-Store cohorts are separate from V8 scores. First-load
-module phases include runtime admission and program compilation together; they
-are not an isolated program-codegen cost or a complete P154 break-even decision.
-The product default remains Fast. More representative cases and phase evidence
-are required before selecting a different default.
+Four instrumented cached-CLI profiles of `a5b4a6c5d`/`232824a91` identify SHA-256
+as **64.38–74.32% of user CPU samples**, with 65–74 samples per child and zero
+lost samples. This is whole-child host attribution. P131/P132/P152 remain open
+for finer phase/byte accounting. A debug-stripped diagnostic copy is prepared:
+502,376,224→289,166,424 bytes, with every allocated ELF section verified equal.
+It retains full executable hashing, a distinct executable identity and separate
+application caches; timing waits for the correctness replay to finish.
 
-Four separately instrumented cached-CLI profiles of `a5b4a6c5d`/`232824a91`
-identify SHA-256 as **64.38–74.32% of user CPU samples**, with 65–74 samples per
-child and zero lost samples. This is whole-child host attribution, not JS-span
-timing or an ordinary startup score. P131/P132/P152 should investigate the
-executable/image hashing and its placement before changing integrity checks.
-The tight controls also expose substantial cloud timing variation; small
-median differences are inconclusive and do not justify a shipped speed claim.
-
-P066's narrow resolved-local question is **Superseded by existing BindingStorage
-facts**: identifiers already select retained locals or emitted slot/hop pairs.
-Dynamic EnvironmentIdentifier/with/global resolution remains required. P067
-still pays repeated parent/cell access; payload flattening does not eliminate it.
-
-Its verification tooling removes Cargo-lock acquisition when incremental
-cleanup has nothing to delete; real deletion still locks and re-discovers the
-candidates. The fake Test262 CLI subset keeps all 187 verdict checks but reuses
-bounded case workers with a fresh execution realm and explicit deadlines.
+Verification tooling also avoids taking Cargo's incremental-cleanup lock when
+there is nothing to delete. Actual deletion still locks and re-discovers its
+candidates. The fake Test262 CLI subset keeps all 187 verdict checks while
+reusing bounded workers with fresh execution realms and explicit deadlines.
 
 ## Starting evidence
 
