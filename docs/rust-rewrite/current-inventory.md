@@ -8,7 +8,42 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
-Latest acceptance source: **`37ab9fa44`**, with [4924 portable evidence files](performance-prepared-numeric-20261022.json).
+Latest affected native checkpoint: **`b9ecfe64b`**, with
+[portable observations and exact source boundaries](performance-hot-reads-20261022.json).
+Seven complete runtime targets pass **3,576 tests**. The full structural target
+then passes **166/166** after repairing one stale assertion about trim-policy
+visibility, giving **3,742 native passes / zero failures / zero ignored** across
+eight disjoint targets. The original 165/166 failure remains in the evidence.
+Production compiler inputs are unchanged by the test/doc/tool repair; all
+seventeen compiled semantic families and seven independent product/test runtime
+identities pass. These are affected scopes, not a default/all-feature sweep.
+
+The README now uses the source50 ordinary Wasmtime/V8 report: cold/cached startup
+1,084.901/801.288 ms, integer 6.505 ms, objects 15.040 ms and retained rows
+1,287.305 ms. V8 is faster in each workload. Paired source48→50 confirmation
+gives indexed reads 173.015→152.961 ms, charAt/at 43.131→41.011 ms, single-unit
+strings 77.580→74.219 ms and ASCII iteration 15.740→14.845 ms. Initial slower
+cohorts and overlapping integer/Unicode rechecks remain; no isolated or
+statistical gain is claimed. Startup is roughly flat. Layout15 and the existing helper ABI stay.
+
+The new source-only early check runs **143 guards in about five seconds**,
+without Cargo's compiler dependency graph. Six tooling controls pass; all four
+typed IR/Wasm modules remain in the mandatory complete Cargo structural target.
+Tracked `.cargo/config.toml` is restored and checked before that diagnostic:
+its accidental sparse-checkout absence had forked dependency fingerprints.
+The focused Cargo recheck explicitly retains empty encoded Rustflags to reuse
+the unchanged preceding dependency cohort; subsequent default builds use the
+restored config. [Commands and limits](batch-workflow.md#fast-source-only-guards).
+
+Fresh full Test262 publication is next; chart counts and the four tracked Bug
+results remain bound to earlier completed evidence until it finishes. Hill
+counts stay **21 terminal / eight partial / 131 unresolved**. A historical
+availability audit also finds twenty `/dev/shm` archive paths absent here;
+their old binaries are no longer claimed restorable. Current binaries/runtime
+payloads are verified, and observations, inventories and scripts are committed
+losslessly. Do not use shared memory as persistent history storage.
+
+Previous numeric/collection acceptance source: **`37ab9fa44`**, with [4924 portable evidence files](performance-prepared-numeric-20261022.json).
 The [numeric/collection checkpoint](v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22)
 passes **3,575 release native tests / 0 failed / 0 ignored** across seven complete
 affected targets, twelve compiled semantic families and dynamic-call controls.
@@ -17,10 +52,10 @@ The **3,235 original affected Test262 executions** give **3,231 Success / 4 Bug 
 0 Crash / 0 NotImplemented**, exactly the same tracked failures at original budgets.
 Full-suite, default/all-feature acceptance and chart counts remain unchanged.
 
-Measurements remain bound to **`bf681edcb`**. Current acceptance removes only one
+That checkpoint's measurements remain bound to **`bf681edcb`**. Its acceptance removes only one
 optional Rust annotation; all 21 emitted P modules match exactly, R native bytes
 and keys match, and authenticated source/package framing is checked explicitly.
-The README uses the measured source 47 ordinary V8 report. Compared with
+Its former README table used the measured source47 ordinary V8 report. Compared with
 diagnostic45's separate ordinary report, cold startup and retained rows are
 slower; cached startup, integer and object medians are lower;
 these separate cohorts are not causal comparisons.

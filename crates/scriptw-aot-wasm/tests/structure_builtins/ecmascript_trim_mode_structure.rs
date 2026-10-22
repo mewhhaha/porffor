@@ -1,5 +1,6 @@
 //! Protect the closed TrimString policy, rather than retired byte transports.
 const OPERATIONS_SOURCE: &str = include_str!("../../src/operations.rs");
+const STRING_BUILTINS_SOURCE: &str = include_str!("../../src/builtins/string.rs");
 const STRING_TRIM_SOURCE: &str = include_str!("../../src/operations/string_trim.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -17,17 +18,35 @@ fn compact(source: &str) -> String {
 }
 
 #[test]
-fn ecmascript_trim_mode_is_private_closed_and_exhaustive() {
+fn ecmascript_trim_mode_is_crate_internal_and_closed() {
     assert_eq!(OPERATIONS_SOURCE.matches("mod string_trim;").count(), 1);
     assert!(!OPERATIONS_SOURCE.contains("pub mod string_trim;"));
     assert!(!OPERATIONS_SOURCE.contains("pub(crate) mod string_trim;"));
     assert!(!OPERATIONS_SOURCE.contains("enum EcmaTrimMode"));
     assert_eq!(
-        compact(bounded(STRING_TRIM_SOURCE, "\nenum EcmaTrimMode {", "\n}")),
+        OPERATIONS_SOURCE
+            .matches("pub(crate) use string_trim::EcmaTrimMode;")
+            .count(),
+        1
+    );
+    assert!(!OPERATIONS_SOURCE.contains("pub use string_trim::EcmaTrimMode;"));
+    assert!(
+        STRING_BUILTINS_SOURCE
+            .contains("use crate::operations::EcmaTrimMode as StringTrimOperation;")
+    );
+    assert!(!STRING_BUILTINS_SOURCE.contains("enum StringTrimOperation"));
+    assert_eq!(
+        compact(bounded(
+            STRING_TRIM_SOURCE,
+            "\npub(crate) enum EcmaTrimMode {",
+            "\n}"
+        )),
         "Start,End,Both,"
     );
-    for visibility in ["pub", "pub(crate)", "pub(super)"] {
+    for visibility in ["pub", "pub(super)"] {
         assert!(!STRING_TRIM_SOURCE.contains(&format!("{visibility} enum EcmaTrimMode")));
+    }
+    for visibility in ["pub", "pub(crate)", "pub(super)"] {
         assert!(!STRING_TRIM_SOURCE.contains(&format!(
             "{visibility} fn emit_ecmascript_trim_payload_from_locals"
         )));

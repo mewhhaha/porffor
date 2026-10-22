@@ -6,22 +6,22 @@ it in a Rust application. WebAssembly is the sole output target.
 
 ## Benchmarks vs V8
 
-Measured on 2026-10-22 at compiler source `bf681edcb`. Medians of seven samples;
+Measured on 2026-10-22 at compiler source `b9ecfe64b`. Medians of seven samples;
 all workload outputs checked against Node. V8 is faster in these measured cases.
 
 | Measurement | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start | 1,166.159 ms | 36.183 ms |
-| Cached start | 799.041 ms | 37.008 ms |
-| Execute: 10,000 integer steps | 6.004 ms | 2.571 ms |
-| Execute: 500 objects | 16.802 ms | 0.067 ms |
-| Execute: 8,192 retained objects | 1,495.307 ms | 5.197 ms |
+| Cold start | 1,084.901 ms | 32.679 ms |
+| Cached start | 801.288 ms | 37.437 ms |
+| Execute: 10,000 integer steps | 6.505 ms | 2.493 ms |
+| Execute: 500 objects | 15.040 ms | 0.064 ms |
+| Execute: 8,192 retained objects | 1,287.305 ms | 3.357 ms |
 
 | Peak process RSS | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start (median) | 382.72 MiB | 27.12 MiB |
-| Cached start (median) | 349.93 MiB | 27.12 MiB |
-| Retained-object run (one process) | 392.79 MiB | 52.85 MiB |
+| Cold start (median) | 383.04 MiB | 27.12 MiB |
+| Cached start (median) | 349.78 MiB | 27.12 MiB |
+| Retained-object run (one process) | 392.80 MiB | 52.88 MiB |
 
 AMD EPYC 9V74; 32 GiB memory limit; four-CPU cloud quota. Both runtimes pinned
 to one CPU. Wasmtime 47.0.0; Node 24.19.0 / V8 13.6.233.17-node.51.
@@ -35,7 +35,7 @@ includes compilation and warmups. It is not JavaScript heap usage.
 The Rust compiler uses `release`; generated program modules use Fast compilation.
 NativeHost and Portable have separate matching optimized runtime images.
 Portable native-image storage is compressed, and decoded load buffers are
-transient. The measured CLI is 277.07 MiB, with Rust debug information stripped.
+transient. The measured CLI is 277.10 MiB, with Rust debug information stripped.
 These small workloads are a local baseline; short timing differences overlap
 across paired controls.
 [Methodology, raw evidence and reproduction](docs/rust-rewrite/v8-baseline.md).
@@ -61,14 +61,15 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 **All four remain counted as failures.** Upstream tracking does not change their results.
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
-The **2026-10-22 numeric/collection checkpoint** (`37ab9fa44`) passes
-**3,575 native tests** across seven affected targets and twelve compiled semantic
-families. Its **3,235-case original Test262 replay gives 3,231 passed / 4 failed**,
-with the same tracked failures, zero crashes and zero unimplemented cases.
-Benchmarks above were measured at `bf681edcb`; current acceptance removes one
-optional Rust annotation and verifies all 21 workload Wasm modules byte for byte.
-[Source-bound evidence](docs/rust-rewrite/performance-prepared-numeric-20261022.json)
-· [Measured gains and tradeoffs](docs/rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22).
+The **2026-10-22 hot-read checkpoint** (`b9ecfe64b`) passes **3,742 native
+tests** across eight affected targets and seventeen compiled semantic families.
+This combines seven passing runtime targets with the complete structural target
+rerun after correcting a stale trim-visibility assertion; production code is
+unchanged by that repair. The previous numeric/collection checkpoint's
+**3,235-case Test262 replay gave 3,231 passed / 4 failed**, with zero crashes or
+unimplemented cases. A fresh full-suite run is the next acceptance step.
+[Source-bound evidence](docs/rust-rewrite/performance-hot-reads-20261022.json)
+· [Measured gains and limits](docs/rust-rewrite/v8-baseline.md#hot-read-checkpoint--published-2026-10-22).
 Earlier wider native and Test262 results remain bound to their original sources.
 These affected checks do not replace a fresh full-suite campaign.
 The chart below reconciles the complete 2026-10-20 baseline with the exact

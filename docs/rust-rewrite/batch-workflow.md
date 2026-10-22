@@ -83,6 +83,38 @@ need separate temporary and workspace filesystems. Report skips explicitly.
 | Exact original Test262 cases | Semantic repairs and regression controls | Selected original executions |
 | Complete pinned Test262 family | Full measurement and publication | Only its exact compiler and pins |
 
+### Fast source-only guards
+
+Before compiling a changed emitter, run:
+
+```sh
+python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
+  python3 -B scripts/check-source-guards.py
+python3 -B scripts/tests/test_source_guard_runner.py
+```
+
+The first command compiles an independent Rust test harness with no Cargo
+dependency graph. It reads the actual structural target's module list, runs
+55 complete source-only modules (143 tests), and reports the four complete
+typed IR/Wasm modules deferred to Cargo. On this cloud checkout, compilation
+took 3.471s and execution 1.46s. This is a diagnostic timing, not a product
+benchmark or a substitute for the complete 166-test Cargo target. The original
+stale trim assertion was reproduced before repair; both attempts remain in
+[the checkpoint evidence](performance-hot-reads-20261022.json).
+
+The runner rejects missing tracked `.cargo/config.toml`, unclassified target
+declarations, empty/duplicate inventories, missing module coverage and a zero
+exit code that does not execute the exact inventory. Set `CARGO_MANIFEST_DIR`
+for both compile and execution, as the script does. A sparse checkout missing
+the tracked Cargo config changes Rustflags and can recompile the entire
+dependency graph; restore it before normal builds. Any intentional Rustflags
+override belongs in its recorded build cohort.
+
+Keep persistent evidence under the workspace or a durable archive. `/dev/shm`
+is scratch: historical archive paths placed there are absent in the current
+environment, despite their earlier SHA verification. The committed portable
+bundle retains observations and inventories, not those old executable bytes.
+
 On this cloud machine, the 2026-10-21 maintenance batch measured 653 tooling
 checks at 172.214 seconds and 107 publication/entry-point checks at 63.414
 seconds, under the serial cloud wrapper with `TMPDIR=/tmp`. The two additional

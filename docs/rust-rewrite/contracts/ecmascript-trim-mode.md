@@ -1,27 +1,34 @@
 # ECMAScript trim mode
 
-## Current atomic GC source — 2026-10-05
+## Current GC source — 2026-10-22
 
-The private `EcmaTrimMode::{Start, End, Both}` remains the sole trim policy in
-`operations/string_trim.rs`, with three named wrappers for its private core.
-The actual String scans now read GC UTF-16 units and consume the shared
-`emit_ecmascript_whitespace_i32` authority in `operations.rs`. The same complete
-25-code-unit ECMAScript domain supplies leading whitespace for NativeHost's
-parseInt and parseFloat. The old private UTF-8 byte table and inferred static
-String dispatch below have retired.
+`EcmaTrimMode::{Start, End, Both}` is the single crate-internal trim policy.
+The private `operations/string_trim.rs` module reexports that type through
+`operations`; String builtins import the same type as `StringTrimOperation`.
+This lets character scans and full-span String reuse share one policy without
+introducing a public Rust API or independent Boolean mode flags.
 
-The maintained `ecmascript_trim_mode_structure` guard protects the private
-closed policy, named wrappers and complete shared whitespace domain. Exact
-instruction/count/hash and duplicate installer mirrors are removed. Existing
-String/BigInt semantic sources remain; the current NativeHost UTF-16 parser
-cohort is authored and unrun. See [NativeHost GC values](native-host-gc-values.md).
+The private materializing core retains three named wrappers. The crate-internal
+`emit_gc_string_trim_range_mode` selects the necessary forward/backward scans
+and returns UTF-16 boundaries for the String builtins. A full-span result can
+reuse the immutable input String; a partial result copies its exact span.
+`Start` omits the backward scan, `End` omits the forward scan, and `Both` runs
+them in that order. The policy is chosen while emitting code; there is no Wasm
+mode word or per-character runtime mode dispatch.
 
-All source, types and controls for the atomic batch remain uncompiled and
-unexecuted. Final representation/helper/guard composition also remains pending.
-Earlier verification commands and results below retain their original source
-scope; they are historical records, not instructions to run during the full-task
-dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
-with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+The scans consume `emit_ecmascript_whitespace_i32` in `operations.rs` and its
+complete 25-code-unit ECMAScript whitespace domain. NativeHost numeric parsing
+and String-to-BigInt conversion retain that shared whitespace authority.
+The structural guard checks the single internal type/reexport, builtin alias,
+private materializing core, named wrappers and complete whitespace domain.
+Compiled semantic and performance evidence belongs to its recorded source:
+see the [bulk-string checkpoint](../v8-baseline.md#second-execution-batch--published-2026-10-22)
+and [current verification inventory](../current-inventory.md).
+
+The predecessor below describes the retired UTF-8 transport and narrower
+file-private policy. It remains historical evidence; current verification uses
+the [batch workflow](../batch-workflow.md), including the inherited finite
+memory cap on managed cloud machines.
 
 ## Historical predecessor record
 

@@ -1,5 +1,87 @@
 # Local Wasmtime versus V8 baseline
 
+## Hot-read checkpoint — published 2026-10-22
+
+Measured product source **`b9ecfe64bdac63e0553b8c38a178229056e38f73`**
+replaces floating-point ArrayIndex recognition with bounded decimal recognition,
+tests concrete Array indices before named-property headers, constructs one-unit
+charAt/at results directly, and bulk-copies string iterator outputs. Typed-array
+numeric-key classification stays separate. Layout15 and the existing helper ABI remain.
+[Raw results, initial failures, tools and identities](performance-hot-reads-20261022.json)
+are losslessly embedded in the portable checkpoint.
+
+Seven complete runtime targets pass **3,576 native tests**. The newly included
+structural target first gives 165 passes and one stale trim-visibility assertion:
+the accepted bulk-trim implementation shares one closed crate-internal mode,
+while the older guard still required file-private visibility. After updating
+the guard and its contract, the entire target passes **166/166**. This disjoint
+union is **3,742 passes / zero failures / zero ignored** across eight targets;
+production compiler inputs did not change for the repair. Seventeen real
+compiled semantic families pass, including canonical/noncanonical keys, String
+exotic descriptors, coercion/throws, UTF-16, iterator freshness and dynamic-call
+controls. Seven independently generated product/test runtime payloads match.
+This is affected native verification; fresh full Test262 publication follows.
+
+Paired confirmation uses source48 as the direct baseline, two observations per
+side in ABBA order, seven measured invocations after ten warmups per observation.
+Values below are medians of invocation medians; rounds overlap, and the combined
+batch does not establish isolated contributions or statistical significance.
+
+| Execution workload | Source48 | Source50 |
+| --- | ---: | ---: |
+| Concrete indexed reads | 173.015 ms | 152.961 ms |
+| Named Array reads | 75.750 ms | 75.683 ms |
+| Nonindex Array reads | 76.902 ms | 75.847 ms |
+| charAt / at | 43.131 ms | 41.011 ms |
+| Single-character String reads | 77.580 ms | 74.219 ms |
+| ASCII String iteration | 15.740 ms | 14.845 ms |
+| Unicode String iteration | 15.379 ms | 15.746 ms |
+| Integer baseline | 5.707 ms | 5.957 ms |
+| Object baseline | 18.854 ms | 15.579 ms |
+| Retained-row baseline | 1,443.129 ms | 1,327.993 ms |
+
+The original three-sample screen's slower integer, character and Unicode
+observations remain. A subsequent eight-round ABBAABBA recheck gives integer
+6.199→6.070 ms and Unicode 14.149→13.768 ms, both with overlapping rounds.
+Keep the initially slower confirmation values above; these rechecks establish
+no reliable integer/Unicode regression or gain. A separate 56-process startup
+ABBA gives application-cold 1,038.276→1,036.388 ms and cached
+745.742→761.709 ms, with overlapping rounds and roughly unchanged process RSS.
+All measured program outputs match stock Node or explicit proposal controls.
+
+The README's **separate ordinary report** uses the same source50 product, seven
+samples and ten warmups. Wasmtime/V8 medians are cold 1,084.901/32.679 ms,
+cached 801.288/37.437 ms, integer 6.505/2.493 ms, objects 15.040/0.064 ms,
+and retained rows 1,287.305/3.357 ms. Cold/cached Wasmtime child peak RSS is
+383.04/349.78 MiB; retained rows peak at 392.80 MiB across the whole child.
+The CLI is **290,559,896 bytes (277.10 MiB)**. V8 remains faster. OS caches
+are not flushed, and RSS includes compilation, runtime and warmups rather than
+isolated JavaScript heap memory. Separate ordinary cohorts are not causal
+comparisons against the old README table.
+
+The product build takes **9m37s**, including runtime-image regeneration; native
+runtime builders spend about 70.4s/72.4s inside their distinct profiles.
+Two AOT Rust units take 94.0s/67.7s and overlap other work; do not add these
+durations to total wall time. The first native attempt is storage-deferred;
+the second completes all runtime bodies. Its sampled whole-cgroup maximum is
+34,343,419,904 bytes, with zero OOM/OOM-kill events; it includes shared files and
+temporary storage and is neither process RSS nor JavaScript heap usage.
+
+The new [source-only diagnostic](batch-workflow.md#fast-source-only-guards)
+passes 143 guards in 3.471s compilation plus 1.46s execution, avoiding the Cargo
+dependency graph. Six runner controls pass, and the full166 Cargo target remains
+mandatory. Restoring missing tracked Cargo config prevents accidental Rustflags
+fingerprint forks. Native recheck intentionally retains the previous empty-flags
+cohort; future normal builds use the restored config.
+
+Twenty historical compressed archives relocated to `/dev/shm` are now absent
+in this execution environment. Their inventories and previous receipts remain,
+but missing historical binaries are not claimed restorable. Current products
+and runtime payloads are verified. Persistent evidence must not rely on shared
+memory; the committed bundle retains all selected raw observations and tools.
+Hill counts stay **21 terminal / eight partial / 131 unresolved** pending the
+broader campaign. No new full-suite or all-feature acceptance is claimed here.
+
 ## Rejected NativeHost storage experiment — 2026-10-22
 
 Source `f9f4efa9ee0b284ca0b26106d16fa718e586d75f` used the same bounded

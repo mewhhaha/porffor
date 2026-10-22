@@ -43,7 +43,8 @@ rechecks remain. Wider full-suite/default/all-feature acceptance stays open.
 
 Next coherent work:
 
-The next coherent hot-read batch is implemented with **acceptance pending**.
+The hot-read batch at **`b9ecfe64b`** has completed affected native verification;
+**fresh full Test262 acceptance remains pending**.
 It replaces the Array-index classifier's floating-point parse/string roundtrip
 with bounded ASCII decimal recognition (exact ArrayIndex domain), classifies
 concrete Array indices before named-header probes, builds charAt/at's already-read
@@ -52,8 +53,32 @@ validated one/two UTF-16 units without a per-unit loop. Typed-array numeric-key
 semantics remain separate. New semantic matrices cover canonical/noncanonical
 keys, String exotic descriptors, coercion/throws, UTF-16 and iterator freshness;
 seven checked Node-compatible workloads include named/nonindex regression controls.
-No new terminal decisions, speed claims or native/Test262 acceptance yet. Tools:
-`/tmp/scriptw-performance-batch22`; direct baseline remains frozen source48.
+Seven runtime targets pass 3,576 tests; the complete structural target passes
+166 after a stale trim-policy visibility assertion is repaired, with product
+inputs unchanged. Seventeen compiled semantic families and independent runtime
+identities pass. Paired indexed/character/ASCII-iterator medians improve, startup
+is roughly flat, and slower initial cohorts plus integer/Unicode rechecks remain.
+[Results and portable evidence](docs/rust-rewrite/performance-hot-reads-20261022.json).
+The README now uses source50's separate ordinary V8 comparison. Hill counts
+remain 21 terminal / eight partial / 131 unresolved until broader acceptance.
+
+The next step is one canonical full102994-execution campaign using
+`scripts/publish-real-status-low-ram.sh`, four case workers and original budgets.
+Use the frozen source50 product from an isolated checkout at
+`/workspace/scriptw-full-suite-20261022`; record its identity separately from
+that later test/doc/tool-only checkout. Keep that checkout's HEAD and source
+inputs unchanged for the campaign so implementation can continue independently
+in the development worktree. After it finishes, bind the graph's 429-case scope projection directly
+to that aggregate and its leaves, without replaying the suite. Preserve all four
+upstream Bugs as ordinary failures. Commands/watchers are in
+`/tmp/scriptw-performance-batch22`; raw results under the attribution target.
+
+The additive `scripts/check-source-guards.py` now passes 143 source-only checks
+in about five seconds, with six tooling controls; full Cargo166 remains required.
+Tracked Cargo config is restored. Do not use `/dev/shm` for persistent history:
+twenty relocated historical archives are absent in this environment. Current
+products and raw observations remain verified; missing old binaries are not
+restorable from the recorded paths. Availability audit is in the new bundle.
 
 The NativeHost compressed-storage experiment is **rejected**, with
 [raw evidence](docs/rust-rewrite/performance-nativehost-storage-rejected-20261022.json).
@@ -65,7 +90,9 @@ both exact decoded native digests are verified. A cached-dependency bulk-decoder
 screen overlaps the streaming costs. No native/Test262 acceptance ran for this
 rejected source. Its code is restored to accepted48; existing Portable storage
 compression remains. Do not revive the draft without a different measured
-hypothesis. Source48 frozen CLI/runner remain the next direct baseline.
+hypothesis. Source50 is the next direct baseline; source48 raw products had been
+archived and that shared-memory archive is now unavailable. Its raw measurements
+and identities remain in the committed evidence.
 
 1. Close remaining P020 ordinary define-own duplicate lookup/append hashing;
    retain the fresh-empty no-hash shortcut for rejected definitions. Also inspect

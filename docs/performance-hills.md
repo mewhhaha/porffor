@@ -9,6 +9,17 @@ a ceiling, not a reason to add low-value work.
 
 ## Progress ledger
 
+The [hot-read checkpoint](rust-rewrite/v8-baseline.md#hot-read-checkpoint--published-2026-10-22)
+at `b9ecfe64b` completes eight affected native targets: **3,742 passes**, including
+the complete structural target after its stale trim guard is repaired. Seventeen
+compiled semantic families pass. P025/P047 concrete index classification and
+P097/P098 character/iterator changes have lower paired medians; named/nonindex
+controls are roughly flat, and integer/Unicode rechecks overlap. Full Test262
+acceptance is next. These are partial measured contributions to broader hills:
+the ledger remains **21 terminal / eight partial / 131 unresolved**. All slower
+and failed initial observations remain in the portable evidence; startup is
+roughly flat. The README now uses source50's separate ordinary V8 comparison.
+
 The first verified execution batch is published on **2026-10-22** with
 [source-bound evidence](rust-rewrite/performance-first-wave-20261022.json) and
 [measurement boundaries](rust-rewrite/v8-baseline.md#first-execution-batch--published-2026-10-22).
