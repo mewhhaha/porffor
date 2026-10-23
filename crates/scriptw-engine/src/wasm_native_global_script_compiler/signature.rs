@@ -39,6 +39,7 @@ impl NativeGlobalScriptSignature {
         }
         let realm = struct_reference(realm, false, GcHostLayout::RealmRecord)?;
         let program = struct_reference(program, false, GcHostLayout::ProgramInstance)?;
+        checked_field(&string, GcHostField::StringRawKeyHash)?;
         let field = checked_field(&string, GcHostField::StringCodeUnits)?;
         let StorageType::ValType(ValType::Ref(units)) = field.element_type() else {
             return Err(abi_error("source String has no typed code-unit array"));

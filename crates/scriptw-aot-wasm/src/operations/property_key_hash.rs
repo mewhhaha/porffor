@@ -40,6 +40,14 @@ impl FunctionBuilder<'_> {
         f: &mut Function,
     ) {
         let s = self.runtime_schema();
+        // Published strings have immutable contents. Cache the raw hash only:
+        // property and collection callers still apply their own tag mixing.
+        s.field(StringValueSchema::RAW_KEY_HASH)
+            .read(text, s, f)
+            .store_i64(hash, f);
+        hash.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, f);
         let units = s.reserve_gc_local(f).initialize(
             s.field(StringValueSchema::CODE_UNITS)
                 .read(text, s, f)
@@ -80,10 +88,14 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         f.instruction(&Instruction::End);
+        s.field(StringValueSchema::RAW_KEY_HASH)
+            .write(text, GcOperand::i64_local(hash), s, f);
         s.release_i32_local(unit, f);
         s.release_i32_local(count, f);
         s.release_i32_local(index, f);
         units.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_symbol_key_hash(

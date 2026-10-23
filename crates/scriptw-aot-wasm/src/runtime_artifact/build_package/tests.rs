@@ -168,7 +168,7 @@ fn previous_layout_build_package_falls_back_and_current_real_runtime_package_adm
     let package = fixture();
     let identity = minimal_identity();
     let mut previous = package.package_bytes().to_vec();
-    let previous_version = 4u32;
+    let previous_version = 15u32;
     assert_ne!(LAYOUT_VERSION, previous_version);
     // Preserve the actual current R, source, profile and runtime key while
     // isolating the previous version field under a valid package checksum.

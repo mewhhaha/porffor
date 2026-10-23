@@ -274,7 +274,7 @@ fn previous_layout_runtime_cache_entry_is_replaced_before_current_entry_is_reuse
     let key = identity.cache_key(cache.compiler_identity());
     let runtime = fixture(Defect::None);
     let mut previous = encode(&runtime, key);
-    let previous_version = 4u32;
+    let previous_version = 15u32;
     assert_ne!(LAYOUT_VERSION, previous_version);
     // Keep the current valid payload and key, and repair the checksum, so the
     // previous-version rejection cannot be supplied by another broken field.

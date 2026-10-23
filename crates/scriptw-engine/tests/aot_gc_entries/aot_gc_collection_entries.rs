@@ -32,6 +32,12 @@ fn assert_collections(source: &str) {
     }
 }
 #[test]
+fn string_hashes_preserve_content_across_properties_collections_and_gc() {
+    assert_collections(include_str!(
+        "../../../scriptw-cli/tests/fixtures/wasm_cached_string_hash.js"
+    ));
+}
+#[test]
 fn keyed_equality_keeps_content_identity_nan_and_positive_zero() {
     assert_collections(
         r#"

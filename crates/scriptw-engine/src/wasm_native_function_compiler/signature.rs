@@ -54,6 +54,7 @@ impl NativeFunctionSignature {
         };
         struct_reference(environment, true, GcHostLayout::Environment)?;
         let string = struct_reference(message, true, GcHostLayout::String)?;
+        checked_field(&string, GcHostField::StringRawKeyHash)?;
         let field = checked_field(&string, GcHostField::StringCodeUnits)?;
         let units = match field.element_type() {
             StorageType::ValType(value) => array_reference(value, false, GcHostLayout::CodeUnits)?,

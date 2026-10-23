@@ -1,0 +1,8 @@
+{
+  "schema": "scriptw-v8-workloads-v1",
+  "startup": {"file": "startup.js", "stdout": "scriptw-startup-ok\n"},
+  "execution": [
+    {"file": "retained-unhashed.js", "stdout": "536854528\n", "work": "32768 retained two-unit dynamic strings, character checksum; no key hashing"},
+    {"file": "retained-first-hash.js", "stdout": "536854528\n", "work": "32768 retained two-unit dynamic strings, one Map insertion each, value-only checksum"}
+  ]
+}

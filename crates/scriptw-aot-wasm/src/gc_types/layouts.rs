@@ -1076,7 +1076,12 @@ gc_layout_registry! {
             CLASS_SCOPE: I64Value, Immutable, NonNullable;
             NAMES: GcRef<PrivateNameTable>, Immutable, NonNullable;
         }
-        struct StringValue => StringValueSchema { CODE_UNITS: GcRef<CodeUnitArray>, Immutable, NonNullable; }
+        struct StringValue => StringValueSchema {
+            CODE_UNITS: GcRef<CodeUnitArray>, Immutable, NonNullable;
+            // Raw UTF-16 hash, before the property/collection key tag mix.
+            // Zero is unprepared; a real zero hash is safely recomputed.
+            RAW_KEY_HASH: I64Value, Mutable, NonNullable;
+        }
         array CodeUnitArray => CodeUnitArraySchema { ELEMENT: I16Value, Mutable, NonNullable; }
         struct BigIntValue => BigIntValueSchema {
             NEGATIVE: bool, Immutable, NonNullable;

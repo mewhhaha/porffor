@@ -2992,9 +2992,10 @@ impl StringConstruction {
         schema: &RuntimeSchema,
         function: &mut Function,
     ) -> GcStackReference<StringValue> {
-        let result = schema
-            .struct_type::<StringValue>()
-            .construct((GcOperand::reference(&self.units, schema),), function);
+        let result = schema.struct_type::<StringValue>().construct(
+            (GcOperand::reference(&self.units, schema), GcOperand::i64(0)),
+            function,
+        );
         self.units.clear(function);
         result
     }

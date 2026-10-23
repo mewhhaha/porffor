@@ -45,10 +45,10 @@ pub(super) fn signature(engine: &WasmtimeEngine) -> NativeFunctionSignature {
     let units_reference = ValType::Ref(RefType::new(false, HeapType::ConcreteArray(units)));
     let string = StructType::new(
         engine,
-        [FieldType::new(
-            Mutability::Const,
-            StorageType::ValType(units_reference),
-        )],
+        [
+            FieldType::new(Mutability::Const, StorageType::ValType(units_reference)),
+            FieldType::new(Mutability::Var, StorageType::ValType(ValType::I64)),
+        ],
     )
     .unwrap();
     let stored_fields = [
@@ -156,6 +156,7 @@ pub(super) fn string(
     let units = ArrayRef::new_fixed(&mut *store, &pre, &values).unwrap();
     let mut fields = vec![Val::I32(0); signature.string.fields().len()];
     fields[GcHostField::StringCodeUnits.definition().index() as usize] = Val::from(units);
+    fields[GcHostField::StringRawKeyHash.definition().index() as usize] = Val::I64(0);
     let pre = StructRefPre::new(&mut *store, signature.string.clone());
     StructRef::new(&mut *store, &pre, &fields).unwrap()
 }

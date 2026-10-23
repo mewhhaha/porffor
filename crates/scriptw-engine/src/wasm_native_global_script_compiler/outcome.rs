@@ -85,7 +85,7 @@ impl EscapedReply {
             .try_reserve_exact(message.len())
             .map_err(wasmtime::Error::new)?;
         values.extend(message.iter().map(|u| Val::I32(i32::from(*u))));
-        let initialized_fields = [GcHostField::StringCodeUnits];
+        let initialized_fields = [GcHostField::StringCodeUnits, GcHostField::StringRawKeyHash];
         if GcHostLayout::String.field_count() != Some(initialized_fields.len() as u32) {
             return Err(abi_error(
                 "syntax String constructor lacks field initializers",
@@ -95,6 +95,7 @@ impl EscapedReply {
         let units = ArrayRef::new_fixed(&mut *store, &pre, &values)?;
         let mut fields = vec![Val::I32(0); signature.string.fields().len()];
         fields[GcHostField::StringCodeUnits.definition().index() as usize] = Val::from(units);
+        fields[GcHostField::StringRawKeyHash.definition().index() as usize] = Val::I64(0);
         let pre = StructRefPre::new(&mut *store, signature.string.clone());
         let string = StructRef::new(&mut *store, &pre, &fields)?;
         Ok(Self::Syntax(

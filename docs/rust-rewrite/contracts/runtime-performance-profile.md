@@ -319,9 +319,19 @@ internal argument vectors may use the shared value array; spread/dynamic lists
 retain their existing construction path. Global ownership is per runtime
 instance/Store, and the layout version participates in package/cache identity.
 
-Binding cells retain immutable StoredValue snapshots under current layout 15.
-The inline-payload/layout-16 experiment did not establish a closure benefit and
-is removed; its raw measurements remain historical evidence. Descriptor
+Runtime layout 16 adds a mutable i64 raw UTF-16 key hash to StringValue. Strings
+initialize it to zero, compute it on first hashed lookup, and reuse it before
+the caller applies property/collection tag mixing. A real zero hash remains
+correct and is recomputed. Equality still compares content. Published code units
+remain read-only under the consuming StringConstruction API; host-created syntax
+strings initialize the hash with an actual i64 zero. Cache/package admission
+rejects layout 15. Every string carries the field even if it is never hashed;
+retained-string measurements must account for that cost.
+
+Binding cells retain immutable StoredValue snapshots under current layout 16.
+The earlier, unrelated inline-payload experiment also used draft layout 16; it
+did not establish a closure benefit and is removed. Its raw measurements remain
+historical evidence. Descriptor
 allocation may share one immutable getter/setter snapshot when both inputs are
 the same compiler operand. The descriptor's two reference fields remain
 independently replaceable; no mutable StoredValue or JS-visible identity is
