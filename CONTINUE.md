@@ -78,6 +78,13 @@ is complete: 21 original cases, per-row/per-retained-element plots and observed
 capacity transitions, without rerunning historical benchmarks. P001/P002 still
 need current-source execution attribution and a sound traversal-only boundary.
 
+The opt-in [row-phase runner](docs/rust-rewrite/v8-baseline.md#retained-row-phase-diagnostics)
+is implemented. Four observer tests, four corpus tests and the real Linux perf
+FIFO handshake pass; the initial acknowledgement-format failure is preserved.
+The runner relinks against byte-verified source53 libraries in 1.14 seconds,
+without rebuilding the compiler. Phase timings, observer/profiler overhead and
+loaded-code CPU attribution still need measurement before closing P001/P002.
+
 The additive `scripts/check-source-guards.py` covers both structural targets:
 277 source-only checks in about ten seconds, with nine tooling controls. Eight
 typed modules remain in full Cargo; all 166 builtin and 151 language tests pass.

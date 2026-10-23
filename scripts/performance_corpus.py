@@ -104,8 +104,47 @@ print(sum);''', fields * 512 * 511 // 2 + 512 * fields * (fields - 1) // 2,
     return entries
 
 
-def write_corpus(destination, rows, widths, passes):
-    entries = workloads(rows, widths, passes)
+ROW_PHASE_MARKERS = ('scriptw:rows:construction:start', 'scriptw:rows:traversal:start',
+                     'scriptw:rows:traversal:end')
+
+
+def row_phase_workloads(rows, widths, passes):
+    """Use the existing row fixture with explicit host-observed phase boundaries."""
+    marker_lines = [f'print({json.dumps(marker)});' for marker in ROW_PHASE_MARKERS]
+    output_prefix = '\n'.join(ROW_PHASE_MARKERS) + '\n'
+    entries = [dict(file='row-phases-empty.js',
+                    source='(function () {\n' + '\n'.join(marker_lines) + '\nprint(0);\n})();\n',
+                    stdout=output_prefix + '0\n', work='empty phase-marker control',
+                    family='empty phase-marker control', parameters=dict(phase_markers=True))]
+    for entry in workloads(rows, widths, passes):
+        if not all(key in entry['parameters'] for key in ('rows', 'width', 'read_passes')):
+            continue
+        source = entry['source']
+        start = 'var rows = [];'
+        scan = 'for (var pass = 0;'
+        finish = 'print(sum);'
+        if any(source.count(anchor) != 1 for anchor in (start, scan, finish)):
+            raise ValueError('row phase instrumentation requires the exact original row fixture')
+        source = source.replace(start, marker_lines[0] + '\n' + start, 1)
+        source = source.replace(scan, '''var first = rows[0], last = rows[rows.length - 1];
+var firstValues = first.values, lastValues = last.values;
+''' + marker_lines[1] + '\n' + scan, 1)
+        source = source.replace(finish, marker_lines[2] + '''
+if (rows[0] !== first || rows[rows.length - 1] !== last ||
+    first.values !== firstValues || last.values !== lastValues) {
+  throw new Error('retained row identity changed during traversal');
+}
+''' + finish, 1)
+        entries.append(dict(entry, file=entry['file'][:-3] + '-phases.js', source=source,
+                            stdout=output_prefix + entry['stdout'],
+                            family='retained rows with observed construction/traversal phases',
+                            parameters=dict(entry['parameters'], phase_markers=True,
+                                            boundary='whole invocation plus separately observed host-hook wall-time phases; construction includes checksum seed and retained-identity captures')))
+    return entries
+
+
+def write_corpus(destination, rows, widths, passes, row_phases=False):
+    entries = row_phase_workloads(rows, widths, passes) if row_phases else workloads(rows, widths, passes)
     destination.mkdir(parents=True, exist_ok=False)
     (destination / 'startup.js').write_text('print("scriptw-startup-ok");\n')
     for entry in entries:
@@ -130,6 +169,8 @@ def main():
     parser.add_argument('--rows', default='256,1024,4096')
     parser.add_argument('--widths', default='4')
     parser.add_argument('--passes', default='0,1,4')
+    parser.add_argument('--row-phases', action='store_true',
+                        help='emit only marked row cases and an empty boundary control for runtime_baseline --row-phases')
     args = parser.parse_args()
     try:
         rows = bounded_list(args.rows, 16384)
@@ -139,7 +180,7 @@ def main():
             raise ValueError('row and width counts must be positive')
         if len(rows) * len(widths) * len(passes) > 128:
             raise ValueError('at most 128 row/width/pass combinations per corpus')
-        plan = write_corpus(args.output_dir, rows, widths, passes)
+        plan = write_corpus(args.output_dir, rows, widths, passes, row_phases=args.row_phases)
     except (OSError, ValueError) as error:
         parser.exit(1, f'performance-corpus: {error}\n')
     print(f"Wrote {len(plan['execution'])} checked workloads to {args.output_dir}")

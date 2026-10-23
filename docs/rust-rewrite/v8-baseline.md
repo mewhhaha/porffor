@@ -1322,6 +1322,48 @@ This analysis does not retroactively validate earlier decisions.
 
 ## What is measured
 
+### Retained-row phase diagnostics
+
+An opt-in runner mode observes construction and traversal inside the ordinary
+JS main invocation, using the existing synchronous host print callback. It
+keeps the same fresh Store/Realm and compiled artifact policy. Generate the
+marked versions of the existing row corpus and its empty marker control:
+
+```sh
+python3 -B scripts/performance_corpus.py --row-phases \
+  --output-dir target/row-phase-corpus --rows 1024,8192 --widths 4 --passes 0,1,4
+mkdir -p target/row-phase-artifacts
+target/release/examples/runtime_baseline target/row-phase-corpus 7 10 \
+  rows-n8192-w4-p1-phases.js target/row-phase-artifacts --row-phases
+```
+
+The example accepts the same five ordinary arguments followed by `--row-phases`.
+This mode emits `scriptw-wasmtime-row-phases-v1`, separate from the ordinary v2
+baseline schema. Each observation keeps the complete execution/completion score
+and adds construction, traversal, combined and middle-callback wall durations.
+Construction includes the checksum seed and captures of retained row/array
+identities. Traversal reads those same objects in the same invocation; final
+identity checks and checksums remain observable after the timing markers.
+
+Individual phases exclude their endpoint host callbacks. Guest work to enter
+the next print callback remains in the preceding phase, and the combined span
+includes the middle callback explicitly. Empty markers and hook-off/on controls
+are required before interpreting small phase differences. Do not subtract these
+diagnostic boundaries from the ordinary README scores or call wall time CPU time.
+
+For optional Linux sampling, launch the runner under `perf record -D -1` with
+`--control fifo:CONTROL,ACK`, using fresh control/ack FIFOs. Supply all three
+environment variables: `SCRIPTW_ROW_PERF_CONTROL`, `SCRIPTW_ROW_PERF_ACK` and
+`SCRIPTW_ROW_PERF_REGION` (`construction`, `traversal` or `combined`). The host
+callback waits at most five seconds for each acknowledgement and records its
+duration. Only measured invocations issue enable/disable commands; warmups and
+compilation stay disabled. Sampling includes a small amount of boundary-control
+work, which needs its own control measurement. Preserve exact loaded-code maps,
+runtime/Wasm/executable identities, raw profiles and profiler overhead alongside
+any attribution claim. This diagnostic introduces no new engine import.
+
+### Ordinary baseline boundaries
+
 - **Cold start:** a fresh child process with a unique empty Scriptw application
   cache. The shared runtime is already compiled into the release build. Node
   starts normally with its persistent compile cache disabled. OS caches stay warm.

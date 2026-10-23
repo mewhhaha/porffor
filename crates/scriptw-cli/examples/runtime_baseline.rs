@@ -1,4 +1,6 @@
 //! Opt-in same-source Wasmtime measurements for scripts/benchmark-v8.py.
+#[path = "runtime_baseline/phase_observer.rs"]
+mod phase_observer;
 use scriptw_engine::{
     CompileOptions, CompilerIdentity, CompilerSourceRevision, Engine, ExecutionBackend,
     HostOutputEvent, ObservedCompletion, RealmBuilder, WasmProcessMemoryObservation,
@@ -10,8 +12,12 @@ use std::{fs, path::PathBuf};
 
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 5 {
-        return Err("usage: runtime-baseline FIXTURES SAMPLES WARMUPS CASE ARTIFACT_DIR".into());
+    let observe_phases = args.len() == 6 && args[5] == "--row-phases";
+    if args.len() != 5 && !observe_phases {
+        return Err(
+            "usage: runtime-baseline FIXTURES SAMPLES WARMUPS CASE ARTIFACT_DIR [--row-phases]"
+                .into(),
+        );
     }
     let root = PathBuf::from(&args[0]);
     let samples: usize = args[1].parse().map_err(|_| "invalid sample count")?;
@@ -33,7 +39,14 @@ fn run() -> Result<(), String> {
     if cases.len() != 1 {
         return Err("CASE must select exactly one manifest entry".into());
     }
-    let engine = Engine::new(RealmBuilder::new().build());
+    let observer = observe_phases
+        .then(phase_observer::Observer::new)
+        .transpose()?;
+    let realm = match &observer {
+        Some(observer) => RealmBuilder::new().with_host_hooks(Box::new(observer.clone())),
+        None => RealmBuilder::new(),
+    };
+    let engine = Engine::new(realm.build());
     let mut results = Vec::new();
     for case in cases {
         let name = case["file"].as_str().ok_or("missing filename")?;
@@ -61,6 +74,9 @@ fn run() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         let mut observations = Vec::new();
         for index in 0..warmups + samples {
+            if let Some(observer) = &observer {
+                observer.begin(index >= warmups)?;
+            }
             let p = engine
                 .profile_wasm_execution(&compilation.artifact, Some(60_000), false)
                 .map_err(|e| format!("{name}: {e}"))?;
@@ -96,7 +112,7 @@ fn run() -> Result<(), String> {
                 WasmProcessMemoryObservation::Unavailable(reason) => json!({
                     "status": "unavailable", "reason": format!("{reason:?}")}),
             };
-            observations.push(json!({"warmup": index < warmups,
+            let mut observation = json!({"warmup": index < warmups,
                 "execution_ns": p.timings.execution_and_completion.as_nanos(),
                 "phases_ns": {"engine": p.timings.engine.as_nanos(),
                     "module": p.timings.module.as_nanos(),
@@ -114,7 +130,11 @@ fn run() -> Result<(), String> {
                         "gc_pause_time": format!("{:?}", p.gc_pause_time),
                         "peak_gc_heap_bytes": format!("{:?}", p.peak_gc_heap_bytes)}},
                 "module_cache": format!("{:?}", p.module_cache), "stdout": output,
-                "runtime_policy": p.runtime_policy}));
+                "runtime_policy": p.runtime_policy});
+            if let Some(observer) = &observer {
+                observation["row_phases"] = observer.finish()?;
+            }
+            observations.push(observation);
         }
         let runtime = compilation.artifact.runtime.as_ref().map(|runtime| {
             json!({"key": runtime.key().as_bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
@@ -142,7 +162,7 @@ fn run() -> Result<(), String> {
     };
     println!(
         "{}",
-        serde_json::to_string(&json!({"schema": "scriptw-wasmtime-baseline-v2",
+        serde_json::to_string(&json!({"schema": if observe_phases { "scriptw-wasmtime-row-phases-v1" } else { "scriptw-wasmtime-baseline-v2" },
         "source_commit": revision, "source_fingerprint": identity.source_fingerprint().to_string(),
         "executable_sha256": identity.executable_sha256().to_string(),
         "samples": samples, "warmups": warmups, "cases": results}))

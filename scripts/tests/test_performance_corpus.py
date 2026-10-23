@@ -12,6 +12,24 @@ import performance_corpus as corpus
 
 
 class CorpusTests(unittest.TestCase):
+    def test_row_phase_checksums_and_identity_guard_match_v8(self):
+        node = shutil.which('node')
+        self.assertIsNotNone(node, 'normal V8 is required for phase corpus validation')
+        entries = corpus.row_phase_workloads((8, 17), (1, 4), (0, 1, 3))
+        changed = dict(entries[-1], expected_identity_failure=True)
+        end = 'print("scriptw:rows:traversal:end");'
+        changed['source'] = changed['source'].replace(
+            end, 'first.values = first.values.slice();\n' + end, 1)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'phases.cjs'
+            path.write_text("const vm=require('node:vm');const cases=" + json.dumps(entries + [changed]) + ";\n"
+                "for(const e of cases){let out='',failure;try{vm.runInNewContext(e.source,{print:x=>out+=String(x)+'\\n'});}"
+                "catch(error){failure=error;}if(e.expected_identity_failure){"
+                "if(!failure||failure.message!=='retained row identity changed during traversal')throw new Error('identity guard missed changed array');"
+                "}else if(failure||out!==e.stdout)throw new Error(e.file+': '+String(failure)+' '+JSON.stringify(out));}\n")
+            result = subprocess.run([node, path], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_all_family_checksums_match_v8(self):
         node = shutil.which('node')
         self.assertIsNotNone(node, 'normal V8 is required for performance corpus validation')
