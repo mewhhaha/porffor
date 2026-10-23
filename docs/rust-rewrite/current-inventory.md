@@ -8,7 +8,31 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
-Latest affected native checkpoint: **`b9ecfe64b`**, with
+Latest accepted product: **`5c63c6597`**, the
+[prepared property-definition checkpoint](v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23).
+It closes **P020** with **3,893 native passes / zero failures / zero ignored**
+across nine complete affected targets and seventeen compiled semantic families.
+The **7,174 original affected Test262 executions** return **7,170 Success /
+four known Bug / zero Crash / zero NotImplemented**. No new failures appear.
+All source/linker fences and independent runtime-payload identities pass.
+The stale language source-count guard is repaired and its entire 151-test target
+rerun; the original failure, storage deferrals and rejected continuation launch
+remain in [portable evidence](performance-property-definition-20261023.json).
+
+Missing long/short-key definitions have paired medians 60.357→56.084 ms and
+28.359→26.802 ms. Existing-key updates are flat; object/retained-row rounds
+overlap. Cold startup rises 1,035.635→1,062.143 ms; the CLI grows 893,104 bytes
+and process peak RSS roughly 1–1.5 MiB. Slower initial screens remain visible.
+These measurements do not replace the separate source50 V8 table or full-suite
+chart. Layout15 and the helper ABI are unchanged.
+
+The early source check now covers both structural targets: **277 tests across
+94 complete source-only modules in about ten seconds**. Eight typed modules
+remain in the mandatory full Cargo targets; nine tooling controls pass.
+Counts are **22 terminal decisions / seven partial / 131 unresolved** of 160 hills.
+Broader release/all-feature, retention and remaining performance gates stay open.
+
+Previous affected native checkpoint: **`b9ecfe64b`**, with
 [portable observations and exact source boundaries](performance-hot-reads-20261022.json).
 Seven complete runtime targets pass **3,576 tests**. The full structural target
 then passes **166/166** after repairing one stale assertion about trim-policy
@@ -26,7 +50,7 @@ strings 77.580→74.219 ms and ASCII iteration 15.740→14.845 ms. Initial slowe
 cohorts and overlapping integer/Unicode rechecks remain; no isolated or
 statistical gain is claimed. Startup is roughly flat. Layout15 and the existing helper ABI stay.
 
-The new source-only early check runs **143 guards in about five seconds**,
+The earlier source-only early check ran **143 guards in about five seconds**,
 without Cargo's compiler dependency graph. Six tooling controls pass; all four
 typed IR/Wasm modules remain in the mandatory complete Cargo structural target.
 Tracked `.cargo/config.toml` is restored and checked before that diagnostic:
@@ -52,8 +76,9 @@ this includes shared files/tmpfs and is not JS heap memory. The original pause
 and all raw logs, provenance, aggregate/leaf snapshots and completion records
 remain portable in the [full-run receipt](test262-full-20261023.json).
 
-Hill counts stay **21 terminal / eight partial / 131 unresolved**. This full
-run closes the outstanding conformance measurement for source50, not every
+The full run retained **21 terminal / eight partial / 131 unresolved**; the
+new property-definition checkpoint closes one more hill. This full run closes
+the outstanding conformance measurement for source50, not every
 performance hypothesis or release gate. A historical availability audit finds
 twenty `/dev/shm` archive paths absent here; their old binaries are no longer
 claimed restorable. Current products/runtime payloads and retained observations

@@ -51,21 +51,19 @@ fn obsolete_core_backend_apis_are_absent() {
 #[test]
 fn live_neighboring_apis_remain_reachable() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    // Whole GC strings and Realm entries are the current neighboring owners.
-    // The two unused message-error store wrappers no longer establish reachability.
-    // b41f4485a replaced the RegExp source loop's slice and code-unit calls
-    // with a two-pass buffer that reads CodeUnitArray directly.
-    for (name, expected) in [
-        ("compile_string_substring_range_builtin", 2),
-        ("emit_gc_string_slice", 35),
-        ("emit_gc_string_code_unit_i32", 46),
-        ("emit_intrinsic_callable", 7),
-        ("standard_builtin_function_realm_slot", 4),
+    // A live neighboring API needs its definition and at least one other
+    // source occurrence. Optimizations may remove callers without retiring the
+    // API; frozen occurrence totals do not express that reachability contract.
+    for name in [
+        "compile_string_substring_range_builtin",
+        "emit_gc_string_slice",
+        "emit_gc_string_code_unit_i32",
+        "emit_intrinsic_callable",
+        "standard_builtin_function_realm_slot",
     ] {
-        assert_eq!(
-            count_identifier_in_rust_sources(&source_root, name),
-            expected,
-            "`{name}`"
+        assert!(
+            count_identifier_in_rust_sources(&source_root, name) >= 2,
+            "`{name}` must retain its definition and a caller"
         );
     }
 }

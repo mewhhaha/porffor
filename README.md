@@ -43,6 +43,9 @@ The [performance tooling](docs/rust-rewrite/v8-baseline.md#current-performance-a
 also records memory, runtime phases and code size, with selected-workload and
 before/after comparisons. A selected three-sample integer run takes about three
 seconds with the checked execution cache already populated.
+The newer `5c63c6597` property-definition change improves paired long-key
+insertion by about 7%, with a 26.5-ms cold-start and 0.85-MiB CLI-size cost.
+[Measurements and tradeoffs](docs/rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23).
 [Prioritized performance backlog](docs/performance-hills.md).
 [Bounded native verification workflow](docs/rust-rewrite/batch-workflow.md#optional-sequential-cli-chunks).
 
@@ -62,10 +65,12 @@ These four failures remain open (upstream status checked 2026-10-21):
 **All four remain counted as failures.** Upstream tracking does not change their results.
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
-The same compiler also passes **3,742 native tests** across eight affected
-targets and seventeen compiled semantic families.
+The newer `5c63c6597` checkpoint passes **3,893 native tests** across nine
+affected targets and seventeen compiled semantic families. Its **7,174-case
+Test262 replay** has **7,170 passes and the same four failures**; the full chart
+below remains bound to `b9ecfe64b`.
 [Full-run evidence](docs/rust-rewrite/test262-current.md) ·
-[Performance gains and limits](docs/rust-rewrite/v8-baseline.md#hot-read-checkpoint--published-2026-10-22).
+[Latest checkpoint](docs/rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23).
 
 <!-- scriptw-test-graph:start -->
 ![Test262: 102,561 passing in scope, 4 failing, 0 not implemented, 429 out of standalone Wasm scope](docs/rust-rewrite/assets/test262-status.svg)

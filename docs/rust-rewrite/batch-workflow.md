@@ -120,14 +120,21 @@ python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
 python3 -B scripts/tests/test_source_guard_runner.py
 ```
 
-The first command compiles an independent Rust test harness with no Cargo
-dependency graph. It reads the actual structural target's module list, runs
-55 complete source-only modules (143 tests), and reports the four complete
-typed IR/Wasm modules deferred to Cargo. On this cloud checkout, compilation
-took 3.471s and execution 1.46s. This is a diagnostic timing, not a product
-benchmark or a substitute for the complete 166-test Cargo target. The original
-stale trim assertion was reproduced before repair; both attempts remain in
-[the checkpoint evidence](performance-hot-reads-20261022.json).
+The first command compiles independent Rust test harnesses without Cargo's
+dependency graph. It reads both structural targets' actual module lists:
+55 builtin source-only modules (143 tests) and 39 language modules (134 tests).
+The eight complete typed IR/Wasm modules remain deferred to Cargo. Combined
+compilation/execution took about ten seconds on this cloud checkout. Nine
+tooling controls pass. Use `--target structure_builtins` or
+`--target structure_language` for a focused diagnostic; the default runs both
+and retains a failing first target while still checking the second.
+
+This diagnostic does not replace the complete 166-test and 151-test Cargo
+targets. The language target caught a stale exact API-call count left behind
+by string optimizations. Its repaired check requires a live definition and
+caller instead of a frozen number of references; obsolete APIs must still have
+zero occurrences. Original native failures and all repaired-target results are
+retained in [the checkpoint evidence](performance-property-definition-20261023.json).
 
 The runner rejects missing tracked `.cargo/config.toml`, unclassified target
 declarations, empty/duplicate inventories, missing module coverage and a zero

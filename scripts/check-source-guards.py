@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run source-only builtin guards before building the compiler dependency graph.
+"""Run source-only backend guards before building the compiler dependency graph.
 
-This is an additive diagnostic. The full Cargo structure_builtins target still
-owns all typed IR/Wasm checks and remains required for native acceptance.
+This is an additive diagnostic. The full Cargo structure_builtins and
+structure_language targets still own typed IR/Wasm checks and remain required
+for native acceptance.
 """
 import argparse
 import json
@@ -18,15 +19,24 @@ from native_test_protocol import parse_inventory, result_summaries
 
 # Keep these complete modules in the authoritative Cargo target. Do not extract
 # only the text assertions from modules that also exercise typed/compiler APIs.
-CARGO_MODULES = frozenset({
-    "array_species_create_operation_evidence_structure",
-    "to_property_descriptor_operation_evidence_structure",
-    "regexp_modifier_override_structure",
-    "regexp_nullable_quantifier_progress_structure",
-})
+TARGETS = {
+    "structure_builtins": frozenset({
+        "array_species_create_operation_evidence_structure",
+        "to_property_descriptor_operation_evidence_structure",
+        "regexp_modifier_override_structure",
+        "regexp_nullable_quantifier_progress_structure",
+    }),
+    "structure_language": frozenset({
+        "global_object_environment_compound_assignment_structure",
+        "global_object_environment_numeric_update_structure",
+        "with_environment_compound_assignment_structure",
+        "with_environment_numeric_update_structure",
+    }),
+}
 
 
-def run(root, output):
+def run(root, output, target="structure_builtins"):
+    cargo_modules = TARGETS[target]
     config = root / ".cargo/config.toml"
     if not config.is_file():
         raise ValueError(
@@ -34,7 +44,7 @@ def run(root, output):
             "so a sparse checkout does not fork dependency fingerprints"
         )
     crate = root / "crates/scriptw-aot-wasm"
-    entry = crate / "tests/structure_builtins/main.rs"
+    entry = crate / "tests" / target / "main.rs"
     modules = []
     for line in entry.read_text().splitlines():
         if not line.strip() or line.lstrip().startswith("//"):
@@ -43,15 +53,16 @@ def run(root, output):
         if not match:
             raise ValueError(f"unclassified structure target declaration: {line}")
         modules.append(match[1])
-    if len(modules) != len(set(modules)) or not CARGO_MODULES <= set(modules):
+    if len(modules) != len(set(modules)) or not cargo_modules <= set(modules):
         raise ValueError("duplicate or missing explicitly classified guard module")
-    selected = [name for name in modules if name not in CARGO_MODULES]
+    selected = [name for name in modules if name not in cargo_modules]
     if not selected:
         raise ValueError("source-only guard selection is empty")
     manifest = dict(
         kind="source-only diagnostic; not full native or Wasm/IR acceptance",
+        target=target,
         source_modules=selected,
-        full_cargo_only_modules=sorted(CARGO_MODULES),
+        full_cargo_only_modules=sorted(cargo_modules),
         cargo_config=str(config),
     )
     (output / "coverage.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -108,8 +119,27 @@ def run(root, output):
             print(raw, end="")
         elif name == "tests.stdout":
             print("\n".join(line for line in raw.splitlines() if line.startswith("test result:")))
-    print(f"Source-only guards: {len(selected)}/{len(modules)} modules; "
+    print(f"Source-only {target}: {len(selected)}/{len(modules)} modules; "
           f"compile {build_ns / 1e9:.3f}s; full Cargo target still required.")
+    return code
+
+
+def run_targets(root, output, targets):
+    if len(targets) != len(set(targets)) or not targets:
+        raise ValueError("select distinct nonempty source guard targets")
+    if len(targets) == 1:
+        return run(root, output, targets[0])
+    results = []
+    for target in targets:
+        directory = output / target
+        directory.mkdir()
+        code = run(root, directory, target)
+        results.append(dict(target=target, exit_code=code, receipt=f"{target}/receipt.json"))
+    code = next((r["exit_code"] for r in results if r["exit_code"]), 0)
+    (output / "receipt.json").write_text(json.dumps(dict(
+        kind="source-only target set; full Cargo targets remain required",
+        finished=True, passed=code == 0, exit_code=code, targets=results,
+    ), indent=2) + "\n")
     return code
 
 
@@ -117,12 +147,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output", type=Path, help="fresh evidence directory; default: temporary")
+    parser.add_argument("--target", action="append", choices=TARGETS,
+                        help="repeatable target selection; default: both structural targets")
     args = parser.parse_args()
+    targets = args.target or list(TARGETS)
     if args.output:
         args.output.mkdir(parents=True, exist_ok=False)
-        return run(args.root.resolve(), args.output.resolve())
+        return run_targets(args.root.resolve(), args.output.resolve(), targets)
     with tempfile.TemporaryDirectory(prefix="scriptw-source-guards-") as directory:
-        return run(args.root.resolve(), Path(directory))
+        return run_targets(args.root.resolve(), Path(directory), targets)
 
 
 if __name__ == "__main__":

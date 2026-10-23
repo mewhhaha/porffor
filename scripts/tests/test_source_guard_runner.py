@@ -26,15 +26,16 @@ class SourceGuardRunnerTests(unittest.TestCase):
         (self.root / ".cargo").mkdir()
         (self.root / ".cargo/config.toml").write_text("[build]\njobs = 1\n")
         (self.root / "Cargo.toml").write_text('[workspace.package]\nedition = "2024"\n')
-        entry = self.root / "crates/scriptw-aot-wasm/tests/structure_builtins"
-        entry.mkdir(parents=True)
-        (entry / "main.rs").write_text("\n".join(
-            f"mod {name};" for name in sorted(RUNNER.CARGO_MODULES | {"guard_a", "guard_b"})
-        ) + "\n")
+        for target, cargo_modules in RUNNER.TARGETS.items():
+            entry = self.root / "crates/scriptw-aot-wasm/tests" / target
+            entry.mkdir(parents=True)
+            (entry / "main.rs").write_text("\n".join(
+                f"mod {name};" for name in sorted(cargo_modules | {"guard_a", "guard_b"})
+            ) + "\n")
         self.output = self.root / "evidence"
         self.output.mkdir()
 
-    def invoke(self, inventory, summary, status=0):
+    def invoke(self, inventory, summary, status=0, target="structure_builtins"):
         def native(command, **kwargs):
             if "--test" in command:
                 return subprocess.CompletedProcess(command, 0)
@@ -44,7 +45,7 @@ class SourceGuardRunnerTests(unittest.TestCase):
             kwargs["stdout"].write(summary)
             return subprocess.CompletedProcess(command, status)
         with patch.object(RUNNER.subprocess, "run", side_effect=native), contextlib.redirect_stdout(io.StringIO()):
-            return RUNNER.run(self.root, self.output)
+            return RUNNER.run(self.root, self.output, target)
 
     def test_complete_inventory_and_exact_success_are_recorded(self):
         self.assertEqual(self.invoke(
@@ -87,6 +88,31 @@ class SourceGuardRunnerTests(unittest.TestCase):
         receipt = json.loads((self.output / "receipt.json").read_text())
         self.assertFalse(receipt["passed"])
         self.assertEqual(receipt["test_inventory"], ["guard_a::check", "guard_b::check"])
+
+    def test_language_target_uses_its_own_typed_exclusions(self):
+        self.assertEqual(self.invoke(
+            "guard_a::check: test\nguard_b::check: test\n\n2 tests, 0 benchmarks\n",
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n",
+            target="structure_language",
+        ), 0)
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertEqual(receipt["target"], "structure_language")
+        self.assertEqual(receipt["full_cargo_only_modules"], sorted(RUNNER.TARGETS["structure_language"]))
+        self.assertIn("/structure_language/guard_a.rs", (self.output / "source_guards.rs").read_text())
+
+    def test_target_set_retains_first_failure_and_runs_remaining_target(self):
+        with patch.object(RUNNER, "run", side_effect=[101, 0]) as run:
+            self.assertEqual(RUNNER.run_targets(self.root, self.output, list(RUNNER.TARGETS)), 101)
+        self.assertEqual([call.args[2] for call in run.call_args_list], list(RUNNER.TARGETS))
+        receipt = json.loads((self.output / "receipt.json").read_text())
+        self.assertFalse(receipt["passed"])
+        self.assertEqual([row["exit_code"] for row in receipt["targets"]], [101, 0])
+
+    def test_duplicate_target_selection_is_rejected_before_execution(self):
+        with patch.object(RUNNER, "run") as run:
+            with self.assertRaisesRegex(ValueError, "distinct"):
+                RUNNER.run_targets(self.root, self.output, ["structure_builtins"] * 2)
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

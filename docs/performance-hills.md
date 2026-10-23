@@ -9,6 +9,17 @@ a ceiling, not a reason to add low-value work.
 
 ## Progress ledger
 
+The [property-definition checkpoint](rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23)
+at `5c63c6597` completes **P020**: ordinary define-own now carries its prepared
+hash through lookup and insertion. Long/short missing-key confirmation medians
+fall 7.1%/5.5%, with an explicit 26.5-ms cold-start and 0.85-MiB CLI-size cost.
+All **3,893 affected native tests** and seventeen compiled semantic families
+pass. The original **7,174-case Test262 replay** returns **7,170 Success / four
+known Bug / zero Crash / zero NotImplemented**. The ledger is now **22 terminal /
+seven partial / 131 unresolved**. Full-suite chart and V8 table remain bound to
+their separate source50 reports; slower initial measurements remain in the
+[portable evidence](rust-rewrite/performance-property-definition-20261023.json).
+
 The [hot-read checkpoint](rust-rewrite/v8-baseline.md#hot-read-checkpoint--published-2026-10-22)
 at `b9ecfe64b` completes eight affected native targets: **3,742 passes**, including
 the complete structural target after its stale trim guard is repaired. Seventeen
@@ -19,7 +30,7 @@ controls are roughly flat, and integer/Unicode rechecks overlap. The subsequent
 **102,990 Success / 4 known Bug / 0 Crash / 0 NotImplemented**, with all 748 nodes
 and 102,994 original executions covered. No new failures appeared.
 These are partial measured contributions to broader hills:
-the ledger remains **21 terminal / eight partial / 131 unresolved**. All slower
+that earlier ledger had **21 terminal / eight partial / 131 unresolved**. All slower
 and failed initial observations remain in the portable evidence; startup is
 roughly flat. The README now uses source50's separate ordinary V8 comparison.
 
@@ -36,7 +47,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
 | P004 | **Diagnostic complete; no speedup claim** | Empty-body, empty-loop, scalar-expression and scalar-return controls print checked outputs under both runtime orders. Seven samples after ten warmups quantify minimally observable execution/setup, with raw phases and no subtraction from published scores. [Receipts](rust-rewrite/performance-replacement-20261022.json). |
-| P020 | **Partial: owned prepared collection keys verified** | One rooted key/hash spans computed callbacks, groupBy, Set kernels and Map/Set deletion, with fresh current-table probes. Ordinary define-own descriptor lookup followed by append still rehashes. Twelve compiled families, 3,575 scoped native passes and 3,231/3,235 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22). |
+| P020 | **Verified improvement with startup/image tradeoffs** | Prepared hashes now span collection callbacks/kernels/deletion and ordinary define-own lookup/insertion, preserving fresh-empty rejection and descriptor identity. Long/short missing-key medians fall 7.1%/5.5%; cold startup adds 26.5 ms and CLI size 0.85 MiB. Seventeen compiled families, 3,893 native passes and 7,170/7,174 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23). |
 | P107 | **Verified improvement with explicit tradeoffs** | Original→final screen: literal callback 456.100→7.507 ms; RegExp callback 2,410.068→101.373 ms. Direct short two-match eight-round medians: 45.926→45.548 ms. Intermediate→final ABBA retains a 37.8% RegExp dollar-template slowdown. Six compiled families, exact overflow, 3,569 native passes and 406/410 affected Test262 successes with the four original failures. [Boundaries](rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22). |
 | P040 | **Rejected: no reliable gain** in the old unoptimized Portable/Fast cohort | The read-heavy row case rose 168.957 → 181.914 ms; ABBA controls also failed to establish a gain. Implementation removed, semantic fixtures and raw failed attempts retained. A different optimized-R cohort would require a new measured hypothesis. |
 | P091 | **Verified improvement** | Ordered, rooted multiargument concat preserves coercion and abrupt completion. Focused large-part ABBA round medians fall 24.719 → 7.796 ms and 120.461 → 8.944 ms (3.17× / 13.47×). Small-arity controls, six focused fixtures, the broad native checkpoint and original-case replay pass. |
@@ -399,7 +410,7 @@ need attribution; static shape analysis must be inspected before adding caches.
 | P017 | A / E / M | Allocate known fresh literal property capacity once. | Construction ns/object and growth work; preserve insertion order and computed-property effects. |
 | P018 | B / E / M | Reduce descriptor/StoredValue indirections for ordinary data fields. | Read/allocation time and footprint; descriptors, accessors and reflection remain exact. |
 | P019 | A / E / M | Give proven fresh literal fields a first-insertion path without replacement lookup. | Probe count and construction time; duplicates and computed keys use full semantics. |
-| P020 | **Partial: owned prepared collection keys verified** | One rooted key/hash spans computed callbacks, groupBy, Set kernels and Map/Set deletion, with fresh current-table probes. Ordinary define-own descriptor lookup followed by append still rehashes. Twelve compiled families, 3,575 scoped native passes and 3,231/3,235 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22). |
+| P020 | **Verified improvement with startup/image tradeoffs** | Prepared hashes now span collection callbacks/kernels/deletion and ordinary define-own lookup/insertion, preserving fresh-empty rejection and descriptor identity. Long/short missing-key medians fall 7.1%/5.5%; cold startup adds 26.5 ms and CLI size 0.85 MiB. Seventeen compiled families, 3,893 native passes and 7,170/7,174 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23). |
 | P021 | B / E / S | Tune small-object property capacity and growth factors. | Capacity-boundary timing and retained bytes; avoid wasting memory on common one/two-field objects. |
 | P022 | B / E / M | Tune property index collision/load policy. | Probe distribution, misses and adversarial keys; retain order independently of the index. |
 | P023 | A / E / M | Reuse precomputed hashes for static/interned property keys where absent. | Repeated fixed-key reads/writes; string/symbol equality and collisions stay correct. |

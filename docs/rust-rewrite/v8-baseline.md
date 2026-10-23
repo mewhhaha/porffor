@@ -1,5 +1,109 @@
 # Local Wasmtime versus V8 baseline
 
+## Prepared property-definition checkpoint — published 2026-10-23
+
+Product **`5c63c6597383ba4d6f56e0780daac922798b1033`** carries the
+ordinary property's prepared key hash from descriptor lookup into successful
+insertion. Missing-key definitions avoid a second table probe; existing-key
+definitions retain their descriptor.
+An empty table still avoids hashing when descriptor validation rejects the
+definition. Key/descriptor conversion finishes before lookup, and the rooted
+descriptor stays live through validation and publication. Proxies and exotic
+objects keep their existing dispatch. Layout15 and the helper ABI are unchanged.
+[Portable measurements, failed attempts and exact verification evidence](performance-property-definition-20261023.json)
+include an independently verified archive of the raw records and tools.
+
+**P020 is complete against its original lookup/insertion scope.** The earlier
+collection and callback work plus this ordinary define-own change remove its
+remaining duplicate hash. Broader Set/growth work and cached string hashes are
+separate opportunities. The ledger is **22 terminal decisions / seven partial /
+131 unresolved**; the full performance backlog remains open.
+
+The affected release checkpoint passes **3,893 native tests / zero failures /
+zero ignored** across nine complete targets. The language structural target
+initially fails an obsolete exact call-count assertion left behind by earlier
+string optimizations. Its repaired test checks that live APIs still have a
+definition and caller while preserving the removed-API absence checks. All
+151 tests in that target then pass; the other eight targets retain their
+unchanged-source outcomes. The original failure and storage-deferred attempts
+remain in the archive. Seventeen compiled semantic families pass, including
+descriptor-conversion mutation, empty/rejected definitions, equal-content keys,
+symbols, accessors, deletion/reinsertion, GC, proxies, sealing and freezing.
+The existing 517-key fixture contains 51 colliding buckets at capacity 2048:
+keys 207 and 220 share bucket 478, while only key 207 is deleted and reinserted.
+This identifies collisions in the executed fixture; it is not an extra runtime
+test or an isolated measurement of hashing.
+
+The **7,174 original mode-specific Test262 executions** give **7,170 Success /
+4 Bug / 0 Crash / 0 NotImplemented**. They cover complete Object definition,
+descriptor, key, assignment and integrity families, Reflect/Proxy definition,
+object expressions and the four known upstream disagreements. Exactly those
+four remain failures. Four case workers, isolation and original 60-second
+budgets stay unchanged. This affected replay does not replace the separately
+published complete source50 campaign or its README graph.
+
+Confirmation uses the accepted `b9ecfe64b` product as baseline, ABBA order,
+seven measured invocations after ten warmups per observation, and two
+observations per side. Both products run on one CPU, serially after builds.
+Values are medians of round medians; they do not establish statistical
+significance or an isolated contribution to unrelated workloads.
+
+| Whole execution workload | Before | After |
+| --- | ---: | ---: |
+| 2,048 missing long-key definitions | 60.357 ms | 56.084 ms |
+| 2,048 missing short-key definitions | 28.359 ms | 26.802 ms |
+| Existing long-key definitions | 102.400 ms | 102.405 ms |
+| Rejected definitions on empty objects | 19.456 ms | 18.141 ms |
+| Long-key delete/reinsert | 133.696 ms | 124.830 ms |
+| Ordinary long-key assignment | 79.033 ms | 69.660 ms |
+| Integer baseline | 6.524 ms | 5.850 ms |
+| Object baseline | 15.644 ms | 15.420 ms |
+| Retained-row baseline | 1,320.507 ms | 1,307.657 ms |
+
+The definition fixtures include key/descriptor construction, object setup and
+checked output, rather than measuring only a hash loop. Long-key insertion is
+about 7.1% faster and short-key insertion 5.5% faster in this confirmation.
+The initial three-sample screen is retained: short-key definition rises
+27.380→28.442 ms and the object control 15.677→16.528 ms. Existing-key updates
+are flat in confirmation; object and retained-row rounds overlap. The integer
+screen is roughly flat (5.793→5.753 ms), so the later integer drop is not
+attributed to property hashing.
+
+A separate 56-process startup ABBA gives **cold 1,035.635→1,062.143 ms**
+(26.508 ms / 2.56% slower) and **cached 745.673→748.012 ms** (overlapping rounds).
+The actual CLI grows **893,104 bytes**, to **291,453,000 bytes**; process peak
+RSS rises roughly **1–1.5 MiB**. These are explicit costs of the accepted
+execution improvement. OS caches are not flushed, and RSS includes the host,
+compiler, runtime and warmups; it is not live JavaScript heap usage.
+
+Independent product and native builders produce identical runtime packages,
+native images, manifests, bindings and static archive. Only the generated Rust
+wrapper's absolute producer directory differs; its source is kept separately.
+The nine binary/data files are compared byte for byte before completed copies
+share storage. The full ten-file product archive remains immutable and verified.
+The runtime-image target resumes after a storage deferral without lowering
+the two-GiB build reserve or 256-MiB per-process scratch allowance.
+Completed private caches and diagnostic executables are archived with sizes,
+hashes and restoration metadata before their originals are retired.
+The initial native run samples a whole-cgroup maximum of 34,356,191,232 bytes
+and records 4,041 memory-limit events with no OOM or OOM-kill event. This includes
+temporary files and shared file pages, not just process RSS or JavaScript memory.
+The fresh runtime-image scope and structural repair complete without limit
+events. A rejected continuation launch ran no test bodies and remains recorded.
+
+Both structural targets now participate in the fast source-only diagnostic;
+the typed modules remain mandatory in Cargo. Nine tooling controls verify
+target selection, complete inventories and failure propagation. This catches
+stale language guards before an expensive native build. The restored Cargo
+configuration remains required; this checkpoint explicitly retains the prior
+empty-encoded-Rustflags dependency cohort. The older missing shared-memory
+archives remain unavailable and are not claimed restorable.
+
+The README's V8 table stays bound to its separate ordinary source50 report.
+Paired values above are not substituted into that comparison. Broader release,
+all-feature, retention and remaining performance acceptance are still open.
+
+
 ## Hot-read checkpoint — published 2026-10-22
 
 Measured product source **`b9ecfe64bdac63e0553b8c38a178229056e38f73`**

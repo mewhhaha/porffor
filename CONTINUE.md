@@ -24,23 +24,26 @@ each verified batch to main.
 
 ## Next performance work
 
-The 160-hill backlog has **21 terminal decisions, eight partial/open outcomes,
+The 160-hill backlog has **22 terminal decisions, seven partial/open outcomes,
 131 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
 code. Push each verified batch to main; keep this file/tasks until all acceptance
 criteria pass.
 
-Latest accepted product: **`b9ecfe64b`**. Its hot-read changes pass **3,742
-native tests / zero failures / zero ignored** across eight affected targets and
-seventeen compiled semantic families. Seven independent product/test runtime
-identities match. [Performance measurements](docs/rust-rewrite/v8-baseline.md#hot-read-checkpoint--published-2026-10-22)
-retain the slower initial controls and overlapping rechecks. The README uses
-this product's separate ordinary Wasmtime/V8 comparison.
+Latest accepted product: **`5c63c6597`**. Prepared ordinary definitions close
+P020 and pass **3,893 native tests / zero failures / zero ignored** across nine
+affected targets and seventeen compiled semantic families. The **7,174 original
+affected Test262 executions** give **7,170 Success / four known Bug / zero Crash /
+zero NotImplemented**. No new failures appear. Runtime payload identities match.
+[Measurements and raw evidence](docs/rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23)
+retain slower screens and the cold-start/image/RSS tradeoffs: roughly 7.1% faster
+long-key insertion, 26.5-ms slower cold startup and 0.85-MiB larger CLI.
+The README V8 table remains the separate source50 ordinary comparison.
 
 **The fresh full Test262 campaign is complete and published (2026-10-23):**
 **102,990 Success / 4 known Bug / 0 Crash / 0 NotImplemented**, all 748 nodes
 and 102,994 original executions. The four failures are exactly the retained
 upstream disagreements; no new failures appeared. The canonical generation and
-README graph now bind this product directly. The graph partitions 429 native-host
+README graph bind source50 (`b9ecfe64b`) directly. The graph partitions 429 native-host
 successes into the unchanged standalone-Wasm out-of-scope category, without
 hiding failures. [Full evidence and reproduction](docs/rust-rewrite/test262-current.md).
 
@@ -55,12 +58,14 @@ and completion records are committed portably; no live watcher needs restarting.
 
 Next coherent work:
 
-The additive `scripts/check-source-guards.py` now passes 143 source-only checks
-in about five seconds, with six tooling controls; full Cargo166 remains required.
+The additive `scripts/check-source-guards.py` covers both structural targets:
+277 source-only checks in about ten seconds, with nine tooling controls. Eight
+typed modules remain in full Cargo; all 166 builtin and 151 language tests pass.
 Tracked Cargo config is restored. Do not use `/dev/shm` for persistent history:
 twenty relocated historical archives are absent in this environment. Current
 products and raw observations remain verified; missing old binaries are not
-restorable from the recorded paths. Availability audit is in the new bundle.
+restorable from the recorded paths. The availability audit is retained in the
+[hot-read checkpoint](docs/rust-rewrite/performance-hot-reads-20261022.json).
 
 Fresh graph generation now uses the portable full-run evidence. Verify with
 `python3 -B scripts/generate-test-graph.py --check`. Only refresh evidence when a
@@ -78,26 +83,19 @@ both exact decoded native digests are verified. A cached-dependency bulk-decoder
 screen overlaps the streaming costs. No native/Test262 acceptance ran for this
 rejected source. Its code is restored to accepted48; existing Portable storage
 compression remains. Do not revive the draft without a different measured
-hypothesis. Source50 is the next direct baseline; source48 raw products had been
+hypothesis. Source52 is the next direct baseline; source48 raw products had been
 archived and that shared-memory archive is now unavailable. Its raw measurements
 and identities remain in the committed evidence.
 
-1. Close remaining P020 ordinary define-own duplicate lookup/append hashing;
-   retain the fresh-empty no-hash shortcut for rejected definitions. P025/P047
-   index classification and P097/P098 character/iterator changes already ship
-   in the fully rerun source50 checkpoint; pursue remaining work only with a
-   new measured hypothesis. Preserve
-   proxy/accessor/prototype/hole/UTF16/effect behavior, and measure focused controls
-   plus ordinary object/retained-row regressions before retaining candidates.
-2. Evaluate P023/P112 cached raw string hashes using the existing repeated-key
+1. Evaluate P023/P112 cached raw string hashes using the existing repeated-key
    baseline. A lazy u64 costs eight payload bytes plus alignment and requires
    layout15→16 with host constructors/admission/tests. Measure unhashed small-string
    retention as well as repeated long-key wins; source inspection is not closure.
-3. Promote the standalone emitter only with exact cached-dependency identity
+2. Promote the standalone emitter only with exact cached-dependency identity
    checks. Linking 0.500s and fixture validation 4.436s exclude library compilation
    and have no Engine/product execution authority. Full R cache hits keep the
    product rebuild at 3m42s; retain current dependencies and actual cache keys.
-4. Finish broader default/release, retention, original full-suite and remaining
+3. Finish broader default/release, retention, original full-suite and remaining
    performance acceptance. One fresh full family is now published; the broader
    release criteria remain open. Use exact original IDs and source/linker fences.
 
@@ -107,7 +105,7 @@ budgets, 256MiB scratch per process, two-GiB Cargo reserve and retained-module
 cache ceilings stay. Group memory includes tmpfs/file pages, not live JS heap.
 Use actual filesystem free bytes; preserve and archive before releasing staging.
 Detach only actually dirty rustc aliases. Current cloud tools are under
-`/tmp/scriptw-performance-batch20`; raw results under
+`/tmp/scriptw-performance-batch23`; raw results under
 `target/performance-hills-20261021-attribution`. Historical artifacts are exact
 restore-only archives with inventories. A frozen replay may continue while later
 source work proceeds, but its compiler, fixtures, budgets and results stay fixed.
@@ -126,8 +124,8 @@ source work proceeds, but its compiler, fixtures, budgets and results stay fixed
 
 ## Broader continuation
 
-1. Complete current-source default and optimized release acceptance. The new
-   all-feature native checkpoint is complete; retain the stopped pre-rename
+1. Complete current-source default and optimized release acceptance. The earlier
+   maintenance all-feature checkpoint is complete; retain the stopped pre-rename
    campaign and its original-budget timeout as historical evidence.
 2. Finish retention, real shard/resume, debug/optimized differential and
    robustness, host reproducibility and calibrated performance gates. The
@@ -139,13 +137,3 @@ source work proceeds, but its compiler, fixtures, budgets and results stay fixed
 Exact outstanding gates and the missing historical replay input are recorded in
 [the inventory](docs/rust-rewrite/current-inventory.md) and
 [acceptance criteria](docs/rust-rewrite/conformance-acceptance.md).
-
-Candidate47 compiled all12semantic families,21-case screen/ABBA and ordinary
-V8 observations at bf681edcb; genuine direct/alias and integer gains are retained
-with slower controls and targeted ABBAABBA rechecks. Native preflight ran no
-test bodies: its optional must_use annotation changed emit.rs, a pinned Intl
-provenance input. Candidate48 removes only that annotation; all15original
-identity checks pass without regeneration. Product48 correctness and21-case
-P/R byte-equivalence checks will bridge the separately labeled47timings to
-current-source48native/Test262 acceptance. No47timing is relabeled48. Tools
-for this continuation are under /tmp/scriptw-performance-batch20.
