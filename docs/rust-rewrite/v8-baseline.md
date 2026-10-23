@@ -1362,6 +1362,28 @@ work, which needs its own control measurement. Preserve exact loaded-code maps,
 runtime/Wasm/executable identities, raw profiles and profiler overhead alongside
 any attribution claim. This diagnostic introduces no new engine import.
 
+`scripts/measure_row_phases.py` automates the serial measurement: a Node checksum
+oracle, case-wise observer off/on/on/off controls, profiler off/on/on/off controls
+for the empty and selected row cases, then two profiles each for construction
+and traversal. It retains complete raw outputs, emitted Wasm, loaded-code maps,
+profile data and incremental receipts, including a failed child. On an otherwise
+idle cloud machine with the runner already built:
+
+```sh
+python3 -B scripts/limited_verification.py --cloud -- \
+  python3 -B scripts/measure_row_phases.py \
+  --runner target/release/examples/runtime_baseline \
+  --corpus target/row-phase-corpus --output target/row-phase-measurement \
+  --cache target/row-phase-cache --perf /usr/bin/perf
+```
+
+The default is seven samples after ten warmups, 499-Hz user-CPU sampling and one
+pinned CPU. `--perf-library-path` can supply a private profiler's libraries;
+they are removed from the runtime child's environment. Output directories must
+be new. Validate captured sample PIDs against the saved map before attribution;
+the producer checks fresh map, artifact and byte identities. CPU analysis and
+any backlog decision require a separate review of the completed evidence.
+
 ### Ordinary baseline boundaries
 
 - **Cold start:** a fresh child process with a unique empty Scriptw application
