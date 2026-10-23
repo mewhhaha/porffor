@@ -24,8 +24,8 @@ each verified batch to main.
 
 ## Next performance work
 
-The 160-hill backlog has **25 terminal decisions, seven partial/open outcomes,
-128 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
+The 160-hill backlog has **26 terminal decisions, seven partial/open outcomes,
+127 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
 code. Push each verified batch to main; keep this file/tasks until all acceptance
 criteria pass.
 
@@ -62,6 +62,11 @@ and completion records are committed portably; no live watcher needs restarting.
 
 Next coherent work:
 
+P005's [paired-repeatability diagnostic](docs/rust-rewrite/performance-repeatability-20261023.md)
+is complete. It records observed ranges for all 16 preserved ABBA cases without
+rerunning benchmarks. Small future effects need further balanced or same-source
+controls when they fall within the observed variation.
+
 P003's [preserved row-scaling analysis](docs/rust-rewrite/performance-row-scaling-20261023.md)
 is complete: 21 original cases, per-row/per-retained-element plots and observed
 capacity transitions, without rerunning historical benchmarks. P001/P002 still
@@ -97,8 +102,9 @@ archived and that shared-memory archive is now unavailable. Its raw measurements
 and identities remain in the committed evidence.
 
 1. Complete P001/P002 retained-row attribution using the existing row-size,
-   width and pass-count corpus. Align optional CPU sampling with the existing
-   execution/completion span, outside setup and warmups. Measure any diagnostic
+   width and pass-count corpus. Use the existing synchronous HostHooks print callback to observe
+   construction/traversal regions inside ordinary JS main. Optional perf FIFO
+   control excludes setup and warmups without modifying the engine. Measure any diagnostic
    boundary overhead. A named traversal function alone is not traversal-only
    elapsed time; keep construction in the published ordinary invocation score.
    Preserve fresh Stores. The existing 43-case attribution corpus already covers

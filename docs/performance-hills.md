@@ -9,9 +9,15 @@ a ceiling, not a reason to add low-value work.
 
 ## Progress ledger
 
+The [paired-repeatability analysis](rust-rewrite/performance-repeatability-20261023.md)
+completes **P005 as a diagnostic**: 16 preserved ABBA cases now have empirical
+same-source round ranges and adjacent pair effects. Small/noisy effects stay
+inconclusive; no benchmark reran and no earlier decision is retroactively
+validated. The ledger is **26 terminal / seven partial / 127 unresolved**.
+
 The [cached string-hash checkpoint](rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23)
 at `97036e5a8` closes **P023/P112**; including the separate completed P003
-analysis, the ledger is **25 terminal / seven
+analysis, that checkpoint brought the ledger to **25 terminal / seven
 partial / 128 unresolved**. Paired long property reads improve about 83% and
 Map/Set long lookups about 53–54%. Every string carries an extra i64 field;
 retention medians rise 3–6% with overlapping rounds and the CLI grows 0.16 MiB.
@@ -65,6 +71,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | --- | --- | --- |
 | P023 / P112 | **Verified shared string-hash reuse with storage costs** | Layout 16 caches raw UTF-16 hashes for immutable pooled/dynamic strings across property and Map/Set users, leaving tag mixing and equality separate. Long property/Map/Set lookup medians fall about 83%/53%/54%; every string pays an i64 field and retention medians rise 3–6% with overlapping rounds. [Acceptance and raw evidence](rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23). |
 | P003 | **Diagnostic complete; no new speedup claim** | Byte-verified historical 256/1,024/4,096-row and 2/4/8-width measurements now have per-row/per-retained-element plots, observed spread and capacity observations. The 1,024→4,096 construction jump is superlinear in both recorded source cohorts; the 16→32-MiB capacity change is correlation, not isolated GC attribution. [Analysis and reproduction](rust-rewrite/performance-row-scaling-20261023.md). |
+| P005 | **Diagnostic complete; no automatic speedup threshold** | All 16 preserved case-wise ABBA runs have same-source round spread and adjacent paired effects, with every raw observation retained. Two medians per source establish an observed range, not a confidence interval or future-noise bound. Further balanced/same-source controls precede acceptance of small future gains. [Analysis](rust-rewrite/performance-repeatability-20261023.md). |
 | P004 | **Diagnostic complete; no speedup claim** | Empty-body, empty-loop, scalar-expression and scalar-return controls print checked outputs under both runtime orders. Seven samples after ten warmups quantify minimally observable execution/setup, with raw phases and no subtraction from published scores. [Receipts](rust-rewrite/performance-replacement-20261022.json). |
 | P020 | **Verified improvement with startup/image tradeoffs** | Prepared hashes now span collection callbacks/kernels/deletion and ordinary define-own lookup/insertion, preserving fresh-empty rejection and descriptor identity. Long/short missing-key medians fall 7.1%/5.5%; cold startup adds 26.5 ms and CLI size 0.85 MiB. Seventeen compiled families, 3,893 native passes and 7,170/7,174 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23). |
 | P107 | **Verified improvement with explicit tradeoffs** | Original→final screen: literal callback 456.100→7.507 ms; RegExp callback 2,410.068→101.373 ms. Direct short two-match eight-round medians: 45.926→45.548 ms. Intermediate→final ABBA retains a 37.8% RegExp dollar-template slowdown. Six compiled families, exact overflow, 3,569 native passes and 406/410 affected Test262 successes with the four original failures. [Boundaries](rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22). |
@@ -94,7 +101,7 @@ The original 43-case attribution corpus (now 44 with scalar return) covers const
 read-pass scaling, call, string, collection and Intl controls. Read-pass scaling
 is marginal attribution: invocation timings still include construction, so this
 is not a traversal-only benchmark. Seven-sample confirmations, reversed runtime
-order, ABBA diagnostics and failed attempts are retained. P001–P003 and P005 remain open
+order, ABBA diagnostics and failed attempts are retained. P001/P002 remain open
 until the broader attribution and representative-workload decisions are made.
 The other hills remain Proposed unless a linked decision below states otherwise.
 
@@ -399,7 +406,7 @@ These extend existing checked measurements; they do not replace the baseline.
 | P002 | A / I / S | Split retained rows into construction-only, traversal-only and combined cases. | Checked checksums and retained identity; separate allocation from read-loop time. |
 | P003 | A / I / S | **Diagnostic complete:** analyze the preserved geometric row-count and array-width sweeps. | Per-row/per-retained-element plots and observed capacity transition identify superlinear scaling in the historical cohorts; no current-product or isolated-GC claim. [Evidence](rust-rewrite/performance-row-scaling-20261023.md). |
 | P004 | A / I / S | Add empty-program, empty-loop and scalar-return controls. | Quantify fixed realm/bootstrap/completion costs without subtracting them from published raw timings. |
-| P005 | A / I / S | Establish paired-run repeatability and balanced runtime order across reports. | Retain repeated A/B observations; record an empirical noise range before accepting small gains. |
+| P005 | A / I / S | **Diagnostic complete:** preserved balanced ABBA observations have explicit empirical variation. | Two same-source round medians, all raw samples and both adjacent pair effects; no significance or universal noise bound. [Evidence](rust-rewrite/performance-repeatability-20261023.md). |
 | P006 | B / I / M | Add optional helper call/probe/allocation-site diagnostic counters. | Count emitted operations without host calls per event; label instrumentation overhead and unavailable GC metrics correctly. |
 | P007 | B / I / S | Measure a sustained same-process/same-realm workload separately. | Explicit server-style boundary; preserve the fresh-Store baseline as its own cohort. |
 | P008 | B / I / S | Distinguish cold application cache, cold process and OS page-cache effects. | Label each scenario; do not call current warm-OS-cache samples a cold disk boot. |

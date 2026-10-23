@@ -8,6 +8,13 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
+### Latest performance diagnostic — paired repeatability, 2026-10-23
+
+P005 now has empirical same-source ranges and adjacent effects for all sixteen
+preserved ABBA cases. No execution reran and no earlier optimization decision is
+retroactively validated. [Analysis and reproduction](performance-repeatability-20261023.md).
+The current ledger is **26 terminal / seven partial / 127 unresolved**.
+
 ### Latest affected checkpoint — cached string hashes, 2026-10-23
 
 Source **`97036e5a8`**, runtime layout **16**, passes **4,083 native tests**
@@ -19,7 +26,7 @@ product retain source53. The **13,104-case original Test262 replay** gives
 **13,100 Success / four known Bug / zero Crash / zero NotImplemented**.
 This closes P023/P112 with explicit string-storage and retention timing costs;
 [measurements and exact evidence](v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23).
-The ledger is **25 terminal / seven partial / 128 unresolved**. Broader acceptance
+That checkpoint brought the ledger to **25 terminal / seven partial / 128 unresolved**. Broader acceptance
 remains open. The full-suite chart and V8 comparison below remain source50;
 source52 and earlier checkpoint details are historical evidence.
 
