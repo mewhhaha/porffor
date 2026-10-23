@@ -9,12 +9,22 @@ a ceiling, not a reason to add low-value work.
 
 ## Progress ledger
 
+The [cached string-hash checkpoint](rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23)
+at `97036e5a8` closes **P023/P112**; including the separate completed P003
+analysis, the ledger is **25 terminal / seven
+partial / 128 unresolved**. Paired long property reads improve about 83% and
+Map/Set long lookups about 53–54%. Every string carries an extra i64 field;
+retention medians rise 3–6% with overlapping rounds and the CLI grows 0.16 MiB.
+All 4,083 affected native tests, eighteen compiled semantic families and
+13,104 original Test262 executions are verified, with exactly the same four
+ordinary failures. Raw slower observations and costs remain in the linked evidence.
+
 The [preserved row-scaling analysis](rust-rewrite/performance-row-scaling-20261023.md)
 completes **P003 as a diagnostic**, with 21 original cases, normalized plots and
 capacity observations. It reruns no benchmark and makes no current-product or
-optimization-speedup claim. This separate diagnostic brings the ledger to
-**23 terminal / seven partial / 130 unresolved**; P023/P112 remain pending their
-original-case replay and final publication.
+optimization-speedup claim. This separate diagnostic brought the ledger to
+**23 terminal / seven partial / 130 unresolved**, before the subsequent
+string-hash checkpoint.
 
 The [property-definition checkpoint](rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23)
 at `5c63c6597` completes **P020**: ordinary define-own now carries its prepared
@@ -53,6 +63,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
+| P023 / P112 | **Verified shared string-hash reuse with storage costs** | Layout 16 caches raw UTF-16 hashes for immutable pooled/dynamic strings across property and Map/Set users, leaving tag mixing and equality separate. Long property/Map/Set lookup medians fall about 83%/53%/54%; every string pays an i64 field and retention medians rise 3–6% with overlapping rounds. [Acceptance and raw evidence](rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23). |
 | P003 | **Diagnostic complete; no new speedup claim** | Byte-verified historical 256/1,024/4,096-row and 2/4/8-width measurements now have per-row/per-retained-element plots, observed spread and capacity observations. The 1,024→4,096 construction jump is superlinear in both recorded source cohorts; the 16→32-MiB capacity change is correlation, not isolated GC attribution. [Analysis and reproduction](rust-rewrite/performance-row-scaling-20261023.md). |
 | P004 | **Diagnostic complete; no speedup claim** | Empty-body, empty-loop, scalar-expression and scalar-return controls print checked outputs under both runtime orders. Seven samples after ten warmups quantify minimally observable execution/setup, with raw phases and no subtraction from published scores. [Receipts](rust-rewrite/performance-replacement-20261022.json). |
 | P020 | **Verified improvement with startup/image tradeoffs** | Prepared hashes now span collection callbacks/kernels/deletion and ordinary define-own lookup/insertion, preserving fresh-empty rejection and descriptor identity. Long/short missing-key medians fall 7.1%/5.5%; cold startup adds 26.5 ms and CLI size 0.85 MiB. Seventeen compiled families, 3,893 native passes and 7,170/7,174 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23). |
@@ -63,7 +74,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | P009 | **Diagnostic implemented; attribution investigation remains open** | Opt-in loaded-code map binds actual addresses to exact R/P Wasm and native-text hashes; symbol/name/index test passes. It is a serial single-program latest snapshot, not concurrent mapping history. Instrumented samples are excluded from ordinary scores. |
 | P024 | **Superseded by the existing reference guard** | Strict/SameValue String equality already checks identity before its content helper. The extra helper-level guard is removed: the same-reference ABBA control barely moved, while distinct-equal content comparison regressed. Semantic identity controls remain. |
 | P095 | **Rejected: regressed an early-miss control** | The endpoint filter helped a 65-unit tail miss (ABBA round medians 4.391 → 1.542 ms), but early-prefix misses rose 1.380 → 2.352 ms. The implementation is removed; exact 2,700-result UTF-16/coercion controls and raw failed attempts remain. A different algorithm needs a new experiment. |
-| P067 | **Rejected: inline binding payload experiment; broader access work remains** | Candidate `35fa9b048` did not establish a closure gain against `a5b4a6c5d`: paired round medians were 105.404 → 105.770 ms for captured reads, 109.845 → 113.622 ms for captured updates and 951.665 → 938.452 ms for closure construction, with overlapping rounds. The layout change is removed. Existing immutable StoredValue snapshots and layout 15 remain; resolved depth/handle caching is still open. |
+| P067 | **Rejected: inline binding payload experiment; broader access work remains** | Candidate `35fa9b048` did not establish a closure gain against `a5b4a6c5d`: paired round medians were 105.404 → 105.770 ms for captured reads, 109.845 → 113.622 ms for captured updates and 951.665 → 938.452 ms for closure construction, with overlapping rounds. The layout change is removed. Existing immutable StoredValue snapshots remain; resolved depth/handle caching is still open. The later unrelated string-hash change uses layout 16. |
 | P058 | **Rejected: signed-range branch experiment** | Broad conversion and then bitwise-only variants did not establish a reliable gain across the controls. The tighter case-wise ABBAABBA check retained an integer/imul regression. Original exact modulo lowering is restored, with edge/coercion fixtures and all raw observations retained. A different specialization needs a new hypothesis. |
 | P061 | **Rejected: runtime Number-tag branch experiment; proven scalar work remains** | Global numeric updates improved, but the combined numeric experiments regressed ordinary integer/imul controls. Both branch experiments are removed; this does not attribute that loss to P061 alone. Retain conversion-order fixtures and investigate raw-value proofs with P056/P057 rather than assuming the IR's ToNumeric result kind proves the input tag. |
 | P016 / P078 | **Implemented and verified; latency contribution not isolated** | Four immutable zero-length GC-array globals replace per-object empty private arrays; syntax-empty argv shares only immutable empty storage. The `2cb9fc53d` extension shares runtime-empty internal vectors too, preserving iterator/length effects and fresh mutable JS state; the combined empty-apply ABBA is 18.947→16.204 ms. Fresh object/storage/prototype records and mutable JS argument/array state remain independent. Final semantic controls and all 3,572 current scoped native tests pass. Scaled no-argument-call rounds overlap; no isolated speed claim. |
@@ -421,7 +432,7 @@ need attribution; static shape analysis must be inspected before adding caches.
 | P020 | **Verified improvement with startup/image tradeoffs** | Prepared hashes now span collection callbacks/kernels/deletion and ordinary define-own lookup/insertion, preserving fresh-empty rejection and descriptor identity. Long/short missing-key medians fall 7.1%/5.5%; cold startup adds 26.5 ms and CLI size 0.85 MiB. Seventeen compiled families, 3,893 native passes and 7,170/7,174 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23). |
 | P021 | B / E / S | Tune small-object property capacity and growth factors. | Capacity-boundary timing and retained bytes; avoid wasting memory on common one/two-field objects. |
 | P022 | B / E / M | Tune property index collision/load policy. | Probe distribution, misses and adversarial keys; retain order independently of the index. |
-| P023 | A / E / M | Reuse precomputed hashes for static/interned property keys where absent. | Repeated fixed-key reads/writes; string/symbol equality and collisions stay correct. |
+| P023 | A / E / M | **Verified:** reuse prepared raw hashes for pooled and other immutable property-key strings. | Shared lazy cache; first use computes the hash, equality stays independent. See the source53 checkpoint and its explicit storage/retention costs. |
 | P024 | B / E / M | Add a proven key-identity shortcut before string content equality. | Interned and equal-but-distinct strings; never treat equal hash as equal key. |
 | P025 | B / E / M | Reduce dispatch before the existing ordinary own-data read arm. | Own-data loop latency; exotic objects and accessors must reach their original paths. |
 | P026 | A / E / M | Extend existing static heap-shape facts to more safe literal reads. | Inspect current coverage first; overwrite, delete, prototype mutation and escape revoke invalid facts. |
@@ -584,7 +595,7 @@ exist. These hills tune their remaining work rather than invent those mechanisms
 | ID | Order / kind / effort | Hill | Evidence or acceptance |
 | --- | --- | --- | --- |
 | P111 | B / E / M | Tune Map/Set bucket load and collision behavior. | Probe distributions across primitive/object keys; SameValueZero and insertion order exact. |
-| P112 | C / E / M | Reuse immutable string hashes across collection operations where not already retained. | Repeated key workloads; hashes are never equality and equal strings from distinct origins still match. |
+| P112 | C / E / M | **Verified:** reuse immutable string hashes across Map/Set operations. | Long repeated lookups improve about 53–54%; equal-but-distinct content, GC and cross-property reuse pass. Storage/retention tradeoffs stay explicit in the source53 checkpoint. |
 | P113 | C / E / M | Reduce Map/Set resize pauses and repeated growth. | p95 insertion/retained bytes at boundaries; iteration and mutation semantics unchanged. |
 | P114 | C / E / M | Reduce collection iteration over deletion history. | Churned/live-entry ratios; active iterators and delete/reinsert order stay compliant. |
 | P115 | C / E / M | Improve Set algebra traversal choices under spec constraints. | Skewed cardinalities; size/getter/iterator calls and specified result ordering remain exact. |

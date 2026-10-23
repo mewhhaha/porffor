@@ -1,5 +1,131 @@
 # Local Wasmtime versus V8 baseline
 
+## Cached string-hash checkpoint — published 2026-10-23
+
+Source `97036e5a8` closes **P023 and P112** against the frozen accepted
+`5c63c6597` baseline. StringValue lazily stores the raw UTF-16 hash once, and
+property/Map/Set users reuse it before their existing tag mixing. Pooled literals
+and dynamically created strings share this path. First-use hashing still occurs;
+equality still checks identity/content independently of the hash. A legitimate
+zero hash is recomputed without changing the result. This is runtime metadata,
+not an exposed property or a second string representation.
+
+Layout **16** appends an i64 field to every StringValue, including strings never
+used as keys. Compiler-owned publication and all three host syntax constructors
+initialize it to zero; host admission checks its type/mutability and rejects
+layout 15. Code-unit writes remain confined to private construction; publication
+consumes that construction object. The Wasm array type itself remains mutable.
+
+[Portable metadata](performance-string-hash-20261023.json) and the
+[byte-verified raw archive](performance-string-hash-20261023.tar.gz) preserve
+all screens, paired observations, exact product/source identities, native and
+Test262 receipts, memory observations and storage histories. The benchmark code
+is checked in under `v8_repeated_keys`, `v8_string_retention`,
+`v8_property_definition` and `v8_baseline` in the CLI fixtures.
+
+The idle-machine comparison pins both products to one CPU. Each ABBA round
+uses seven measured invocations after ten warmups in fresh Stores/Realms;
+Node checks the workload stdout. The table is the median of two round medians
+per side, in milliseconds, and includes setup and checksums. It is descriptive,
+not a statistical significance test or an isolated estimate of hash-loop cost.
+The separate three-sample screen, including its slower observations, is retained.
+
+| Workload | Before | After | Median change |
+| --- | ---: | ---: | ---: |
+| `map-get-short.js` | 29.084 | 23.670 | -18.6% |
+| `map-get-long.js` | 97.455 | 45.718 | -53.1% |
+| `map-get-numeric.js` | 22.695 | 22.254 | -1.9% |
+| `set-has-short.js` | 23.923 | 22.883 | -4.3% |
+| `set-has-long.js` | 89.234 | 41.188 | -53.8% |
+| `set-has-numeric.js` | 22.122 | 22.553 | +1.9% |
+| `property-get-short.js` | 10.104 | 9.938 | -1.6% |
+| `property-get-long.js` | 57.372 | 9.845 | -82.8% |
+| `property-get-numeric.js` | 13.356 | 12.536 | -6.1% |
+| `retained-unhashed.js` | 2,830.208 | 2,994.417 | +5.8% |
+| `retained-first-hash.js` | 3,014.591 | 3,111.050 | +3.2% |
+| `define-long-missing.js` | 55.783 | 30.346 | -45.6% |
+| `define-long-present.js` | 99.565 | 33.127 | -66.7% |
+| `integer.js` | 6.011 | 5.501 | -8.5% |
+| `objects.js` | 15.648 | 13.880 | -11.3% |
+| `retained-objects.js` | 1,331.412 | 1,365.153 | +2.5% |
+
+Repeated long property reads improve about 83%; long Map/Set lookups about
+53–54%. Long-key define-own also benefits. Short/numeric controls have overlapping
+rounds, so this does not establish a universal speedup. The retained-unhashed and
+first-hash controls have **5.8% / 3.2% higher medians**, respectively, with overlapping
+rounds; retained object rows have a **2.5% higher median**, also with overlapping rounds. These costs are retained
+in the acceptance decision. Every string pays the added field cost even where
+no speed benefit is possible.
+
+The two 32,768-string controls grow reported GC capacity from 16 to 32 MiB on
+both products. That coarse capacity is not live heap or allocation bytes, and
+cannot establish zero memory overhead. The raw records include sampled invocation
+RSS and whole-child peak RSS; they also include runtime/code/allocator overhead.
+Wasmtime exposes no live-GC/allocation counter through this profiling boundary.
+
+The CLI grows by **169,104 bytes (0.16 MiB)**. The separate 56-fresh-process
+startup ABBA gives cold **1,082.815 → 1,045.699 ms**
+and cached **788.814 → 761.327 ms**.
+Cold rounds overlap; do not attribute those whole-process differences entirely
+to hashing. Cold RSS medians are 384.11 → 384.13 MiB,
+cached 351.18 → 351.25 MiB.
+Application caches are empty/prewarmed as labelled; OS caches are not flushed.
+The ordinary V8 comparison above remains the separately measured source50 cohort.
+
+The release product builds in **6m23s**. All **18 compiled semantic families**
+pass, including exact UTF-16, equal-but-distinct strings, cross-property/Map/Set
+use, collisions, GC, deletion/reinsertion and descriptor semantics. All
+**4,083 native tests / zero failures / zero ignored** pass across the twelve
+recorded affected release scopes, including GC entries, native program templates
+and runtime-cache controls. The independent runtime producer matches all payload
+bytes; its generated include wrapper differs only in the producer directory.
+The original run caught eight stale test expectations: six RegExp fixture
+constructors, one completion fixture and one runtime-cache trace assertion.
+Their failed receipt remains in the archive. Complete engine-lib and runtime-cache
+reruns at `7efa13482` repair only those tests; the other ten scopes
+retain their source `97036e5a8` results. Each run has its own source/linker fence,
+and the exact three-file patch is retained. The mixed production/test file's
+production prefix is byte-identical; its conservative compiler fingerprint does
+change, so these are separately identified sources. The frozen measured product
+and original Test262 replay remain `97036e5a8`. Both repaired runtime packages
+have byte-identical full Wasm payloads/runtime keys and serialized native code;
+only their source fields and dependent package/manifest checksums change. The 277 source-only guards pass
+as a fast diagnostic.
+
+The original **13,104-execution Test262 replay** covers complete Map, Set, String,
+Object, Reflect, object-expression and string-literal families, plus all four
+tracked failures: **13,100 Success / four known Bug / zero Crash /
+zero NotImplemented**. It changes no case IDs, worker counts, deadlines or outcomes.
+This is affected-family acceptance, not a new complete Test262 run; the README
+full chart remains source `b9ecfe64b`.
+
+One storage preparation attempt stopped before native compilation because its
+inventory expected four old executables, but one old product contained a single
+larger CLI; the exact three-file inventory corrected that bookkeeping assumption.
+The failed launch/log and successful continuation remain in the raw archive.
+The first publication check also stopped on changed native staging hashes.
+The test-only repair had refreshed source metadata through two shared mutable
+package aliases. Both repaired outputs were archived and verified; the original
+product aliases were restored from their verified pre-build archive. Frozen
+executables and all completed tests were unaffected. The source-transition
+receipt validates complete payload identity and the precise header/checksum
+differences. Atomic producer publication is the next tooling repair before any
+new Cargo build; cached diagnostic linking runs no producer.
+
+Closed products, runtime payloads, private measurement caches and diagnostic
+executables are losslessly archived and all members verified before retirement.
+Dependency libraries remain available through verified storage aliases, protected
+against dirty rustc writers; the two-GiB Cargo reserve and 256-MiB-per-process
+scratch requirements are unchanged. Twenty older shared-memory archives remain
+unavailable as previously documented; none of these new archives uses that storage.
+
+The ledger now has **25 terminal decisions, seven partial and 128 unresolved**.
+Broader release/all-feature, retention and full-suite acceptance remain open.
+Before another P067 implementation, profile resolved environment/cell loads:
+zero-hop and exact-hop traversal is already statically emitted. Hoisting a cached
+handle would need lexical-instance, iteration and resume lifetime proofs. Its
+earlier inline-payload experiment and P024's redundant equality guard remain rejected.
+
 ## Prepared property-definition checkpoint — published 2026-10-23
 
 Product **`5c63c6597383ba4d6f56e0780daac922798b1033`** carries the

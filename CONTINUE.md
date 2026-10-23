@@ -24,42 +24,24 @@ each verified batch to main.
 
 ## Next performance work
 
-<!-- scriptw-string-hash-progress:start -->
-Current batch awaiting Test262 acceptance: **`97036e5a8`**, cached raw String
-hashes and runtime layout 16. Native verification is complete: **4,083 passed /
-zero failed / zero ignored** across twelve affected release scopes. The initial
-eight stale fixture/trace expectations remain recorded; test-only repair
-**`7efa13482`** passes the entire engine-lib and runtime-cache targets, joined
-with the ten unchanged passing targets. Eighteen compiled semantic families pass.
-The frozen product's **13,104 original Test262 executions are running** with four
-workers and original budgets. P023/P112 stay pending and counts below remain the
-last fully published checkpoint until the replay and portable evidence validate.
-
-Active driver: `/tmp/scriptw-performance-batch24/repair-and-continue.py`.
-Receipts and replay: `target/performance-hills-20261021-attribution/candidate53*`.
-The complete new native result uses `candidate53b-native-checkpoint/receipt.json`
-for the two repaired scopes and `candidate53-native-checkpoint/receipt.json` for
-the other ten; never erase or reclassify the initial eight failures. Finish with
-`publish-string-hash.py` and `update-docs.py` under the same batch directory,
-validate generated status artifacts, then push the evidence/documentation update.
-Product/benchmark/replay identity remains source53; native repair identity is
-separate. Next attribution notes are in that directory's `next-batch-notes.md`.
-<!-- scriptw-string-hash-progress:end -->
-
-The 160-hill backlog has **23 terminal decisions, seven partial/open outcomes,
-130 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
+The 160-hill backlog has **25 terminal decisions, seven partial/open outcomes,
+128 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
 code. Push each verified batch to main; keep this file/tasks until all acceptance
 criteria pass.
 
-Latest accepted product: **`5c63c6597`**. Prepared ordinary definitions close
-P020 and pass **3,893 native tests / zero failures / zero ignored** across nine
-affected targets and seventeen compiled semantic families. The **7,174 original
-affected Test262 executions** give **7,170 Success / four known Bug / zero Crash /
-zero NotImplemented**. No new failures appear. Runtime payload identities match.
-[Measurements and raw evidence](docs/rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23)
-retain slower screens and the cold-start/image/RSS tradeoffs: roughly 7.1% faster
-long-key insertion, 26.5-ms slower cold startup and 0.85-MiB larger CLI.
-The README V8 table remains the separate source50 ordinary comparison.
+Latest accepted product: **`97036e5a8`**. Cached raw String hashes close P023/P112:
+**4,083 native passes / zero failures / zero ignored** across twelve affected
+release scopes, eighteen compiled semantic families, and **13,100 Success / four
+known Bug / zero Crash / zero NotImplemented** in 13,104 original affected Test262
+executions. The initial eight stale test expectations are repaired in
+`7efa13482`; complete engine-lib/runtime-cache reruns pass, while ten
+unaffected targets retain their source53 receipts. The measured product and
+Test262 remain source53. Exact runtime payload identities match.
+[Measurements and raw evidence](docs/rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23) retain all slower/noisy controls:
+long property reads improve about 83%, Map/Set long lookups 53–54%; every string
+pays an extra i64 field and two retention medians rise 3–6% with overlapping rounds.
+The CLI grows 0.16 MiB. Full-suite graph and V8 table remain their separate source50
+cohorts. P020 was closed by the preceding property-definition checkpoint.
 
 **The fresh full Test262 campaign is complete and published (2026-10-23):**
 **102,990 Success / 4 known Bug / 0 Crash / 0 NotImplemented**, all 748 nodes
@@ -110,14 +92,19 @@ both exact decoded native digests are verified. A cached-dependency bulk-decoder
 screen overlaps the streaming costs. No native/Test262 acceptance ran for this
 rejected source. Its code is restored to accepted48; existing Portable storage
 compression remains. Do not revive the draft without a different measured
-hypothesis. Source52 is the next direct baseline; source48 raw products had been
+hypothesis. Source53 is the next direct baseline; source48 raw products had been
 archived and that shared-memory archive is now unavailable. Its raw measurements
 and identities remain in the committed evidence.
 
-1. Evaluate P023/P112 cached raw string hashes using the existing repeated-key
-   baseline. A lazy u64 costs eight payload bytes plus alignment and requires
-   layout15→16 with host constructors/admission/tests. Measure unhashed small-string
-   retention as well as repeated long-key wins; source inspection is not closure.
+1. Complete P001/P002 retained-row attribution using the existing row-size,
+   width and pass-count corpus. Align optional CPU sampling with the existing
+   execution/completion span, outside setup and warmups. Measure any diagnostic
+   boundary overhead. A named traversal function alone is not traversal-only
+   elapsed time; keep construction in the published ordinary invocation score.
+   Preserve fresh Stores. The existing 43-case attribution corpus already covers
+   calls, properties, typed arrays and JSON; do not duplicate P011-P013 families.
+   P067 already emits exact hop traversal; profile cell loads before caching
+   handles across lexical/iteration/resume changes.
 2. Promote the standalone emitter only with exact cached-dependency identity
    checks. Linking 0.500s and fixture validation 4.436s exclude library compilation
    and have no Engine/product execution authority. Full R cache hits keep the
@@ -132,7 +119,7 @@ budgets, 256MiB scratch per process, two-GiB Cargo reserve and retained-module
 cache ceilings stay. Group memory includes tmpfs/file pages, not live JS heap.
 Use actual filesystem free bytes; preserve and archive before releasing staging.
 Detach only actually dirty rustc aliases. Current cloud tools are under
-`/tmp/scriptw-performance-batch23`; raw results under
+`/tmp/scriptw-performance-batch24`; raw results under
 `target/performance-hills-20261021-attribution`. Historical artifacts are exact
 restore-only archives with inventories. A frozen replay may continue while later
 source work proceeds, but its compiler, fixtures, budgets and results stay fixed.

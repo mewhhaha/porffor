@@ -8,6 +8,21 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
+### Latest affected checkpoint — cached string hashes, 2026-10-23
+
+Source **`97036e5a8`**, runtime layout **16**, passes **4,083 native tests**
+across twelve affected release scopes, eighteen compiled semantic families and
+277 fast source guards. Initial stale test expectations are retained in the
+failed receipt; complete engine-lib/runtime-cache reruns use the test-only
+repair `7efa13482`, while the other ten native targets and measured
+product retain source53. The **13,104-case original Test262 replay** gives
+**13,100 Success / four known Bug / zero Crash / zero NotImplemented**.
+This closes P023/P112 with explicit string-storage and retention timing costs;
+[measurements and exact evidence](v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23).
+The ledger is **25 terminal / seven partial / 128 unresolved**. Broader acceptance
+remains open. The full-suite chart and V8 comparison below remain source50;
+source52 and earlier checkpoint details are historical evidence.
+
 ### Completed diagnostic — preserved row scaling, 2026-10-23
 
 P003 is complete with [analysis of 21 preserved cases](performance-row-scaling-20261023.md):
@@ -16,19 +31,7 @@ capacity transition. These historical source cohorts are not a new current-produ
 benchmark or an isolated GC measurement. No original benchmark was rerun;
 P001/P002 execution attribution remains open.
 
-<!-- scriptw-string-hash-progress:start -->
-### Native-verified string-hash batch; original-case replay pending
-
-Product `97036e5a8` adds cached raw String hashes (layout 16). All **4,083 tests**
-across twelve affected native release scopes and eighteen compiled semantic
-families pass. Two native scopes use test-only repair `7efa13482` after eight
-stale fixture/trace assertions; their original failed evidence is preserved.
-The **13,104-case Test262 replay is running** on the unchanged frozen product.
-P023/P112 and published ledger totals remain pending that acceptance and evidence
-publication. [Continuation](../../CONTINUE.md#next-performance-work).
-<!-- scriptw-string-hash-progress:end -->
-
-Latest accepted product: **`5c63c6597`**, the
+Previous accepted product: **`5c63c6597`**, the
 [prepared property-definition checkpoint](v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23).
 It closes **P020** with **3,893 native passes / zero failures / zero ignored**
 across nine complete affected targets and seventeen compiled semantic families.
@@ -49,7 +52,7 @@ chart. Layout15 and the helper ABI are unchanged.
 The early source check now covers both structural targets: **277 tests across
 94 complete source-only modules in about ten seconds**. Eight typed modules
 remain in the mandatory full Cargo targets; nine tooling controls pass.
-Counts are **22 terminal decisions / seven partial / 131 unresolved** of 160 hills.
+At that preceding checkpoint, counts were **22 terminal / seven partial / 131 unresolved**.
 Broader release/all-feature, retention and remaining performance gates stay open.
 
 Previous affected native checkpoint: **`b9ecfe64b`**, with
