@@ -4,13 +4,91 @@ use super::*;
 mod index;
 
 /// The borrowed canonical key remains rooted until probe and insertion finish.
-/// Only this private publication path owns and releases the prepared hash.
+/// Each private publication/definition path owns and releases its prepared hash.
 struct PreparedOrdinaryPropertyKey<'key> {
     key: &'key PropertyKeyLocals,
     hash: I64Local,
 }
 
+/// One ordinary definition owns its object/key pairing, lookup result and
+/// optional hash. Descriptor validation/merge cannot invoke JavaScript, so the
+/// lookup remains valid until publication. Empty rejected definitions never hash.
+#[must_use]
+pub(super) struct PreparedOrdinaryDefinition<'key> {
+    object: &'key GcLocal<OrdinaryObject>,
+    prepared: PreparedOrdinaryPropertyKey<'key>,
+    hash_ready: I32Local,
+    current: GcLocal<PropertyDescriptor, Nullable>,
+}
+
+impl PreparedOrdinaryDefinition<'_> {
+    pub(super) fn current(&self) -> &GcLocal<PropertyDescriptor, Nullable> {
+        &self.current
+    }
+
+    pub(super) fn release(self, schema: &crate::gc_types::RuntimeSchema, function: &mut Function) {
+        self.current.clear(function);
+        schema.release_i32_local(self.hash_ready, function);
+        schema.release_i64_local(self.prepared.hash, function);
+    }
+}
+
 impl FunctionBuilder<'_> {
+    pub(super) fn emit_prepare_ordinary_definition<'key>(
+        &mut self,
+        object: &'key GcLocal<OrdinaryObject>,
+        key: &'key PropertyKeyLocals,
+        function: &mut Function,
+    ) -> Result<PreparedOrdinaryDefinition<'key>, EmitError> {
+        let schema = self.runtime_schema();
+        let prepared = PreparedOrdinaryPropertyKey {
+            key,
+            hash: schema.reserve_i64_local(function),
+        };
+        let hash_ready = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        hash_ready.store(function);
+        let entry =
+            self.emit_captured_ordinary_property_entry(object, &prepared, hash_ready, function)?;
+        let current = self.emit_ordinary_entry_descriptor_reference(&entry, function);
+        entry.clear(function);
+        Ok(PreparedOrdinaryDefinition {
+            object,
+            prepared,
+            hash_ready,
+            current,
+        })
+    }
+
+    /// Called only after descriptor compatibility succeeds. This ordinary path
+    /// has no observable callbacks between its initial lookup and publication.
+    pub(super) fn emit_publish_ordinary_definition(
+        &mut self,
+        lookup: &PreparedOrdinaryDefinition<'_>,
+        descriptor: &GcLocal<PropertyDescriptor>,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        lookup.current.load(schema, function).is_null(function);
+        self.open_frame(ControlFrameKind::If, function);
+        lookup.hash_ready.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_property_key_hash(lookup.prepared.key, lookup.prepared.hash, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_ordinary_insert_prepared_property(
+            lookup.object,
+            &lookup.prepared,
+            descriptor,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        self.emit_copy_complete_descriptor(&lookup.current, descriptor, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+    }
+
     pub(super) fn emit_ordinary_append_property_entry(
         &self,
         object: &GcLocal<OrdinaryObject>,
@@ -65,6 +143,36 @@ impl FunctionBuilder<'_> {
         let previous = self.emit_prepared_ordinary_property_entry(object, &prepared, function)?;
         previous.load(schema, function).is_null(function);
         self.open_frame(ControlFrameKind::If, function);
+        self.emit_ordinary_insert_prepared_property(object, &prepared, descriptor, function);
+        function.instruction(&Instruction::Else);
+        let present = schema.reserve_gc_local(function).initialize(
+            previous.load(schema, function).require_non_null(function),
+            function,
+        );
+        schema.field(PropertyEntrySchema::DESCRIPTOR).write(
+            &present,
+            GcOperand::reference(descriptor, schema),
+            schema,
+            function,
+        );
+        present.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        previous.clear(function);
+        schema.release_i64_local(prepared.hash, function);
+        Ok(())
+    }
+
+    /// The caller has already proved absence without invoking user code.
+    fn emit_ordinary_insert_prepared_property(
+        &mut self,
+        object: &GcLocal<OrdinaryObject>,
+        prepared: &PreparedOrdinaryPropertyKey<'_>,
+        descriptor: &GcLocal<PropertyDescriptor>,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let key = prepared.key;
         let storage = schema.reserve_gc_local(function).initialize(
             schema
                 .struct_type::<OrdinaryObject>()
@@ -202,23 +310,6 @@ impl FunctionBuilder<'_> {
         buckets.clear(function);
         table.clear(function);
         storage.clear(function);
-        function.instruction(&Instruction::Else);
-        let present = schema.reserve_gc_local(function).initialize(
-            previous.load(schema, function).require_non_null(function),
-            function,
-        );
-        schema.field(PropertyEntrySchema::DESCRIPTOR).write(
-            &present,
-            GcOperand::reference(descriptor, schema),
-            schema,
-            function,
-        );
-        present.clear(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        previous.clear(function);
-        schema.release_i64_local(prepared.hash, function);
-        Ok(())
     }
 
     /// Chooses max(4, required, 2 * capacity), without unsigned i32 wrap.

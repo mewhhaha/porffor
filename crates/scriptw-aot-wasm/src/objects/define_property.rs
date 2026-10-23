@@ -565,7 +565,8 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        let current = self.emit_ordinary_own_descriptor_reference(header, key, function)?;
+        let lookup = self.emit_prepare_ordinary_definition(header, key, function)?;
+        let current = lookup.current();
         let valid = schema.reserve_i32_local(function);
         current.load(schema, function);
         function.instruction(&Instruction::RefIsNull);
@@ -586,25 +587,18 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         valid.load(function);
         self.open_frame(ControlFrameKind::If, function);
-        let merged = self.emit_merge_property_descriptor(&current, descriptor, function)?;
-        current.load(schema, function);
-        function.instruction(&Instruction::RefIsNull);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_ordinary_append_property_entry(header, key, &merged, function)?;
-        function.instruction(&Instruction::Else);
-        self.emit_copy_complete_descriptor(&current, &merged, function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
+        let merged = self.emit_merge_property_descriptor(current, descriptor, function)?;
+        self.emit_publish_ordinary_definition(&lookup, &merged, function);
         merged.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_object_boolean_result(valid, result, function);
         schema.release_i32_local(valid, function);
-        current.clear(function);
+        lookup.release(schema, function);
         Ok(())
     }
 
-    fn emit_copy_complete_descriptor(
+    pub(super) fn emit_copy_complete_descriptor(
         &self,
         destination: &GcLocal<PropertyDescriptor, Nullable>,
         source: &GcLocal<PropertyDescriptor>,

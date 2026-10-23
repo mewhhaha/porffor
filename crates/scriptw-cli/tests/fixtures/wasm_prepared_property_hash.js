@@ -57,4 +57,42 @@ Object.freeze(object);
 check(Object.isFrozen(object), 'freeze descriptors');
 try { object[keys[1]] = 5; throw new Error('missed frozen write'); }
 catch (e) { check(e instanceof TypeError, 'frozen write rejects'); }
+// Failed definitions preserve both genuinely empty and populated tables.
+for (const seed of [false, true]) {
+  const closed = Object.create(null);
+  if (seed) closed.seed = 7;
+  Object.preventExtensions(closed);
+  check(!Reflect.defineProperty(closed, keys[0], { value: 1 }), 'closed miss');
+  check(Object.getOwnPropertyDescriptor(closed, keys[0]) === undefined, 'closed miss stays absent');
+  check(Reflect.ownKeys(closed).length === (seed ? 1 : 0), 'closed miss preserves table');
+}
+const emptyDescriptor = Object.create(null);
+check(Reflect.defineProperty(emptyDescriptor, keys[0], {}), 'empty descriptor creates property');
+const defaults = Object.getOwnPropertyDescriptor(emptyDescriptor, keys[0]);
+check(defaults.value === undefined && !defaults.writable && !defaults.enumerable && !defaults.configurable,
+      'empty descriptor defaults');
+check(!Reflect.defineProperty(emptyDescriptor, keys[0], { value: 1 }), 'incompatible redefine');
+check(emptyDescriptor[keys[0]] === undefined, 'failed redefine preserves value');
+// User callbacks happen before the ordinary lookup; changes made by descriptor
+// conversion must participate in validation, including its failure result.
+const changedDuringConversion = Object.create(null);
+let conversions = 0;
+check(!Reflect.defineProperty(changedDuringConversion, keys[1], {
+  get value() {
+    ++conversions;
+    Object.defineProperty(changedDuringConversion, keys[1], { value: 10 });
+    if (typeof gc === 'function') gc();
+    return 11;
+  }
+}), 'descriptor conversion mutation is observed');
+check(conversions === 1 && changedDuringConversion[keys[1]] === 10, 'conversion mutation retained');
+const changedDuringKey = Object.create(null);
+const changingKey = { [Symbol.toPrimitive](hint) {
+  check(hint === 'string', 'definition key hint');
+  Object.defineProperty(changedDuringKey, keys[2], { value: 20, writable: true });
+  return ('!' + keys[2]).slice(1);
+} };
+check(Reflect.defineProperty(changedDuringKey, changingKey, { value: 21 }), 'key mutation is observed');
+check(changedDuringKey[keys[2]] === 21 && Reflect.ownKeys(changedDuringKey).length === 1,
+      'key mutation replaces rather than appends');
 print('prepared-property-hash-ok');

@@ -1,0 +1,34 @@
+{
+  "schema": "scriptw-v8-workloads-v1",
+  "startup": {
+    "file": "startup.js",
+    "stdout": "scriptw-startup-ok\n"
+  },
+  "execution": [
+    {
+      "file": "define-long-missing.js",
+      "stdout": "4116\n",
+      "work": "2048 checked definitions; whole invocation includes key/descriptor/table setup, and checksum; define-long-missing"
+    },
+    {
+      "file": "define-short-missing.js",
+      "stdout": "4116\n",
+      "work": "2048 checked definitions; whole invocation includes key/descriptor/table setup, and checksum; define-short-missing"
+    },
+    {
+      "file": "define-long-present.js",
+      "stdout": "4116\n",
+      "work": "2048 checked definitions; whole invocation includes key/descriptor/table setup, seed population, and checksum; define-long-present"
+    },
+    {
+      "file": "define-empty-rejected.js",
+      "stdout": "2048\n",
+      "work": "2048 checked definitions; whole invocation includes key/descriptor/table setup, and checksum; define-empty-rejected"
+    },
+    {
+      "file": "define-long-reinsert.js",
+      "stdout": "4116\n",
+      "work": "2048 checked definitions; whole invocation includes key/descriptor/table setup, seed population, and checksum; define-long-reinsert"
+    }
+  ]
+}

@@ -370,8 +370,18 @@ impl<'a> FunctionBuilder<'a> {
         key: &PropertyKeyLocals,
         function: &mut Function,
     ) -> Result<GcLocal<PropertyDescriptor, Nullable>, EmitError> {
-        let schema = self.runtime_schema();
         let entry = self.emit_ordinary_property_entry(object, key, function)?;
+        let result = self.emit_ordinary_entry_descriptor_reference(&entry, function);
+        entry.clear(function);
+        Ok(result)
+    }
+
+    fn emit_ordinary_entry_descriptor_reference(
+        &self,
+        entry: &GcLocal<PropertyEntry, Nullable>,
+        function: &mut Function,
+    ) -> GcLocal<PropertyDescriptor, Nullable> {
+        let schema = self.runtime_schema();
         let result = schema
             .reserve_gc_local::<PropertyDescriptor, Nullable>(function)
             .initialize_null(schema, function);
@@ -392,8 +402,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         present.clear(function);
         function.instruction(&Instruction::End);
-        entry.clear(function);
-        Ok(result)
+        result
     }
 
     pub(crate) fn emit_alloc_proxy_with_slots(

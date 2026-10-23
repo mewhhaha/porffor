@@ -6,13 +6,14 @@ use super::*;
 enum OrdinaryPropertyQuery<'key> {
     Fresh(&'key PropertyKeyLocals),
     Prepared(&'key PreparedOrdinaryPropertyKey<'key>),
+    Capture(&'key PreparedOrdinaryPropertyKey<'key>, I32Local),
 }
 
 impl OrdinaryPropertyQuery<'_> {
     fn key(&self) -> &PropertyKeyLocals {
         match self {
             Self::Fresh(key) => key,
-            Self::Prepared(prepared) => prepared.key,
+            Self::Prepared(prepared) | Self::Capture(prepared, _) => prepared.key,
         }
     }
 }
@@ -66,6 +67,20 @@ impl FunctionBuilder<'_> {
         )
     }
 
+    pub(super) fn emit_captured_ordinary_property_entry(
+        &mut self,
+        object: &GcLocal<OrdinaryObject>,
+        prepared: &PreparedOrdinaryPropertyKey<'_>,
+        hash_ready: I32Local,
+        function: &mut Function,
+    ) -> Result<GcLocal<PropertyEntry, Nullable>, EmitError> {
+        self.emit_ordinary_property_find_inner(
+            object,
+            OrdinaryPropertyQuery::Capture(prepared, hash_ready),
+            function,
+        )
+    }
+
     fn emit_ordinary_property_find_inner(
         &mut self,
         object: &GcLocal<OrdinaryObject>,
@@ -104,7 +119,8 @@ impl FunctionBuilder<'_> {
         let position = schema.reserve_i32_local(function);
         let hash = match query {
             OrdinaryPropertyQuery::Fresh(_) => schema.reserve_i64_local(function),
-            OrdinaryPropertyQuery::Prepared(prepared) => prepared.hash,
+            OrdinaryPropertyQuery::Prepared(prepared)
+            | OrdinaryPropertyQuery::Capture(prepared, _) => prepared.hash,
         };
         let actual_hash = schema.reserve_i64_local(function);
         schema
@@ -113,8 +129,14 @@ impl FunctionBuilder<'_> {
         capacity.store(function);
         capacity.load(function);
         self.open_frame(ControlFrameKind::If, function);
-        if matches!(query, OrdinaryPropertyQuery::Fresh(_)) {
-            self.emit_property_key_hash(key, hash, function);
+        match query {
+            OrdinaryPropertyQuery::Fresh(_) => self.emit_property_key_hash(key, hash, function),
+            OrdinaryPropertyQuery::Capture(_, hash_ready) => {
+                self.emit_property_key_hash(key, hash, function);
+                function.instruction(&Instruction::I32Const(1));
+                hash_ready.store(function);
+            }
+            OrdinaryPropertyQuery::Prepared(_) => {}
         }
         Self::emit_ordinary_property_hash_bucket(hash, capacity, bucket, function);
         let exit = self.open_frame(ControlFrameKind::Block, function);
