@@ -9,13 +9,20 @@ a ceiling, not a reason to add low-value work.
 
 ## Progress ledger
 
+The [preserved row-scaling analysis](rust-rewrite/performance-row-scaling-20261023.md)
+completes **P003 as a diagnostic**, with 21 original cases, normalized plots and
+capacity observations. It reruns no benchmark and makes no current-product or
+optimization-speedup claim. This separate diagnostic brings the ledger to
+**23 terminal / seven partial / 130 unresolved**; P023/P112 remain pending their
+original-case replay and final publication.
+
 The [property-definition checkpoint](rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23)
 at `5c63c6597` completes **P020**: ordinary define-own now carries its prepared
 hash through lookup and insertion. Long/short missing-key confirmation medians
 fall 7.1%/5.5%, with an explicit 26.5-ms cold-start and 0.85-MiB CLI-size cost.
 All **3,893 affected native tests** and seventeen compiled semantic families
 pass. The original **7,174-case Test262 replay** returns **7,170 Success / four
-known Bug / zero Crash / zero NotImplemented**. The ledger is now **22 terminal /
+known Bug / zero Crash / zero NotImplemented**. That checkpoint brought the ledger to **22 terminal /
 seven partial / 131 unresolved**. Full-suite chart and V8 table remain bound to
 their separate source50 reports; slower initial measurements remain in the
 [portable evidence](rust-rewrite/performance-property-definition-20261023.json).
@@ -46,6 +53,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
+| P003 | **Diagnostic complete; no new speedup claim** | Byte-verified historical 256/1,024/4,096-row and 2/4/8-width measurements now have per-row/per-retained-element plots, observed spread and capacity observations. The 1,024→4,096 construction jump is superlinear in both recorded source cohorts; the 16→32-MiB capacity change is correlation, not isolated GC attribution. [Analysis and reproduction](rust-rewrite/performance-row-scaling-20261023.md). |
 | P004 | **Diagnostic complete; no speedup claim** | Empty-body, empty-loop, scalar-expression and scalar-return controls print checked outputs under both runtime orders. Seven samples after ten warmups quantify minimally observable execution/setup, with raw phases and no subtraction from published scores. [Receipts](rust-rewrite/performance-replacement-20261022.json). |
 | P020 | **Verified improvement with startup/image tradeoffs** | Prepared hashes now span collection callbacks/kernels/deletion and ordinary define-own lookup/insertion, preserving fresh-empty rejection and descriptor identity. Long/short missing-key medians fall 7.1%/5.5%; cold startup adds 26.5 ms and CLI size 0.85 MiB. Seventeen compiled families, 3,893 native passes and 7,170/7,174 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23). |
 | P107 | **Verified improvement with explicit tradeoffs** | Original→final screen: literal callback 456.100→7.507 ms; RegExp callback 2,410.068→101.373 ms. Direct short two-match eight-round medians: 45.926→45.548 ms. Intermediate→final ABBA retains a 37.8% RegExp dollar-template slowdown. Six compiled families, exact overflow, 3,569 native passes and 406/410 affected Test262 successes with the four original failures. [Boundaries](rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22). |
@@ -378,7 +386,7 @@ These extend existing checked measurements; they do not replace the baseline.
 | --- | --- | --- | --- |
 | P001 | A / I / S | Attribute the retained-row runtime with sampling and existing phase spans. | Identify dominant native/Wasm helpers; record profiler availability and overhead separately. |
 | P002 | A / I / S | Split retained rows into construction-only, traversal-only and combined cases. | Checked checksums and retained identity; separate allocation from read-loop time. |
-| P003 | A / I / S | Sweep row counts and field/array lengths geometrically. | Plot ns/element and capacity boundaries; identify linear, resize or superlinear costs. |
+| P003 | A / I / S | **Diagnostic complete:** analyze the preserved geometric row-count and array-width sweeps. | Per-row/per-retained-element plots and observed capacity transition identify superlinear scaling in the historical cohorts; no current-product or isolated-GC claim. [Evidence](rust-rewrite/performance-row-scaling-20261023.md). |
 | P004 | A / I / S | Add empty-program, empty-loop and scalar-return controls. | Quantify fixed realm/bootstrap/completion costs without subtracting them from published raw timings. |
 | P005 | A / I / S | Establish paired-run repeatability and balanced runtime order across reports. | Retain repeated A/B observations; record an empirical noise range before accepting small gains. |
 | P006 | B / I / M | Add optional helper call/probe/allocation-site diagnostic counters. | Count emitted operations without host calls per event; label instrumentation overhead and unavailable GC metrics correctly. |

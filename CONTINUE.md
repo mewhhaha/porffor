@@ -46,8 +46,8 @@ Product/benchmark/replay identity remains source53; native repair identity is
 separate. Next attribution notes are in that directory's `next-batch-notes.md`.
 <!-- scriptw-string-hash-progress:end -->
 
-The 160-hill backlog has **22 terminal decisions, seven partial/open outcomes,
-131 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
+The 160-hill backlog has **23 terminal decisions, seven partial/open outcomes,
+130 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
 code. Push each verified batch to main; keep this file/tasks until all acceptance
 criteria pass.
 
@@ -79,6 +79,11 @@ is retained beside the successful continuation. All aggregate/leaf snapshots
 and completion records are committed portably; no live watcher needs restarting.
 
 Next coherent work:
+
+P003's [preserved row-scaling analysis](docs/rust-rewrite/performance-row-scaling-20261023.md)
+is complete: 21 original cases, per-row/per-retained-element plots and observed
+capacity transitions, without rerunning historical benchmarks. P001/P002 still
+need current-source execution attribution and a sound traversal-only boundary.
 
 The additive `scripts/check-source-guards.py` covers both structural targets:
 277 source-only checks in about ten seconds, with nine tooling controls. Eight

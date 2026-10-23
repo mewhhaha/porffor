@@ -1,0 +1,1179 @@
+{
+  "schema": "scriptw-preserved-row-scaling-v1",
+  "evidence_file": "performance-first-wave-20261022.json",
+  "evidence_sha256": "5857b9791f3966a933c882a8d93ceb397894b97cccfc88ee9c67198a985e315a",
+  "generator": {
+    "file": "analyze-performance-row-scaling.py",
+    "sha256": "ba445cc50773b7d17c9433340f3a782d531f1f91236b817b94ac5f7a0a6d5018"
+  },
+  "cohorts": {
+    "before-screen": {
+      "source_commit": "3b1a3427fd6b3f24d1e6b1dfb8bed7f68d615b93",
+      "cli_sha256": "f49fb42d74a8329954fde6ae160c4c0967ecabb33995bca648c28dae33696e23",
+      "runtime_runner_sha256": "8e52e4649100eb53e3ce8e2b62b8c61f035c9c1d14055fe6dcde7759e29901ee",
+      "compiler_identity": {
+        "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+        "source_fingerprint": "4afdf8deca8492a0ae16c95b99a14d5f53fb74837accd71cd5d326975b4bbd9b",
+        "source_revision": {
+          "kind": "git-commit",
+          "commit": "3b1a3427fd6b3f24d1e6b1dfb8bed7f68d615b93"
+        },
+        "executable_sha256": "f49fb42d74a8329954fde6ae160c4c0967ecabb33995bca648c28dae33696e23"
+      },
+      "samples": 3,
+      "configuration": {
+        "startup": false,
+        "warmups": 1,
+        "timeout_seconds": 900,
+        "native_jobs": 1,
+        "execution_cache": {
+          "kind": "shared",
+          "path": "/workspace/lila-tooling-next/target/performance-execution-cache-20261021"
+        }
+      },
+      "machine": {
+        "system": "Linux-6.18.55-x86_64-with-glibc2.41",
+        "architecture": "x86_64",
+        "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+        "host_logical_cpus": 5,
+        "affinity_before_pin": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "cgroups": [
+          {
+            "cpu.max": "400000 100000",
+            "memory.max": "34359738368",
+            "memory.swap.max": "max"
+          }
+        ],
+        "effective_memory_bytes": 34359738368,
+        "effective_cpu_quota": 4.0,
+        "measurement_affinity": [
+          0
+        ]
+      },
+      "started_at": "2026-10-21T22:08:54.271510+00:00",
+      "finished_at": "2026-10-21T22:10:33.714420+00:00",
+      "report_sha256": "0c0d35e9391d06cc1b2455cfbe2f059df0f2b44b54e46cf51cb558fbc04afbc3"
+    },
+    "before-supplemental": {
+      "source_commit": "3b1a3427fd6b3f24d1e6b1dfb8bed7f68d615b93",
+      "cli_sha256": "f49fb42d74a8329954fde6ae160c4c0967ecabb33995bca648c28dae33696e23",
+      "runtime_runner_sha256": "8e52e4649100eb53e3ce8e2b62b8c61f035c9c1d14055fe6dcde7759e29901ee",
+      "compiler_identity": {
+        "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+        "source_fingerprint": "4afdf8deca8492a0ae16c95b99a14d5f53fb74837accd71cd5d326975b4bbd9b",
+        "source_revision": {
+          "kind": "git-commit",
+          "commit": "3b1a3427fd6b3f24d1e6b1dfb8bed7f68d615b93"
+        },
+        "executable_sha256": "f49fb42d74a8329954fde6ae160c4c0967ecabb33995bca648c28dae33696e23"
+      },
+      "samples": 7,
+      "configuration": {
+        "startup": false,
+        "warmups": 10,
+        "timeout_seconds": 900,
+        "native_jobs": 1,
+        "execution_cache": {
+          "kind": "shared",
+          "path": "/workspace/lila-tooling-next/target/performance-execution-cache-20261021"
+        }
+      },
+      "machine": {
+        "system": "Linux-6.18.55-x86_64-with-glibc2.41",
+        "architecture": "x86_64",
+        "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+        "host_logical_cpus": 5,
+        "affinity_before_pin": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "cgroups": [
+          {
+            "cpu.max": "400000 100000",
+            "memory.max": "34359738368",
+            "memory.swap.max": "max"
+          }
+        ],
+        "effective_memory_bytes": 34359738368,
+        "effective_cpu_quota": 4.0,
+        "measurement_affinity": [
+          0
+        ]
+      },
+      "started_at": "2026-10-21T22:20:57.093034+00:00",
+      "finished_at": "2026-10-21T22:21:16.546863+00:00",
+      "report_sha256": "769adc1e127c7399c549e4b475637a093347aca8945b39bdcb89182ca8382893"
+    },
+    "current-screen": {
+      "source_commit": "621ba89ca04a3522192b97afdd2c9fae617009a7",
+      "cli_sha256": "6f48707432b22d3bc45264a61a4b303d5b4b55fe6343a0dfff7606b3b3752ae0",
+      "runtime_runner_sha256": "294d53cdaa18de3709c7e2d7a530d6024721a9e4a302e86ad66d8f895487375c",
+      "compiler_identity": {
+        "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+        "source_fingerprint": "31caadf8de6aa83eb3581a6ba0a49e9d8147d4f2cc43c490abb72b0dc306bf76",
+        "source_revision": {
+          "kind": "git-commit",
+          "commit": "621ba89ca04a3522192b97afdd2c9fae617009a7"
+        },
+        "executable_sha256": "6f48707432b22d3bc45264a61a4b303d5b4b55fe6343a0dfff7606b3b3752ae0"
+      },
+      "samples": 3,
+      "configuration": {
+        "startup": false,
+        "warmups": 1,
+        "timeout_seconds": 900,
+        "native_jobs": 1,
+        "execution_cache": {
+          "kind": "shared",
+          "path": "/workspace/lila-tooling-next/target/performance-execution-cache-20261021"
+        }
+      },
+      "machine": {
+        "system": "Linux-6.18.55-x86_64-with-glibc2.41",
+        "architecture": "x86_64",
+        "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+        "host_logical_cpus": 5,
+        "affinity_before_pin": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "cgroups": [
+          {
+            "cpu.max": "400000 100000",
+            "memory.max": "34359738368",
+            "memory.swap.max": "max"
+          }
+        ],
+        "effective_memory_bytes": 34359738368,
+        "effective_cpu_quota": 4.0,
+        "measurement_affinity": [
+          0
+        ]
+      },
+      "started_at": "2026-10-21T23:52:44.460961+00:00",
+      "finished_at": "2026-10-21T23:53:54.129114+00:00",
+      "report_sha256": "fa045646f4106e69b376254189126a585cb786725ca7cd8e5cbae41e7aabf27f"
+    }
+  },
+  "rows": [
+    {
+      "cohort": "before-screen",
+      "file": "rows-n256-w4-p0.js",
+      "rows": 256,
+      "width": 4,
+      "read_passes": 0,
+      "source_sha256": "62a7cec524110725c07c789bf6791c056b344b882318705d968c8372f39a1671",
+      "stdout": "514\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            25587260,
+            24626403,
+            24568958
+          ],
+          "median_ns": 24626403,
+          "minimum_ns": 24568958,
+          "maximum_ns": 25587260,
+          "median_ns_per_row": 96196.88671875,
+          "median_ns_per_retained_value": 24049.2216796875,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            185707,
+            65899,
+            63214
+          ],
+          "median_ns": 65899,
+          "minimum_ns": 63214,
+          "maximum_ns": 185707,
+          "median_ns_per_row": 257.41796875,
+          "median_ns_per_retained_value": 64.3544921875
+        }
+      }
+    },
+    {
+      "cohort": "before-screen",
+      "file": "rows-n256-w4-p1.js",
+      "rows": 256,
+      "width": 4,
+      "read_passes": 1,
+      "source_sha256": "c5804307644926e45d20f429447184a315b7a39fe49618b68f0a26784c6b4453",
+      "stdout": "132610\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            30796496,
+            31199871,
+            32453863
+          ],
+          "median_ns": 31199871,
+          "minimum_ns": 30796496,
+          "maximum_ns": 32453863,
+          "median_ns_per_row": 121874.49609375,
+          "median_ns_per_retained_value": 30468.6240234375,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            303363,
+            79609,
+            79118
+          ],
+          "median_ns": 79609,
+          "minimum_ns": 79118,
+          "maximum_ns": 303363,
+          "median_ns_per_row": 310.97265625,
+          "median_ns_per_retained_value": 77.7431640625
+        }
+      }
+    },
+    {
+      "cohort": "before-screen",
+      "file": "rows-n256-w4-p4.js",
+      "rows": 256,
+      "width": 4,
+      "read_passes": 4,
+      "source_sha256": "19a2110bef1ced010d4ce8665f5ec24aeab8fa1a9fb87bbbe9b6a262b4dbccbc",
+      "stdout": "528898\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            54863243,
+            45252398,
+            48773821
+          ],
+          "median_ns": 48773821,
+          "minimum_ns": 45252398,
+          "maximum_ns": 54863243,
+          "median_ns_per_row": 190522.73828125,
+          "median_ns_per_retained_value": 47630.6845703125,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            354649,
+            317273,
+            487867
+          ],
+          "median_ns": 354649,
+          "minimum_ns": 317273,
+          "maximum_ns": 487867,
+          "median_ns_per_row": 1385.34765625,
+          "median_ns_per_retained_value": 346.3369140625
+        }
+      }
+    },
+    {
+      "cohort": "before-screen",
+      "file": "rows-n1024-w4-p0.js",
+      "rows": 1024,
+      "width": 4,
+      "read_passes": 0,
+      "source_sha256": "623e19121a338432f8b4e62df2dbef6c22e0b60a4b647d07e6e66932df8102ce",
+      "stdout": "2050\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            80505728,
+            80887469,
+            80338677
+          ],
+          "median_ns": 80505728,
+          "minimum_ns": 80338677,
+          "maximum_ns": 80887469,
+          "median_ns_per_row": 78618.875,
+          "median_ns_per_retained_value": 19654.71875,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            1046381,
+            227670,
+            167400
+          ],
+          "median_ns": 227670,
+          "minimum_ns": 167400,
+          "maximum_ns": 1046381,
+          "median_ns_per_row": 222.333984375,
+          "median_ns_per_retained_value": 55.58349609375
+        }
+      }
+    },
+    {
+      "cohort": "before-screen",
+      "file": "rows-n1024-w4-p1.js",
+      "rows": 1024,
+      "width": 4,
+      "read_passes": 1,
+      "source_sha256": "44e368daf55fb4381ef9232d1b7f69a240481b6c53f4042caab3cd11fe9ea630",
+      "stdout": "2103298\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            101566661,
+            102228612,
+            103380788
+          ],
+          "median_ns": 102228612,
+          "minimum_ns": 101566661,
+          "maximum_ns": 103380788,
+          "median_ns_per_row": 99832.62890625,
+          "median_ns_per_retained_value": 24958.1572265625,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            1569210,
+            451476,
+            478526
+          ],
+          "median_ns": 478526,
+          "minimum_ns": 451476,
+          "maximum_ns": 1569210,
+          "median_ns_per_row": 467.310546875,
+          "median_ns_per_retained_value": 116.82763671875
+        }
+      }
+    },
+    {
+      "cohort": "before-screen",
+      "file": "rows-n1024-w4-p4.js",
+      "rows": 1024,
+      "width": 4,
+      "read_passes": 4,
+      "source_sha256": "820a55a1d29ae5ded79671017415e176c5d46957a832c79909bca82e7255421a",
+      "stdout": "8407042\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            183003265,
+            164532045,
+            168322113
+          ],
+          "median_ns": 168322113,
+          "minimum_ns": 164532045,
+          "maximum_ns": 183003265,
+          "median_ns_per_row": 164377.0634765625,
+          "median_ns_per_retained_value": 41094.265869140625,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            4287301,
+            2242539,
+            631326
+          ],
+          "median_ns": 2242539,
+          "minimum_ns": 631326,
+          "maximum_ns": 4287301,
+          "median_ns_per_row": 2189.9794921875,
+          "median_ns_per_retained_value": 547.494873046875
+        }
+      }
+    },
+    {
+      "cohort": "before-screen",
+      "file": "rows-n4096-w4-p0.js",
+      "rows": 4096,
+      "width": 4,
+      "read_passes": 0,
+      "source_sha256": "cafd8ec83b11c1cadc185b605bc7f5985c2b77f86bc5fa32e58913492a9b3f4a",
+      "stdout": "8194\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            609811420,
+            598842045,
+            608630337
+          ],
+          "median_ns": 608630337,
+          "minimum_ns": 598842045,
+          "maximum_ns": 609811420,
+          "median_ns_per_row": 148591.39086914062,
+          "median_ns_per_retained_value": 37147.847717285156,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            33554432
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            3882556,
+            787580,
+            4448574
+          ],
+          "median_ns": 3882556,
+          "minimum_ns": 787580,
+          "maximum_ns": 4448574,
+          "median_ns_per_row": 947.8896484375,
+          "median_ns_per_retained_value": 236.972412109375
+        }
+      }
+    },
+    {
+      "cohort": "before-screen",
+      "file": "rows-n4096-w4-p1.js",
+      "rows": 4096,
+      "width": 4,
+      "read_passes": 1,
+      "source_sha256": "637ac77f3dea5127478b01ceab73da6ef8b92c23adb31c2238ef23c38fb0512f",
+      "stdout": "33579010\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            841629729,
+            864793938,
+            811208705
+          ],
+          "median_ns": 841629729,
+          "minimum_ns": 811208705,
+          "maximum_ns": 864793938,
+          "median_ns_per_row": 205476.00805664062,
+          "median_ns_per_retained_value": 51369.002014160156,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            33554432
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            2674076,
+            2537431,
+            3219563
+          ],
+          "median_ns": 2674076,
+          "minimum_ns": 2537431,
+          "maximum_ns": 3219563,
+          "median_ns_per_row": 652.8505859375,
+          "median_ns_per_retained_value": 163.212646484375
+        }
+      }
+    },
+    {
+      "cohort": "before-screen",
+      "file": "rows-n4096-w4-p4.js",
+      "rows": 4096,
+      "width": 4,
+      "read_passes": 4,
+      "source_sha256": "dfffba0cd6b06ff30ef1d7aefe1388883febab960dc50370e32fa2cbd87f56cc",
+      "stdout": "134291458\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            1253528226,
+            1169575539,
+            1223131204
+          ],
+          "median_ns": 1223131204,
+          "minimum_ns": 1169575539,
+          "maximum_ns": 1253528226,
+          "median_ns_per_row": 298616.0166015625,
+          "median_ns_per_retained_value": 74654.00415039062,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            33554432
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            4938083,
+            5795781,
+            2379255
+          ],
+          "median_ns": 4938083,
+          "minimum_ns": 2379255,
+          "maximum_ns": 5795781,
+          "median_ns_per_row": 1205.586669921875,
+          "median_ns_per_retained_value": 301.39666748046875
+        }
+      }
+    },
+    {
+      "cohort": "before-supplemental",
+      "file": "rows-n1024-w2-p1.js",
+      "rows": 1024,
+      "width": 2,
+      "read_passes": 1,
+      "source_sha256": "faf4864893d6b998c62a45ef7130f71697341c3322eabbbfb4266e778fecca64",
+      "stdout": "1050624\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            85783824,
+            89025874,
+            84641248,
+            87319501,
+            87887714,
+            92964369,
+            86129213
+          ],
+          "median_ns": 87319501,
+          "minimum_ns": 84641248,
+          "maximum_ns": 92964369,
+          "median_ns_per_row": 85272.9501953125,
+          "median_ns_per_retained_value": 42636.47509765625,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            138418,
+            132359,
+            136585,
+            202474,
+            208633,
+            189054,
+            183937
+          ],
+          "median_ns": 183937,
+          "minimum_ns": 132359,
+          "maximum_ns": 208633,
+          "median_ns_per_row": 179.6259765625,
+          "median_ns_per_retained_value": 89.81298828125
+        }
+      }
+    },
+    {
+      "cohort": "before-supplemental",
+      "file": "rows-n1024-w4-p1.js",
+      "rows": 1024,
+      "width": 4,
+      "read_passes": 1,
+      "source_sha256": "44e368daf55fb4381ef9232d1b7f69a240481b6c53f4042caab3cd11fe9ea630",
+      "stdout": "2103298\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            103250557,
+            109940228,
+            105310318,
+            104633452,
+            106107255,
+            100749353,
+            100395872
+          ],
+          "median_ns": 104633452,
+          "minimum_ns": 100395872,
+          "maximum_ns": 109940228,
+          "median_ns_per_row": 102181.10546875,
+          "median_ns_per_retained_value": 25545.2763671875,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            452530,
+            392439,
+            759972,
+            505760,
+            363827,
+            449476,
+            436535
+          ],
+          "median_ns": 449476,
+          "minimum_ns": 363827,
+          "maximum_ns": 759972,
+          "median_ns_per_row": 438.94140625,
+          "median_ns_per_retained_value": 109.7353515625
+        }
+      }
+    },
+    {
+      "cohort": "before-supplemental",
+      "file": "rows-n1024-w8-p1.js",
+      "rows": 1024,
+      "width": 8,
+      "read_passes": 1,
+      "source_sha256": "9931a2a3470a979faff3f5485b059210954123cb074f4cb930a35bcbf0c81a41",
+      "stdout": "4220934\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            142973060,
+            142129614,
+            186487874,
+            133045099,
+            128935918,
+            132439980,
+            131565758
+          ],
+          "median_ns": 133045099,
+          "minimum_ns": 128935918,
+          "maximum_ns": 186487874,
+          "median_ns_per_row": 129926.8544921875,
+          "median_ns_per_retained_value": 16240.856811523438,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            3896021,
+            1459672,
+            2312443,
+            1642977,
+            1249226,
+            1738751,
+            1470589
+          ],
+          "median_ns": 1642977,
+          "minimum_ns": 1249226,
+          "maximum_ns": 3896021,
+          "median_ns_per_row": 1604.4697265625,
+          "median_ns_per_retained_value": 200.5587158203125
+        }
+      }
+    },
+    {
+      "cohort": "current-screen",
+      "file": "rows-n256-w4-p0.js",
+      "rows": 256,
+      "width": 4,
+      "read_passes": 0,
+      "source_sha256": "62a7cec524110725c07c789bf6791c056b344b882318705d968c8372f39a1671",
+      "stdout": "514\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            10866240,
+            10409635,
+            9780900
+          ],
+          "median_ns": 10409635,
+          "minimum_ns": 9780900,
+          "maximum_ns": 10866240,
+          "median_ns_per_row": 40662.63671875,
+          "median_ns_per_retained_value": 10165.6591796875,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            185218,
+            67441,
+            61092
+          ],
+          "median_ns": 67441,
+          "minimum_ns": 61092,
+          "maximum_ns": 185218,
+          "median_ns_per_row": 263.44140625,
+          "median_ns_per_retained_value": 65.8603515625
+        }
+      }
+    },
+    {
+      "cohort": "current-screen",
+      "file": "rows-n256-w4-p1.js",
+      "rows": 256,
+      "width": 4,
+      "read_passes": 1,
+      "source_sha256": "c5804307644926e45d20f429447184a315b7a39fe49618b68f0a26784c6b4453",
+      "stdout": "132610\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            12771311,
+            15469824,
+            15690886
+          ],
+          "median_ns": 15469824,
+          "minimum_ns": 12771311,
+          "maximum_ns": 15690886,
+          "median_ns_per_row": 60429.0,
+          "median_ns_per_retained_value": 15107.25,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            191237,
+            82424,
+            79159
+          ],
+          "median_ns": 82424,
+          "minimum_ns": 79159,
+          "maximum_ns": 191237,
+          "median_ns_per_row": 321.96875,
+          "median_ns_per_retained_value": 80.4921875
+        }
+      }
+    },
+    {
+      "cohort": "current-screen",
+      "file": "rows-n256-w4-p4.js",
+      "rows": 256,
+      "width": 4,
+      "read_passes": 4,
+      "source_sha256": "19a2110bef1ced010d4ce8665f5ec24aeab8fa1a9fb87bbbe9b6a262b4dbccbc",
+      "stdout": "528898\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            25193158,
+            23747967,
+            21257196
+          ],
+          "median_ns": 23747967,
+          "minimum_ns": 21257196,
+          "maximum_ns": 25193158,
+          "median_ns_per_row": 92765.49609375,
+          "median_ns_per_retained_value": 23191.3740234375,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            280011,
+            209925,
+            153561
+          ],
+          "median_ns": 209925,
+          "minimum_ns": 153561,
+          "maximum_ns": 280011,
+          "median_ns_per_row": 820.01953125,
+          "median_ns_per_retained_value": 205.0048828125
+        }
+      }
+    },
+    {
+      "cohort": "current-screen",
+      "file": "rows-n1024-w4-p0.js",
+      "rows": 1024,
+      "width": 4,
+      "read_passes": 0,
+      "source_sha256": "623e19121a338432f8b4e62df2dbef6c22e0b60a4b647d07e6e66932df8102ce",
+      "stdout": "2050\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            31181782,
+            33163588,
+            29925786
+          ],
+          "median_ns": 31181782,
+          "minimum_ns": 29925786,
+          "maximum_ns": 33163588,
+          "median_ns_per_row": 30450.958984375,
+          "median_ns_per_retained_value": 7612.73974609375,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            1110999,
+            230316,
+            188944
+          ],
+          "median_ns": 230316,
+          "minimum_ns": 188944,
+          "maximum_ns": 1110999,
+          "median_ns_per_row": 224.91796875,
+          "median_ns_per_retained_value": 56.2294921875
+        }
+      }
+    },
+    {
+      "cohort": "current-screen",
+      "file": "rows-n1024-w4-p1.js",
+      "rows": 1024,
+      "width": 4,
+      "read_passes": 1,
+      "source_sha256": "44e368daf55fb4381ef9232d1b7f69a240481b6c53f4042caab3cd11fe9ea630",
+      "stdout": "2103298\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            39883791,
+            40652506,
+            39836180
+          ],
+          "median_ns": 39883791,
+          "minimum_ns": 39836180,
+          "maximum_ns": 40652506,
+          "median_ns_per_row": 38949.0146484375,
+          "median_ns_per_retained_value": 9737.253662109375,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            1426182,
+            497447,
+            494132
+          ],
+          "median_ns": 497447,
+          "minimum_ns": 494132,
+          "maximum_ns": 1426182,
+          "median_ns_per_row": 485.7880859375,
+          "median_ns_per_retained_value": 121.447021484375
+        }
+      }
+    },
+    {
+      "cohort": "current-screen",
+      "file": "rows-n1024-w4-p4.js",
+      "rows": 1024,
+      "width": 4,
+      "read_passes": 4,
+      "source_sha256": "820a55a1d29ae5ded79671017415e176c5d46957a832c79909bca82e7255421a",
+      "stdout": "8407042\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            64878275,
+            63773165,
+            63426024
+          ],
+          "median_ns": 63773165,
+          "minimum_ns": 63426024,
+          "maximum_ns": 64878275,
+          "median_ns_per_row": 62278.4814453125,
+          "median_ns_per_retained_value": 15569.620361328125,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            16777216
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            4646037,
+            737879,
+            2556419
+          ],
+          "median_ns": 2556419,
+          "minimum_ns": 737879,
+          "maximum_ns": 4646037,
+          "median_ns_per_row": 2496.5029296875,
+          "median_ns_per_retained_value": 624.125732421875
+        }
+      }
+    },
+    {
+      "cohort": "current-screen",
+      "file": "rows-n4096-w4-p0.js",
+      "rows": 4096,
+      "width": 4,
+      "read_passes": 0,
+      "source_sha256": "cafd8ec83b11c1cadc185b605bc7f5985c2b77f86bc5fa32e58913492a9b3f4a",
+      "stdout": "8194\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            425776174,
+            419958172,
+            416032416
+          ],
+          "median_ns": 419958172,
+          "minimum_ns": 416032416,
+          "maximum_ns": 425776174,
+          "median_ns_per_row": 102528.8505859375,
+          "median_ns_per_retained_value": 25632.212646484375,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            33554432
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            3912766,
+            608985,
+            541733
+          ],
+          "median_ns": 608985,
+          "minimum_ns": 541733,
+          "maximum_ns": 3912766,
+          "median_ns_per_row": 148.677978515625,
+          "median_ns_per_retained_value": 37.16949462890625
+        }
+      }
+    },
+    {
+      "cohort": "current-screen",
+      "file": "rows-n4096-w4-p1.js",
+      "rows": 4096,
+      "width": 4,
+      "read_passes": 1,
+      "source_sha256": "637ac77f3dea5127478b01ceab73da6ef8b92c23adb31c2238ef23c38fb0512f",
+      "stdout": "33579010\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            491907379,
+            474006564,
+            476625127
+          ],
+          "median_ns": 476625127,
+          "minimum_ns": 474006564,
+          "maximum_ns": 491907379,
+          "median_ns_per_row": 116363.55639648438,
+          "median_ns_per_retained_value": 29090.889099121094,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            33554432
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            5181192,
+            2493084,
+            2323549
+          ],
+          "median_ns": 2493084,
+          "minimum_ns": 2323549,
+          "maximum_ns": 5181192,
+          "median_ns_per_row": 608.6630859375,
+          "median_ns_per_retained_value": 152.165771484375
+        }
+      }
+    },
+    {
+      "cohort": "current-screen",
+      "file": "rows-n4096-w4-p4.js",
+      "rows": 4096,
+      "width": 4,
+      "read_passes": 4,
+      "source_sha256": "dfffba0cd6b06ff30ef1d7aefe1388883febab960dc50370e32fa2cbd87f56cc",
+      "stdout": "134291458\n",
+      "runtimes": {
+        "wasmtime": {
+          "samples_ns": [
+            602909327,
+            610377463,
+            624531008
+          ],
+          "median_ns": 610377463,
+          "minimum_ns": 602909327,
+          "maximum_ns": 624531008,
+          "median_ns_per_row": 149017.93530273438,
+          "median_ns_per_retained_value": 37254.483825683594,
+          "gc_capacity_before_bytes": [
+            16777216
+          ],
+          "gc_capacity_after_bytes": [
+            33554432
+          ]
+        },
+        "v8": {
+          "samples_ns": [
+            7562297,
+            4528311,
+            4848081
+          ],
+          "median_ns": 4848081,
+          "minimum_ns": 4528311,
+          "maximum_ns": 7562297,
+          "median_ns_per_row": 1183.613525390625,
+          "median_ns_per_retained_value": 295.90338134765625
+        }
+      }
+    }
+  ],
+  "growth": [
+    {
+      "cohort": "before-screen",
+      "read_passes": 0,
+      "from_rows": 256,
+      "to_rows": 1024,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 3.2690818874360175,
+      "normalized_per_row_ratio": 0.8172704718590044
+    },
+    {
+      "cohort": "before-screen",
+      "read_passes": 0,
+      "from_rows": 1024,
+      "to_rows": 4096,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 7.560087364218357,
+      "normalized_per_row_ratio": 1.8900218410545893
+    },
+    {
+      "cohort": "before-screen",
+      "read_passes": 1,
+      "from_rows": 256,
+      "to_rows": 1024,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 3.2765716242865235,
+      "normalized_per_row_ratio": 0.8191429060716309
+    },
+    {
+      "cohort": "before-screen",
+      "read_passes": 1,
+      "from_rows": 1024,
+      "to_rows": 4096,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 8.232819682614883,
+      "normalized_per_row_ratio": 2.0582049206537207
+    },
+    {
+      "cohort": "before-screen",
+      "read_passes": 4,
+      "from_rows": 256,
+      "to_rows": 1024,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 3.4510749731910484,
+      "normalized_per_row_ratio": 0.8627687432977621
+    },
+    {
+      "cohort": "before-screen",
+      "read_passes": 4,
+      "from_rows": 1024,
+      "to_rows": 4096,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 7.266610323505147,
+      "normalized_per_row_ratio": 1.8166525808762868
+    },
+    {
+      "cohort": "current-screen",
+      "read_passes": 0,
+      "from_rows": 256,
+      "to_rows": 1024,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 2.995473136185851,
+      "normalized_per_row_ratio": 0.7488682840464628
+    },
+    {
+      "cohort": "current-screen",
+      "read_passes": 0,
+      "from_rows": 1024,
+      "to_rows": 4096,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 13.468061960025247,
+      "normalized_per_row_ratio": 3.367015490006312
+    },
+    {
+      "cohort": "current-screen",
+      "read_passes": 1,
+      "from_rows": 256,
+      "to_rows": 1024,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 2.5781670819267237,
+      "normalized_per_row_ratio": 0.6445417704816809
+    },
+    {
+      "cohort": "current-screen",
+      "read_passes": 1,
+      "from_rows": 1024,
+      "to_rows": 4096,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 11.950346620761302,
+      "normalized_per_row_ratio": 2.9875866551903254
+    },
+    {
+      "cohort": "current-screen",
+      "read_passes": 4,
+      "from_rows": 256,
+      "to_rows": 1024,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 2.6854157663264395,
+      "normalized_per_row_ratio": 0.6713539415816099
+    },
+    {
+      "cohort": "current-screen",
+      "read_passes": 4,
+      "from_rows": 1024,
+      "to_rows": 4096,
+      "row_count_ratio": 4.0,
+      "elapsed_median_ratio": 9.571070574904036,
+      "normalized_per_row_ratio": 2.392767643726009
+    }
+  ],
+  "limitations": [
+    "Historical source cohorts; these are not current-product measurements.",
+    "Each panel retains its cohort sample/warmup counts. Min/max bars are observed spread, not confidence intervals.",
+    "Every timing includes row construction, reads, checksum and completion.",
+    "Zero-pass rows include construction and the final length/element checksum.",
+    "Per-value normalization divides the whole invocation by retained array elements (rows times width), not by the number of read operations.",
+    "Capacity snapshots are not live bytes, allocation counts, peak heap or proof of GC causation.",
+    "The width controls share the original source and machine but use a separate sample/warmup cohort; they do not cover the later source.",
+    "No timings are subtracted, no sample is excluded, and no optimization speedup is inferred from these plots."
+  ],
+  "plot": {
+    "path": "row-scaling.svg",
+    "sha256": "a180f90fdf27bc12df2563697d342c6a0cbf212e5c4dfb4ea4fd7dc8614bfdeb",
+    "matplotlib_version": "3.10.8"
+  }
+}

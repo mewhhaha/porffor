@@ -8,6 +8,14 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
+### Completed diagnostic — preserved row scaling, 2026-10-23
+
+P003 is complete with [analysis of 21 preserved cases](performance-row-scaling-20261023.md):
+geometric row/array-width controls, normalized cost plots and the observed
+capacity transition. These historical source cohorts are not a new current-product
+benchmark or an isolated GC measurement. No original benchmark was rerun;
+P001/P002 execution attribution remains open.
+
 <!-- scriptw-string-hash-progress:start -->
 ### Native-verified string-hash batch; original-case replay pending
 
