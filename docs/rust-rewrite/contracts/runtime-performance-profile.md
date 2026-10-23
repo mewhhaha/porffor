@@ -269,6 +269,13 @@ selecting one does not initialize the other. Other raw identities use the
 original path. R is deserialized into the actual P Engine, not returned from a
 separate optimized Engine.
 
+Cargo publishes bundle data, compressed Portable storage and generated bindings
+by writing a new sibling file and renaming it over the destination. An existing
+symlink or hardlink is replaced rather than written through, preserving shared
+completed build outputs. This changes output-file ownership, not package bytes,
+source fingerprints, admission rules or the per-profile publication sequence.
+The bundle is still admitted only after the producer finishes all artifacts.
+
 The Engine's private native authority accepts only immutable Cargo-produced
 linked arrays and their private verified decoder output. No file, cache blob or caller-provided native
 slice can enter its unsafe deserializer. A manifest binds source, target,

@@ -1,5 +1,8 @@
 //! Publish each complete Cargo-owned runtime bundle with its own v4 manifest.
 
+#[path = "output.rs"]
+mod output;
+
 use scriptw_aot_wasm::RuntimeSourceCompilationProfile;
 use std::path::Path;
 
@@ -20,7 +23,7 @@ pub(super) fn publish(
         ("native", native),
         ("manifest", manifest),
     ] {
-        std::fs::write(out.join(format!("{prefix}-{suffix}.bin")), bytes)
+        output::write(&out.join(format!("{prefix}-{suffix}.bin")), bytes)
             .expect("build runtime output writes completely");
     }
 }

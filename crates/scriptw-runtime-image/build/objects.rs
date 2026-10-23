@@ -2,6 +2,9 @@
 //! metadata or incremental caches. The ordinary Cargo target compiler defines
 //! the exact array ABI; cc's target archiver packages the resulting data object.
 
+#[path = "../../scriptw-engine/src/embedded_runtime/output.rs"]
+mod output;
+
 use std::fmt::Write;
 use std::path::Path;
 use std::process::Command;
@@ -34,7 +37,7 @@ pub(super) fn embed(out: &Path, target: &str) {
     if lengths.iter().all(|&length| length == 0) {
         // Unsupported targets retain the ordinary runtime path. They need
         // neither a native data object nor a target archiver for empty images.
-        std::fs::write(out.join("image_bindings.rs"), "")
+        output::write(&out.join("image_bindings.rs"), "")
             .expect("empty image bindings write completely");
         return;
     }
@@ -53,7 +56,7 @@ pub(super) fn embed(out: &Path, target: &str) {
     declarations.push_str("}\n");
     let source = out.join("image_data.rs");
     let object = out.join("image_data.o");
-    std::fs::write(&source, definitions).expect("image data definitions write completely");
+    output::write(&source, definitions).expect("image data definitions write completely");
     let result = Command::new(std::env::var_os("RUSTC").expect("Cargo target Rust compiler"))
         .args([
             "--edition=2021",
@@ -87,7 +90,7 @@ pub(super) fn embed(out: &Path, target: &str) {
     // cc does not register custom objects as watched source inputs. Only the
     // complete archive is consumed downstream; retain no duplicate data object.
     std::fs::remove_file(object).expect("archived image data object is retired");
-    std::fs::write(out.join("image_bindings.rs"), declarations)
+    output::write(&out.join("image_bindings.rs"), declarations)
         .expect("exact image array declarations write completely");
     println!("cargo:rustc-cfg=scriptw_runtime_image");
 }

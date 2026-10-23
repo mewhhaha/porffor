@@ -62,6 +62,12 @@ and completion records are committed portably; no live watcher needs restarting.
 
 Next coherent work:
 
+The build-output alias repair is implemented: runtime bundles, Portable storage
+and generated Rust files now replace destination entries after a complete write.
+Four direct filesystem regressions pass, including retained symlink/hardlink
+targets and failed replacement cleanup. See the [workflow](docs/rust-rewrite/batch-workflow.md#cached-metadata-diagnostics).
+The next Cargo producer build must still validate the complete integration.
+
 P005's [paired-repeatability diagnostic](docs/rust-rewrite/performance-repeatability-20261023.md)
 is complete. It records observed ranges for all 16 preserved ABBA cases without
 rerunning benchmarks. Small future effects need further balanced or same-source

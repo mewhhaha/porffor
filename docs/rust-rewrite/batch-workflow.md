@@ -322,3 +322,25 @@ detach owned output symlinks for the crates/images being regenerated so a produc
 cannot overwrite a preserved historical target through its link. Never unlink a
 running executable. These operations do not authorize removing source, fixtures,
 current dependency inputs or unpreserved verification evidence.
+
+Runtime bundle data, compressed Portable storage and generated Rust bindings
+now publish through a fresh sibling file followed by rename. This replaces an
+output symlink or hardlink without modifying another completed producer's inode.
+The source53 test-only repair exposed the previous write-through behavior:
+two shared raw-package headers changed while their Wasm payloads and native code
+remained identical. Both source versions are preserved in the string-hash
+checkpoint; its original product staging was restored from the verified archive.
+Keep the pre-build alias checks for other compiler outputs and external tools.
+Four actual filesystem regressions cover symlinks, hardlinks, empty/replaced
+outputs, and failed replacement cleanup. They can run without rebuilding R:
+
+```sh
+python3 -B scripts/limited_verification.py --cloud -- rustc --edition=2021 --test \
+  crates/scriptw-runtime-image/tests/output_publication.rs \
+  -o /tmp/scriptw-output-publication-tests
+python3 -B scripts/limited_verification.py --cloud -- \
+  /tmp/scriptw-output-publication-tests --test-threads=1
+```
+
+This standalone check compiles the production filesystem helper directly. It
+does not replace a subsequent Cargo producer build or conformance checkpoint.

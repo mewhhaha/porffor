@@ -2,6 +2,8 @@
 //! output and v4 manifests retain their exact existing bytes and formats.
 #[path = "../src/native_storage.rs"]
 mod native_storage;
+#[path = "../../scriptw-engine/src/embedded_runtime/output.rs"]
+mod output;
 
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -33,6 +35,6 @@ pub(super) fn write(out: &Path) {
         );
         encoded
     };
-    std::fs::write(out.join("scriptw-runtime-portable-native.packed"), encoded)
+    output::write(&out.join("scriptw-runtime-portable-native.packed"), encoded)
         .expect("encoded native storage writes completely");
 }

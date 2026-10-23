@@ -8,6 +8,12 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
+Build-output ownership repair: complete runtime data and generated Rust files
+now replace their destination entries, preserving older symlink/hardlink targets.
+All four standalone production-helper filesystem regressions pass; no new full
+Cargo/native/conformance result is inferred from them. The next Cargo producer
+build still needs its normal admission checks. [Workflow](batch-workflow.md#cached-metadata-diagnostics).
+
 ### Latest performance diagnostic — paired repeatability, 2026-10-23
 
 P005 now has empirical same-source ranges and adjacent effects for all sixteen
