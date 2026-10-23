@@ -1174,6 +1174,26 @@ commits, compiler fingerprints and emitted Wasm may differ as part of optimizati
 Ratios are observations, not a statistical-significance verdict. V1 reports remain
 historical and are rejected as v2 baselines.
 
+For the separately recorded frozen-product ABBA diagnostics, analyze preserved
+round variation without rerunning the programs:
+
+```sh
+python3 -B scripts/paired_repeatability.py PATH/receipt.json \
+  --output target/paired-repeatability.json
+```
+
+The input must be a complete `scriptw-frozen-paired-diagnostic-v1` receipt
+(the historical `scriptw-frozen-string-hash-diagnostic-v1` spelling also works),
+with its original raw child JSON files beside it. The analyzer checks their
+digests, ABBA order, source/runner/Wasm identities, warmups and measured cache
+hits. It preserves all samples and reports each source's two-round median
+range plus the two adjacent before/after effects. Cross-round stdout consistency
+is checked; workload/oracle correctness remains bound to the original producer's
+evidence. These are descriptive observed ranges, not confidence intervals or an
+automatic acceptance threshold. For a small future gain within the observed
+variation, collect further balanced or same-source controls before accepting it.
+This analysis does not retroactively validate earlier decisions.
+
 ## What is measured
 
 - **Cold start:** a fresh child process with a unique empty Scriptw application
