@@ -427,7 +427,7 @@ fn assert_embedded_compilation_modes(trace: &str) {
     assert!(
         trace.lines().any(|line| {
             line.contains("runtime-native-bundle hit:")
-                && line.ends_with("(runtime: size-optimized, execution: fast)")
+                && line.ends_with("(runtime: size-optimized, execution: fast, source: NativeHost)")
         }),
         "the exact optimized R image must load in the Fast execution Engine: {trace}"
     );

@@ -1,4 +1,5 @@
 use super::*;
+use scriptw_aot_wasm::{GcHostField, GcHostLayout};
 use scriptw_ir::{
     RegExpProgram, RegExpProgramWord, ValidatedRegExpProgram, REGEXP_MAX_INSTRUCTIONS,
 };
@@ -153,8 +154,21 @@ impl RuntimeCompiler {
             .as_concrete_struct()
             .unwrap()
             .clone();
-        assert_eq!(string_type.fields().len(), 1);
-        let field = string_type.field(0).unwrap();
+        assert_eq!(
+            Some(string_type.fields().len() as u32),
+            GcHostLayout::String.field_count()
+        );
+        let cached_hash = string_type
+            .field(GcHostField::StringRawKeyHash.definition().index() as usize)
+            .unwrap();
+        assert_eq!(cached_hash.mutability(), wasmtime::Mutability::Var);
+        assert!(matches!(
+            cached_hash.element_type(),
+            wasmtime::StorageType::ValType(wasmtime::ValType::I64)
+        ));
+        let field = string_type
+            .field(GcHostField::StringCodeUnits.definition().index() as usize)
+            .unwrap();
         let units_type = field
             .element_type()
             .as_val_type()
@@ -191,7 +205,7 @@ impl RuntimeCompiler {
         StructRef::new(
             &mut self.store,
             &self.string_allocator,
-            &[WasmtimeVal::from(units)],
+            &[WasmtimeVal::from(units), WasmtimeVal::I64(0)],
         )
         .expect("actual compiler StringValue")
     }

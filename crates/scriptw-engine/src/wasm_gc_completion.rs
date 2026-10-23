@@ -397,19 +397,26 @@ mod tests {
             ArrayRef::new_fixed(&mut *store, &array_pre, &values).expect("native code-unit array");
         let structure_ty = StructType::new(
             &engine,
-            [FieldType::new(
-                Mutability::Const,
-                StorageType::ValType(ValType::Ref(RefType::new(
-                    false,
-                    HeapType::ConcreteArray(array_ty),
-                ))),
-            )],
+            [
+                FieldType::new(
+                    Mutability::Const,
+                    StorageType::ValType(ValType::Ref(RefType::new(
+                        false,
+                        HeapType::ConcreteArray(array_ty),
+                    ))),
+                ),
+                FieldType::new(Mutability::Var, StorageType::ValType(ValType::I64)),
+            ],
         )
         .expect("native String schema shape");
         let pre = StructRefPre::new(&mut *store, structure_ty);
-        StructRef::new(&mut *store, &pre, &[WasmtimeVal::from(array)])
-            .expect("native String record")
-            .to_eqref()
+        StructRef::new(
+            &mut *store,
+            &pre,
+            &[WasmtimeVal::from(array), WasmtimeVal::I64(0)],
+        )
+        .expect("native String record")
+        .to_eqref()
     }
 
     #[test]
