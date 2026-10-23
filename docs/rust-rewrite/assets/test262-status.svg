@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 422" role="img" aria-labelledby="title description">
 <title id="title">Test262 verification by product scope</title>
-<desc id="description">Passing: 102,561; Failing: 4; Not implemented: 0; Out of scope: 429. Linear counts from zero. Baseline + exact failure replay; scoped view: Baseline 2026-10-20 + replay 2026-10-21 · pin 6a4268a93 · 102,994 executions. Not full ECMAScript conformance.</desc>
+<desc id="description">Passing: 102,561; Failing: 4; Not implemented: 0; Out of scope: 429. Linear counts from zero. Fresh complete pinned-suite run; scoped view: 2026-10-23 · compiler b9ecfe64b · pin 6a4268a93 · 102,994 executions. Not full ECMAScript conformance.</desc>
 <rect width="760" height="422" rx="12" fill="#ffffff"/>
 <g font-family="system-ui, sans-serif" fill="#24292f">
 <text x="30" y="35" font-size="20" font-weight="600">Test262 verification by product scope</text>
-<text x="30" y="57" font-size="12" fill="#57606a">Baseline + exact failure replay; scoped view · number of test executions</text>
+<text x="30" y="57" font-size="12" fill="#57606a">Fresh complete pinned-suite run; scoped view · number of test executions</text>
 <path d="M 96 326 H 724" stroke="#d8dee4" stroke-width="1"/>
 <text x="84" y="330" text-anchor="end" font-size="12" fill="#57606a">0</text>
 <path d="M 96 264 H 724" stroke="#d8dee4" stroke-width="1"/>
@@ -27,7 +27,7 @@
 <rect id="out-of-scope" data-count="429" x="608" y="325.148864" width="80" height="0.851136" fill="#0969da"/>
 <text x="648" y="313.148864" text-anchor="middle" font-size="17" font-weight="600">429</text>
 <text x="648" y="357" text-anchor="middle" font-size="15">Out of scope</text>
-<text x="380" y="378" text-anchor="middle" font-size="11" fill="#0969da">429 audited dynamic-source executions outside standalone Wasm scope; not a fresh full rerun.</text>
-<text x="380" y="397" text-anchor="middle" font-size="12" fill="#57606a">Baseline 2026-10-20 + replay 2026-10-21 · pin 6a4268a93 · 102,994 executions</text>
+<text x="380" y="378" text-anchor="middle" font-size="11" fill="#0969da">429 audited native-host passes outside standalone Wasm scope; failures remain counted.</text>
+<text x="380" y="397" text-anchor="middle" font-size="12" fill="#57606a">2026-10-23 · compiler b9ecfe64b · pin 6a4268a93 · 102,994 executions</text>
 </g>
 </svg>

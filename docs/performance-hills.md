@@ -14,8 +14,11 @@ at `b9ecfe64b` completes eight affected native targets: **3,742 passes**, includ
 the complete structural target after its stale trim guard is repaired. Seventeen
 compiled semantic families pass. P025/P047 concrete index classification and
 P097/P098 character/iterator changes have lower paired medians; named/nonindex
-controls are roughly flat, and integer/Unicode rechecks overlap. Full Test262
-acceptance is next. These are partial measured contributions to broader hills:
+controls are roughly flat, and integer/Unicode rechecks overlap. The subsequent
+[full Test262 run](rust-rewrite/test262-current.md) completed on 2026-10-23:
+**102,990 Success / 4 known Bug / 0 Crash / 0 NotImplemented**, with all 748 nodes
+and 102,994 original executions covered. No new failures appeared.
+These are partial measured contributions to broader hills:
 the ledger remains **21 terminal / eight partial / 131 unresolved**. All slower
 and failed initial observations remain in the portable evidence; startup is
 roughly flat. The README now uses source50's separate ordinary V8 comparison.

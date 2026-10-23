@@ -1,0 +1,220 @@
+{
+  "schema": "scriptw-full-test262-receipt-v1",
+  "verified_at": "2026-10-23T07:00:19.991696+00:00",
+  "family": "scriptw-hot-reads-b9ecfe64b-20261022",
+  "canonical_generation": "857165c90f0fb4ac3ec0493a3b4470977007808c5b1c10ecf5512840edc80f46",
+  "compiler_identity": {
+    "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+    "source_fingerprint": "7337ccbc2834d0d17902382431789227b6dddf8fda40842bf19c4243161d56f9",
+    "source_revision": {
+      "kind": "git-commit",
+      "commit": "b9ecfe64bdac63e0553b8c38a178229056e38f73"
+    },
+    "executable_sha256": "32ee09a9a33daaf7d27fcb1b649db7223fcbd3ce00f0943cf19cce5ef886101b"
+  },
+  "source_pins": {
+    "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+    "test262": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+  },
+  "publication_date": "2026-10-23",
+  "completed_nodes": 748,
+  "total_executions": 102994,
+  "measured_counts": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 102990
+  },
+  "scoped_chart_counts": {
+    "Success": 102561,
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "OutOfScope": 429
+  },
+  "remaining_failures": [
+    {
+      "execution_id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+      "outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+      "outcome": "Bug"
+    }
+  ],
+  "unexpected_non_success": [],
+  "original_16_failures_repaired": 12,
+  "publication_provenance": {
+    "identity": {
+      "checkout_commit": "4aac260e76f88a503e39479df661856f448bcf64",
+      "checkout_tree": "d22660fafbf57e77ab7feba4259fe9c7c25e3d50",
+      "compiler_identity": {
+        "executable_sha256": "32ee09a9a33daaf7d27fcb1b649db7223fcbd3ce00f0943cf19cce5ef886101b",
+        "source_fingerprint": "7337ccbc2834d0d17902382431789227b6dddf8fda40842bf19c4243161d56f9",
+        "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+        "source_revision": {
+          "commit": "b9ecfe64bdac63e0553b8c38a178229056e38f73",
+          "kind": "git-commit"
+        }
+      },
+      "environment": {
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "LC_TIME": null,
+        "RUST_MIN_STACK": null,
+        "SCRIPTW_CACHE_LIMIT_BYTES": null,
+        "SCRIPTW_FUNCTION_CACHE_LIMIT_BYTES": null,
+        "SCRIPTW_MODULE_CACHE_LIMIT_BYTES": null,
+        "SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES": "512",
+        "SCRIPTW_PROGRAM_CACHE_LIMIT_BYTES": null,
+        "TZ": null
+      },
+      "executable": "/tmp/scriptw-performance-candidate-b9ecfe64b/scriptw",
+      "executable_sha256": "32ee09a9a33daaf7d27fcb1b649db7223fcbd3ce00f0943cf19cce5ef886101b",
+      "execution_backend": "wasm-aot",
+      "isolate_cases": true,
+      "jobs": 1,
+      "repository": "/workspace/scriptw-full-suite-20261022",
+      "reuse_case_workers": true,
+      "snapshot_directory": "/workspace/scriptw-full-suite-20261022/test262/snapshots",
+      "snapshot_name": "scriptw-hot-reads-b9ecfe64b-20261022",
+      "source_input_files": 6081,
+      "source_inputs_sha256": "981c93b83e6fb283c84ac5dd9c536e39952f035d1423fd4612b57084a0f31c79",
+      "suite_files": 57013,
+      "suite_root": "/workspace/scriptw-full-suite-20261022/test262/vendor/test262",
+      "suite_sha256": "0ac9a0cd581da8f60153e3513892993317adeb0e22e897bc4ac905a62a657e9a",
+      "threads": 4
+    },
+    "progress": {
+      "completed": 748,
+      "total": 748
+    },
+    "schema_version": 4
+  },
+  "segments": [
+    {
+      "path": "candidate50-full-suite-memory.jsonl",
+      "configuration": {
+        "type": "configuration",
+        "memory_max_bytes": 34359738368,
+        "interval_seconds": 5,
+        "source": "4aac260e76f88a503e39479df661856f448bcf64",
+        "compiled_source": "b9ecfe64bdac63e0553b8c38a178229056e38f73",
+        "frozen_checkout": "/workspace/scriptw-full-suite-20261022",
+        "threads": 4,
+        "jobs": 1,
+        "reuse_case_workers": true,
+        "scope": "Full pinned Test262 top-level matrix; existing native publication driver; no filters, fixture patches, scope subtraction or timeout extensions.",
+        "boundary": "Sampled inherited cgroup including tmpfs and file pages; not JS heap or a kernel peak."
+      },
+      "completion": {
+        "type": "completion",
+        "exit_code": 130,
+        "sampled_maximum_group_bytes": 30019428352,
+        "memory_events_delta": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      }
+    },
+    {
+      "path": "candidate50-full-suite-resume16-memory.jsonl",
+      "configuration": {
+        "type": "configuration",
+        "memory_max_bytes": 34359738368,
+        "interval_seconds": 5,
+        "source": "4aac260e76f88a503e39479df661856f448bcf64",
+        "compiled_source": "b9ecfe64bdac63e0553b8c38a178229056e38f73",
+        "frozen_checkout": "/workspace/scriptw-full-suite-20261022",
+        "threads": 4,
+        "jobs": 1,
+        "reuse_case_workers": true,
+        "scope": "Full pinned Test262 top-level matrix; existing native publication driver; no filters, fixture patches, scope subtraction or timeout extensions.",
+        "boundary": "Sampled inherited cgroup including tmpfs and file pages; not JS heap or a kernel peak."
+      },
+      "completion": {
+        "type": "completion",
+        "exit_code": 0,
+        "sampled_maximum_group_bytes": 34264653824,
+        "memory_events_delta": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      }
+    }
+  ],
+  "archive": {
+    "path": "test262/snapshots/full-test262-20261023.tar.gz",
+    "bytes": 1177683,
+    "sha256": "2511b77cb87df436fa3270ab9dfaac1d98eb74992cc25dd2ea887b6a1d00786b",
+    "verified_members": 2267,
+    "inventory": "inventory.json"
+  },
+  "portable_full_chart": {
+    "path": "docs/rust-rewrite/test262-chart-full-20261022.json",
+    "bytes": 1999848,
+    "sha256": "c8a4cb80d0e0b0d6a37e30994740b5356b7b4adf20c6d8b5695a1a3d9079233b",
+    "native_snapshots": 749
+  },
+  "validation": [
+    "Manifest generation and both members verified, then imported byte-for-byte.",
+    "All aggregate/leaf identities and exact disjoint execution/failure census verified by build_full.",
+    "Portable full evidence roundtrip equals first capture; all scope IDs remain Success.",
+    "Remaining failures exactly equal historical reconciled four, ordinary Bug outcomes retained.",
+    "README generated status block matches native publisher output byte-for-byte.",
+    "Completed native provenance identity and matrix progress agree with publication.",
+    "Every archive member restored in memory and compared byte-for-byte with its original."
+  ],
+  "limits": [
+    "Four upstream-tracked failures remain ordinary failures; this is not a green suite.",
+    "This full family belongs to b9ecfe64b, not arbitrary later production source.",
+    "The 429 out-of-scope rows passed through the native host, not general standalone dynamic eval.",
+    "Sampled whole-cgroup memory includes tmpfs/file pages and is not process RSS or JS heap.",
+    "The first segment was intentionally paused at a read-only barrier (exit130); resumed publication exits0.",
+    "Wider native/default/all-feature, second release family and performance hills remain open."
+  ],
+  "tooling_controls": [
+    {
+      "command": "python3 -B -m unittest discover -s scripts/tests -p 'test_*chart_evidence.py'",
+      "passed": 13,
+      "failed": 0,
+      "seconds": 9.216
+    },
+    {
+      "command": "python3 -B -m unittest discover -s scripts/tests -p 'test_readme_test_graph.py'",
+      "passed": 9,
+      "failed": 0,
+      "seconds": 0.016
+    },
+    {
+      "command": "python3 -B -m unittest discover -s scripts/tests -p 'test_status_publication.py'",
+      "passed": 6,
+      "failed": 0,
+      "seconds": 0.007
+    },
+    {
+      "command": "python3 -B scripts/generate-test-graph.py --check",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ]
+}

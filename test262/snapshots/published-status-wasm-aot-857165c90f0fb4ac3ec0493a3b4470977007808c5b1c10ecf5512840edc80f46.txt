@@ -1,0 +1,43 @@
+published real Test262 status
+producer=scriptw
+refresh_date=2026-10-23
+execution_backend=wasm-aot
+manifest_hash=13327628081868727304
+compiler_identity={"source_fingerprint_scheme":"scriptw-program-cache-compiler-v3","source_fingerprint":"7337ccbc2834d0d17902382431789227b6dddf8fda40842bf19c4243161d56f9","source_revision":{"kind":"git-commit","commit":"b9ecfe64bdac63e0553b8c38a178229056e38f73"},"executable_sha256":"32ee09a9a33daaf7d27fcb1b649db7223fcbd3ce00f0943cf19cce5ef886101b"}
+pinned: ecma262=5345883164f463e87f8b40aca4956157ecba8783 test262=6a4268a9354a545d41c3b62efebc478ed8c521f4
+fake_wasm_safe=187/187
+fake_full=191/191
+real_total=102994
+real_passed=102990
+real_failed=4
+goal=Full pinned Test262 green
+progress=102990/102994
+remaining_to_green=4
+burn_down: NotImplemented=0 Crash=0 Bug=4
+snapshot_json=/workspace/scriptw-full-suite-20261022/test262/snapshots/scriptw-hot-reads-b9ecfe64b-20261022-aggregate-13327628081868727304.json
+snapshot_txt=/workspace/scriptw-full-suite-20261022/test262/snapshots/scriptw-hot-reads-b9ecfe64b-20261022-aggregate-13327628081868727304.txt
+outcomes:
+  Success=102990
+  NotImplemented=0
+  Crash=0
+  Bug=4
+failure_kinds:
+  Runtime=4
+  EarlyError=0
+  HostHarness=0
+  Lowering=0
+  Parser=0
+  Unsupported=0
+  WasmBackend=0
+failure_origins:
+  unknown=4
+  boa-parser=0
+  boa-runtime=0
+  icu-intl=0
+  local-harness=0
+  spec-exec-host=0
+  wasm-backend=0
+top_targets:
+  intl402/Temporal/ZonedDateTime: 248/250 passed (failed 2)
+  annexB: 1376/1377 passed (failed 1)
+  staging/sm/lexical-environment: 38/39 passed (failed 1)

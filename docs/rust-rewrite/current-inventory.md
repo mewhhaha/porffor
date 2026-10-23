@@ -1,4 +1,4 @@
-# Current project inventory — 2026-10-22
+# Current project inventory — 2026-10-23
 
 This is the maintained status entry point. Results belong to their measured
 source and executable, not automatically to today's checkout. The
@@ -35,26 +35,35 @@ The focused Cargo recheck explicitly retains empty encoded Rustflags to reuse
 the unchanged preceding dependency cohort; subsequent default builds use the
 restored config. [Commands and limits](batch-workflow.md#fast-source-only-guards).
 
-Fresh full Test262 publication is running in the isolated
-`/workspace/scriptw-full-suite-20261022` checkout at `4aac260e7`, using the exact
-source50 product. It resumed the same checkpoints at a read-only progress barrier
-with 16 sequential groups per invocation, reducing CLI/provenance barriers while
-preserving four workers, case budgets, isolation and each leaf checkpoint.
-Memory remains sampled under the inherited cap; no peak-memory equality is
-claimed for the two invocation horizons. Chart counts and the four tracked Bug
-results remain bound to earlier completed evidence until it finishes. Hill
-counts stay **21 terminal / eight partial / 131 unresolved**. A historical
-availability audit also finds twenty `/dev/shm` archive paths absent here;
-their old binaries are no longer claimed restorable. Current binaries/runtime
-payloads are verified, and observations, inventories and scripts are committed
-losslessly. Do not use shared memory as persistent history storage.
+The [fresh full Test262 campaign](test262-current.md) finished on **2026-10-23**:
+**102,990 Success / 4 known Bug / 0 Crash / 0 NotImplemented**, all **748 nodes /
+102,994 original executions**. The isolated checkout remained at `4aac260e7`,
+using the exact source50 product above. No new failure IDs appeared; the twelve
+previously repaired failures stay fixed. The native canonical generation and
+README graph now use this full run, with no historical failure replay mixed in.
+The 429 out-of-scope executions all passed through the native host; this unchanged
+scope partition does not hide failures or establish standalone dynamic eval.
 
-Fresh chart tooling now retains the completed aggregate and every leaf snapshot
-losslessly, checks their identities and disjoint execution census, and reuses
-the unchanged 429-case scope audit. It needs no second suite execution. Its
-22 evidence/renderer controls pass, including the archived102994-case native
-baseline and portable roundtrip; current chart generation remains unchanged.
-[Tooling evidence and completion procedure](verification-full-chart-20261022.json).
+The campaign resumed the same checkpoints at a read-only barrier with 16
+sequential nodes per invocation, preserving four workers, case budgets,
+isolation and every leaf checkpoint. Native publication exited zero. The
+sampled whole-cgroup peak was **34,264,653,824 bytes**, with zero OOM events;
+this includes shared files/tmpfs and is not JS heap memory. The original pause
+and all raw logs, provenance, aggregate/leaf snapshots and completion records
+remain portable in the [full-run receipt](test262-full-20261023.json).
+
+Hill counts stay **21 terminal / eight partial / 131 unresolved**. This full
+run closes the outstanding conformance measurement for source50, not every
+performance hypothesis or release gate. A historical availability audit finds
+twenty `/dev/shm` archive paths absent here; their old binaries are no longer
+claimed restorable. Current products/runtime payloads and retained observations
+are verified. Do not use shared memory as persistent history storage.
+
+## Earlier checkpoints
+
+The records below retain their original source and acceptance boundaries.
+References to unchanged graph/full-suite counts describe those earlier batches;
+the current full publication is the 2026-10-23 campaign above.
 
 Previous numeric/collection acceptance source: **`37ab9fa44`**, with [4924 portable evidence files](performance-prepared-numeric-20261022.json).
 The [numeric/collection checkpoint](v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22)
@@ -203,24 +212,22 @@ IDs). Failed attempts and the test-only changes between checkpoints are retained
 in its record; that earlier selected checkpoint implied no complete workspace
 or conformance refresh. The final maintenance checkpoint is recorded below.
 
-## Test262: complete baseline and focused repair
+## Test262: current complete run and history
 
 | Evidence | Source / scope | Observed result |
 | --- | --- | --- |
-| Complete original pinned suite, 2026-10-20 | Compiler `c5053c9d4`; 102,994 executions | 102,978 Success, 16 Bug, 0 Crash, 0 NotImplemented |
+| **Current complete pinned suite, 2026-10-23** | **Compiler `b9ecfe64b`; all 102,994 executions** | **102,990 Success, 4 Bug, 0 Crash, 0 NotImplemented** |
+| Original complete suite, 2026-10-20 | Compiler `c5053c9d4`; 102,994 executions | 102,978 Success, 16 Bug, 0 Crash, 0 NotImplemented |
 | Original failure replay, 2026-10-21 | Compiler with global-prelude repair `cbb07c6cf`; 16 exact IDs | 12 Success, 4 Bug |
 | Remaining-failure recheck | Four original IDs and ten nearby controls | Four failures retained; all ten controls pass |
-| Maintenance revalidation | Fresh default compiler `e7532de91`; original 16 IDs, then four plus ten controls | 12 Success/4 Bug; then 10 Success/4 Bug; zero Crash/NotImplemented |
+| Maintenance revalidation | Default compiler `e7532de91`; original 16 IDs, then four plus ten controls | 12 Success/4 Bug; then 10 Success/4 Bug; zero Crash/NotImplemented |
 
-[Complete baseline](test262-current.md) and [focused replay](failed-case-replay-20261021.md)
+[Current full publication](test262-current.md) and [historical focused replay](failed-case-replay-20261021.md)
 bind exact pins, compiler fingerprints, executable hashes and commands. The
-canonical publication retains the complete pre-repair baseline. The README chart
-now reconciles it with those exact replay repairs and an audited standalone
-dynamic-source scope partition; it does not claim a fresh full rerun.
-There has been no complete fixed-source campaign, so the canonical publication
-retains its original counts. The explicitly reconciled chart partitions those
-102,994 IDs as 102,561 in-scope passes, four failures, zero NotImplemented and
-429 audited dynamic-source executions outside standalone Wasm scope.
+current canonical publication includes every original execution on source50.
+Its scoped graph partitions those 102,994 IDs as **102,561 in-scope passes,
+four failures, zero NotImplemented and 429 out of standalone Wasm scope**.
+The complete 2026-10-20 baseline and its replay reconciliation remain historical.
 
 **User decision: keep all four original disagreements as failures.** The README
 lists reasons and [upstream tracking](../../test262/errata/proposals/upstream-status-20261021.md):
@@ -304,8 +311,9 @@ Outstanding gates include:
 - Original 230-case/prior 219-case retention and real serial/shard/resume checks.
 - Complete debug/optimized differential and robustness campaigns, idle samples,
   supported-host reproducibility and calibrated T25 performance.
-- Two fresh complete current-pin Wasm-AOT families, deterministic backlog
-  generation and canonical publication with all non-successes visible.
+- A second fresh complete current-pin Wasm-AOT family and deterministic backlog
+  generation; the first fresh family and canonical publication are now complete
+  at `b9ecfe64b`, with all four non-successes visible. Green acceptance remains open.
 - Historical 5,365-failure replay: its original aggregate is absent from this
   cloud checkout and was likely local/unpushed. Do not manufacture that input.
 

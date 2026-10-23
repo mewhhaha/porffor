@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "backend": "wasm-aot",
+  "generation": "857165c90f0fb4ac3ec0493a3b4470977007808c5b1c10ecf5512840edc80f46",
+  "json": {
+    "file": "published-status-wasm-aot-857165c90f0fb4ac3ec0493a3b4470977007808c5b1c10ecf5512840edc80f46.json",
+    "sha256": "d25d03a9171e0dbd5cc62855168746028ffe56cee0e685076ba3ab907c4e1211"
+  },
+  "text": {
+    "file": "published-status-wasm-aot-857165c90f0fb4ac3ec0493a3b4470977007808c5b1c10ecf5512840edc80f46.txt",
+    "sha256": "3cf61d1e15f16d7920156045fceb82bee2a8b995df257ec48bea6906dfc3bc40"
+  }
+}

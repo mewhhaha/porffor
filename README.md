@@ -48,9 +48,10 @@ seconds with the checked execution cache already populated.
 
 ## Tests
 
-**Verification, 2026-10-21:** the compiler repair makes **12 of the original 16
-failures pass**. A separate recheck of the remaining four still gives **0 passed,
-4 failed**; ten nearby original-test controls pass. These failures remain open:
+**Full verification, 2026-10-23:** **102,990 passed / 4 failed / 0 crashed /
+0 unimplemented** across all 102,994 pinned Test262 executions, using compiler
+`b9ecfe64b`. The 12 repaired failures stay fixed; no new failures appeared.
+These four failures remain open (upstream status checked 2026-10-21):
 
 | Remaining case | Failed executions | Why it fails | Upstream tracking |
 | --- | ---: | --- | --- |
@@ -61,38 +62,25 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 **All four remain counted as failures.** Upstream tracking does not change their results.
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
-The **2026-10-22 hot-read checkpoint** (`b9ecfe64b`) passes **3,742 native
-tests** across eight affected targets and seventeen compiled semantic families.
-This combines seven passing runtime targets with the complete structural target
-rerun after correcting a stale trim-visibility assertion; production code is
-unchanged by that repair. The previous numeric/collection checkpoint's
-**3,235-case Test262 replay gave 3,231 passed / 4 failed**, with zero crashes or
-unimplemented cases. A fresh full-suite run is in progress.
-[Source-bound evidence](docs/rust-rewrite/performance-hot-reads-20261022.json)
-· [Measured gains and limits](docs/rust-rewrite/v8-baseline.md#hot-read-checkpoint--published-2026-10-22).
-Earlier wider native and Test262 results remain bound to their original sources.
-These affected checks do not replace a fresh full-suite campaign.
-The chart below reconciles the complete 2026-10-20 baseline with the exact
-original-failure replay and an audited standalone Wasm scope split. A fresh full
-run of the repaired compiler is running; the graph keeps the completed evidence
-until that campaign finishes.
+The same compiler also passes **3,742 native tests** across eight affected
+targets and seventeen compiled semantic families.
+[Full-run evidence](docs/rust-rewrite/test262-current.md) ·
+[Performance gains and limits](docs/rust-rewrite/v8-baseline.md#hot-read-checkpoint--published-2026-10-22).
 
 <!-- scriptw-test-graph:start -->
-![Test262 checkpoints: 102,561 passing in scope, 4 failing, 0 not implemented, 429 out of standalone Wasm scope](docs/rust-rewrite/assets/test262-status.svg)
+![Test262: 102,561 passing in scope, 4 failing, 0 not implemented, 429 out of standalone Wasm scope](docs/rust-rewrite/assets/test262-status.svg)
 
-**Reconciled checkpoints, 2026-10-21:** 102,994 mode-specific
-executions at pin `6a4268a93`. This combines the complete **2026-10-20**
-baseline with the exact original-failure replay: **12 repaired, 4 still failing**.
-The other baseline successes have not had a fresh full rerun on the repaired compiler.
+**Fresh full run, 2026-10-23:** 102,994 mode-specific
+executions at pin `6a4268a93`, compiler `b9ecfe64b`.
+All executions belong to this compiler; no earlier failure replay is mixed in.
 
-Blue is an audited **429-execution subset** focused on dynamic
-`eval` / Function source compilation outside the standalone Wasm product promise.
-These cases passed through the native host; their historical results remain intact.
-Ordinary API properties and `call` / `apply` / `bind` stay in the measured categories.
-The four bars partition the original 102,994 executions; scope is not a failure fix.
-[Chart inputs and exact scope inventory](docs/rust-rewrite/test262-chart-reconciliation-20261021.json) ·
-[Original complete baseline](test262/snapshots/published-status-wasm-aot.json) ·
-[Failure replay](docs/rust-rewrite/failed-case-replay-20261021.md) ·
+Blue is the unchanged audited **429-execution subset** focused
+on dynamic `eval` / Function source compilation outside the standalone Wasm promise.
+These cases passed through the native host in this run. Ordinary API properties
+and `call` / `apply` / `bind` stay in the measured categories.
+The four bars partition all 102,994 executions; scope cannot hide a failure.
+[Portable native snapshots and exact scope inventory](docs/rust-rewrite/test262-chart-full-20261022.json) ·
+[Complete published result](test262/snapshots/published-status-wasm-aot-857165c90f0fb4ac3ec0493a3b4470977007808c5b1c10ecf5512840edc80f46.json) ·
 [Scope policy](docs/rust-rewrite/runtime-requirements.md#out-of-scope-tests).
 <!-- scriptw-test-graph:end -->
 
@@ -149,17 +137,17 @@ SCRIPTW_WASM_DUMP=hello.wasm ./target/release/scriptw build wasm hello.js
 Rust rewrite status must be read in layers, not one vanity number:
 - Fake wasm-safe Test262 subset: `187/187` green
 - Fake full Rust rewrite suite: `191/191` green
-- Pinned real Test262 baseline (`wasm-aot`, refreshed `2026-10-20`): `102978/102994` not green (`100.0%`)
-- Real Test262 goal: Success=102978/102994 (100.0%); burn down NotImplemented=0, Crash=0, Bug=16 to zero
+- Pinned real Test262 baseline (`wasm-aot`, refreshed `2026-10-23`): `102990/102994` not green (`100.0%`)
+- Real Test262 goal: Success=102990/102994 (100.0%); burn down NotImplemented=0, Crash=0, Bug=4 to zero
 - Pinned revisions: `ecma262=5345883164f463e87f8b40aca4956157ecba8783` `test262=6a4268a9354a545d41c3b62efebc478ed8c521f4`
-- Compiler build fingerprint: `53007aa326f737bd5721312044ac1e8e5981e34481941eef5707bf6c48c7380e`; executing image SHA-256: `771a15da06cbac5c7b45b24ecd8b9232af152eac9f1e24cd1e615976642ff1c6`
-- Current real outcomes: `Success=102978`, `NotImplemented=0`, `Crash=0`, `Bug=16`
-- Biggest current real failing kinds: `Runtime=16`
-- Biggest current real failing origins: `unknown=16`
-- Worst current real matrix targets: `built-ins/Object/getOwnPropertyDescriptor: 116/120 passed`, `built-ins/Object/getOwnPropertyNames: 88/90 passed`, `built-ins/parseFloat: 106/108 passed`
-- Published status artifacts: `/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots/scriptw-current-20261020-aggregate-13327628081868727304.json` and `/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots/scriptw-current-20261020-aggregate-13327628081868727304.txt`
+- Compiler build fingerprint: `7337ccbc2834d0d17902382431789227b6dddf8fda40842bf19c4243161d56f9`; executing image SHA-256: `32ee09a9a33daaf7d27fcb1b649db7223fcbd3ce00f0943cf19cce5ef886101b`
+- Current real outcomes: `Success=102990`, `NotImplemented=0`, `Crash=0`, `Bug=4`
+- Biggest current real failing kinds: `Runtime=4`
+- Biggest current real failing origins: `unknown=4`
+- Worst current real matrix targets: `intl402/Temporal/ZonedDateTime: 248/250 passed`, `annexB: 1376/1377 passed`, `staging/sm/lexical-environment: 38/39 passed`
+- Published status artifacts: `/workspace/scriptw-full-suite-20261022/test262/snapshots/scriptw-hot-reads-b9ecfe64b-20261022-aggregate-13327628081868727304.json` and `/workspace/scriptw-full-suite-20261022/test262/snapshots/scriptw-hot-reads-b9ecfe64b-20261022-aggregate-13327628081868727304.txt`
 
-As of `2026-10-20`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned real Test262 run is green for Rust path.
+As of `2026-10-23`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned real Test262 run is green for Rust path.
 
 Status refresh commands:
 - `cargo test -p scriptw-engine --quiet`

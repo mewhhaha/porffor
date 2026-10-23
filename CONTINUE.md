@@ -29,59 +29,31 @@ The 160-hill backlog has **21 terminal decisions, eight partial/open outcomes,
 code. Push each verified batch to main; keep this file/tasks until all acceptance
 criteria pass.
 
-Latest [numeric/collection checkpoint](docs/rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22):
-acceptance `37ab9fa44`, **3,575 native passed/zero failed or ignored**, twelve compiled
-semantic families, dynamic-call controls and seven identical product/test images.
-The exact 3,235 original Test262 replay gives **3,231 Success / 4 known Bug / 0 Crash / 0 NotImplemented**.
-Timing source stays `bf681edcb`; source 48 only removes a Rust annotation. All 21 P
-modules match exactly; runtime keys/native bytes match, while package and manifest
-source provenance is validated explicitly. Original failed attempts remain.
-P081's numeric Math.imul extension is verified, with generic fallbacks. P020 spans
-callbacks, grouping, Set kernels and deletion but stays partial. The README uses
-the measured source 47 ordinary report; initial slower paired controls and their targeted
-rechecks remain. Wider full-suite/default/all-feature acceptance stays open.
+Latest accepted product: **`b9ecfe64b`**. Its hot-read changes pass **3,742
+native tests / zero failures / zero ignored** across eight affected targets and
+seventeen compiled semantic families. Seven independent product/test runtime
+identities match. [Performance measurements](docs/rust-rewrite/v8-baseline.md#hot-read-checkpoint--published-2026-10-22)
+retain the slower initial controls and overlapping rechecks. The README uses
+this product's separate ordinary Wasmtime/V8 comparison.
+
+**The fresh full Test262 campaign is complete and published (2026-10-23):**
+**102,990 Success / 4 known Bug / 0 Crash / 0 NotImplemented**, all 748 nodes
+and 102,994 original executions. The four failures are exactly the retained
+upstream disagreements; no new failures appeared. The canonical generation and
+README graph now bind this product directly. The graph partitions 429 native-host
+successes into the unchanged standalone-Wasm out-of-scope category, without
+hiding failures. [Full evidence and reproduction](docs/rust-rewrite/test262-current.md).
+
+The isolated `/workspace/scriptw-full-suite-20261022` checkout stayed at
+`4aac260e7`; its compiled product is source `b9ecfe64b`. The same campaign
+resumed at a read-only barrier with 16 sequential nodes per invocation, keeping
+four case workers and all original budgets. Final publication exit is zero;
+sampled whole-cgroup peak is 34,264,653,824 bytes, with no OOM events. This includes
+tmpfs/file pages, not just process or JS memory. Original pause/exit130 evidence
+is retained beside the successful continuation. All aggregate/leaf snapshots
+and completion records are committed portably; no live watcher needs restarting.
 
 Next coherent work:
-
-The hot-read batch at **`b9ecfe64b`** has completed affected native verification;
-**fresh full Test262 acceptance remains pending**.
-It replaces the Array-index classifier's floating-point parse/string roundtrip
-with bounded ASCII decimal recognition (exact ArrayIndex domain), classifies
-concrete Array indices before named-header probes, builds charAt/at's already-read
-unit directly while preserving full-span reuse, and copies a string iterator's
-validated one/two UTF-16 units without a per-unit loop. Typed-array numeric-key
-semantics remain separate. New semantic matrices cover canonical/noncanonical
-keys, String exotic descriptors, coercion/throws, UTF-16 and iterator freshness;
-seven checked Node-compatible workloads include named/nonindex regression controls.
-Seven runtime targets pass 3,576 tests; the complete structural target passes
-166 after a stale trim-policy visibility assertion is repaired, with product
-inputs unchanged. Seventeen compiled semantic families and independent runtime
-identities pass. Paired indexed/character/ASCII-iterator medians improve, startup
-is roughly flat, and slower initial cohorts plus integer/Unicode rechecks remain.
-[Results and portable evidence](docs/rust-rewrite/performance-hot-reads-20261022.json).
-The README now uses source50's separate ordinary V8 comparison. Hill counts
-remain 21 terminal / eight partial / 131 unresolved until broader acceptance.
-
-A canonical full102994-execution campaign is running using
-`scripts/publish-real-status-low-ram.sh`, four case workers and original budgets.
-Use the frozen source50 product from an isolated checkout at
-`/workspace/scriptw-full-suite-20261022`; record its identity separately from
-that later test/doc/tool-only checkout. Keep that checkout's HEAD and source
-inputs unchanged for the campaign so implementation can continue independently
-in the development worktree. The same family resumed at a read-only progress
-barrier with MAX_MATRIX_NODES=16: nodes remain sequential and individually
-checkpointed, with the same worker and memory limits. Original and resumed
-logs/memory samples are separate `candidate50-full-suite-*` target artifacts;
-`/tmp/scriptw-performance-batch22/resume-full-suite16.py` owns the live watcher.
-`candidate50-full-suite-status.json` under the attribution target is updated
-atomically each minute by `watch-full-suite-outcomes.py` in that same tool
-directory. It counts completed leaves, lists exact non-success IDs and flags
-anything outside the four tracked Bugs; active-leaf work is excluded. It is
-partial progress, never publication acceptance.
-After it finishes, bind the graph's 429-case scope projection directly
-to that aggregate and its leaves, without replaying the suite. Preserve all four
-upstream Bugs as ordinary failures. Commands/watchers are in
-`/tmp/scriptw-performance-batch22`; raw results under the attribution target.
 
 The additive `scripts/check-source-guards.py` now passes 143 source-only checks
 in about five seconds, with six tooling controls; full Cargo166 remains required.
@@ -90,14 +62,11 @@ twenty relocated historical archives are absent in this environment. Current
 products and raw observations remain verified; missing old binaries are not
 restorable from the recorded paths. Availability audit is in the new bundle.
 
-Fresh graph support is implemented and tooling-verified: after importing the
-completed canonical publication from the frozen checkout, run
-`python3 -B scripts/generate-test-graph.py --refresh-evidence --full-evidence`,
-then `--check`. It retains the native aggregate and all leaves in a portable
-record and checks their exact census; no second Test262 run or old failure replay
-is mixed into fresh counts. Twenty-two graph evidence/renderer controls pass.
-Do not use the full-evidence option against the old publication while the new
-campaign is still running. Keep this file/tasks and unresolved hill counts.
+Fresh graph generation now uses the portable full-run evidence. Verify with
+`python3 -B scripts/generate-test-graph.py --check`. Only refresh evidence when a
+new complete canonical publication exists; never mix an old failure replay
+into fresh full counts. The original reconciliation and native baseline remain
+immutable historical evidence. Keep this file/tasks and unresolved hill counts.
 
 The NativeHost compressed-storage experiment is **rejected**, with
 [raw evidence](docs/rust-rewrite/performance-nativehost-storage-rejected-20261022.json).
@@ -114,9 +83,10 @@ archived and that shared-memory archive is now unavailable. Its raw measurements
 and identities remain in the committed evidence.
 
 1. Close remaining P020 ordinary define-own duplicate lookup/append hashing;
-   retain the fresh-empty no-hash shortcut for rejected definitions. Also inspect
-   P025/P047 concrete Array index reads before unnecessary named-header probes,
-   P097 charAt/at single-unit extraction and P098 iterator output copy. Preserve
+   retain the fresh-empty no-hash shortcut for rejected definitions. P025/P047
+   index classification and P097/P098 character/iterator changes already ship
+   in the fully rerun source50 checkpoint; pursue remaining work only with a
+   new measured hypothesis. Preserve
    proxy/accessor/prototype/hole/UTF16/effect behavior, and measure focused controls
    plus ordinary object/retained-row regressions before retaining candidates.
 2. Evaluate P023/P112 cached raw string hashes using the existing repeated-key
@@ -128,7 +98,8 @@ and identities remain in the committed evidence.
    and have no Engine/product execution authority. Full R cache hits keep the
    product rebuild at 3m42s; retain current dependencies and actual cache keys.
 4. Finish broader default/release, retention, original full-suite and remaining
-   performance acceptance. Use exact original IDs and source/linker fences.
+   performance acceptance. One fresh full family is now published; the broader
+   release criteria remain open. Use exact original IDs and source/linker fences.
 
 Keep the default CLI chunk count: the four-chunk 858-body observation passes but
 does not improve the measured two-chunk run. Two live libtests, original worker

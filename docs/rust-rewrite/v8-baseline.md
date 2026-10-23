@@ -20,7 +20,10 @@ production compiler inputs did not change for the repair. Seventeen real
 compiled semantic families pass, including canonical/noncanonical keys, String
 exotic descriptors, coercion/throws, UTF-16, iterator freshness and dynamic-call
 controls. Seven independently generated product/test runtime payloads match.
-This is affected native verification; fresh full Test262 publication follows.
+The subsequent [fresh full Test262 run](test262-current.md), completed
+2026-10-23 with this exact product, gives **102,990 Success / 4 known Bug /
+0 Crash / 0 NotImplemented** across all 102,994 original executions. No new
+failures appeared. Wider default/all-feature native acceptance remains separate.
 
 Paired confirmation uses source48 as the direct baseline, two observations per
 side in ABBA order, seven measured invocations after ten warmups per observation.
@@ -79,8 +82,9 @@ in this execution environment. Their inventories and previous receipts remain,
 but missing historical binaries are not claimed restorable. Current products
 and runtime payloads are verified. Persistent evidence must not rely on shared
 memory; the committed bundle retains all selected raw observations and tools.
-Hill counts stay **21 terminal / eight partial / 131 unresolved** pending the
-broader campaign. No new full-suite or all-feature acceptance is claimed here.
+Hill counts stay **21 terminal / eight partial / 131 unresolved**: the full
+conformance run validates these changes but does not complete the broader
+performance hypotheses or all-feature native acceptance.
 
 ## Rejected NativeHost storage experiment — 2026-10-22
 
