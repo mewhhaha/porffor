@@ -47,6 +47,8 @@ The newer `97036e5a8` string-hash cache improves paired long-key property reads
 about 83% and Map/Set lookups about 53–54%. Every string carries an extra i64 field;
 two retention controls have 3–6% higher medians, with overlapping rounds.
 [Measurements and tradeoffs](docs/rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23).
+[Retained-row phase profiles](docs/rust-rewrite/performance-row-phases-20261023.md)
+identify collector work as 83–84% of construction samples; traversal is dominated by property reads.
 [Prioritized performance backlog](docs/performance-hills.md).
 [Bounded native verification workflow](docs/rust-rewrite/batch-workflow.md#optional-sequential-cli-chunks).
 

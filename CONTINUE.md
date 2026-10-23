@@ -24,8 +24,8 @@ each verified batch to main.
 
 ## Next performance work
 
-The 160-hill backlog has **26 terminal decisions, seven partial/open outcomes,
-127 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
+The 160-hill backlog has **29 terminal decisions, six partial/open outcomes,
+125 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
 code. Push each verified batch to main; keep this file/tasks until all acceptance
 criteria pass.
 
@@ -75,15 +75,18 @@ controls when they fall within the observed variation.
 
 P003's [preserved row-scaling analysis](docs/rust-rewrite/performance-row-scaling-20261023.md)
 is complete: 21 original cases, per-row/per-retained-element plots and observed
-capacity transitions, without rerunning historical benchmarks. P001/P002 still
-need current-source execution attribution and a sound traversal-only boundary.
+capacity transitions, without rerunning historical benchmarks.
 
-The opt-in [row-phase runner](docs/rust-rewrite/v8-baseline.md#retained-row-phase-diagnostics)
-is implemented. Four observer tests, four corpus tests and the real Linux perf
-FIFO handshake pass; the initial acknowledgement-format failure is preserved.
-The runner relinks against byte-verified source53 libraries in 1.14 seconds,
-without rebuilding the compiler. Phase timings, observer/profiler overhead and
-loaded-code CPU attribution still need measurement before closing P001/P002.
+P001/P002/P009 are complete as [row-phase diagnostics](docs/rust-rewrite/performance-row-phases-20261023.md):
+40 checked processes, seven workloads and eight profiles, with 23,970
+identity-bound samples and zero loss. Collector functions account for 83–84%
+of construction samples; traversal is dominated by object reads, property lookup
+and numeric-key conversion. Observer/profiler costs and noisy signed controls
+remain visible; no speedup is claimed. The runner relinks against byte-verified
+source53 libraries in 1.14 seconds. Four Rust tests, seven Python tests and the
+real perf FIFO handshake pass. All 254 portable evidence members are byte-verified.
+Loaded function names, native sizes and offsets bind to the actual R/P images;
+maps remain serial single-program snapshots, without exact per-function timers.
 
 The additive `scripts/check-source-guards.py` covers both structural targets:
 277 source-only checks in about ten seconds, with nine tooling controls. Eight
@@ -114,13 +117,15 @@ hypothesis. Source53 is the next direct baseline; source48 raw products had been
 archived and that shared-memory archive is now unavailable. Its raw measurements
 and identities remain in the committed evidence.
 
-1. Complete P001/P002 retained-row attribution using the existing row-size,
-   width and pass-count corpus. Use the existing synchronous HostHooks print callback to observe
-   construction/traversal regions inside ordinary JS main. Optional perf FIFO
-   control excludes setup and warmups without modifying the engine. Measure any diagnostic
-   boundary overhead. A named traversal function alone is not traversal-only
-   elapsed time; keep construction in the published ordinary invocation score.
-   Preserve fresh Stores. The existing 43-case attribution corpus already covers
+1. Test P147 initial GC capacity against the measured construction bottleneck.
+   The current 16-MiB default remains; large row cases finish at 64 MiB capacity.
+   Add an explicit diagnostic configuration and compare bounded capacities in
+   separate fresh processes with matching Engine/native policy. Keep startup,
+   small-case, memory and forced-GC controls; no default change without evidence.
+   Wasmtime already predicts whether to collect or grow first, so do not assume
+   a broken growth policy. Then investigate concrete indexed reads/numeric-key
+   conversion separately for traversal. Preserve fresh Stores and ordinary
+   full-invocation scores. The existing 43-case attribution corpus already covers
    calls, properties, typed arrays and JSON; do not duplicate P011-P013 families.
    P067 already emits exact hop traversal; profile cell loads before caching
    handles across lexical/iteration/resume changes.

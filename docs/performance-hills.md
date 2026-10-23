@@ -9,11 +9,20 @@ a ceiling, not a reason to add low-value work.
 
 ## Progress ledger
 
+The [retained-row phase diagnostic](rust-rewrite/performance-row-phases-20261023.md)
+completes **P001/P002/P009**: 40 checked processes, seven workloads and eight
+identity-bound CPU profiles separate construction from traversal. Collector
+functions account for 83–84% of construction samples; property reads and numeric
+key conversion dominate traversal. All 23,970 samples are accounted for with
+zero loss. Observer/profiler costs and signed noisy controls remain visible.
+This is attribution, not an optimization speedup. The current ledger is
+**29 terminal / six partial / 125 unresolved**. P147 capacity controls are next.
+
 The [paired-repeatability analysis](rust-rewrite/performance-repeatability-20261023.md)
 completes **P005 as a diagnostic**: 16 preserved ABBA cases now have empirical
 same-source round ranges and adjacent pair effects. Small/noisy effects stay
 inconclusive; no benchmark reran and no earlier decision is retroactively
-validated. The ledger is **26 terminal / seven partial / 127 unresolved**.
+validated. That diagnostic brought the ledger to **26 terminal / seven partial / 127 unresolved**.
 
 The [cached string-hash checkpoint](rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23)
 at `97036e5a8` closes **P023/P112**; including the separate completed P003
@@ -69,6 +78,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
+| P001 / P002 | **Diagnostics complete; no speedup claim** | Same-invocation construction/traversal/combined wall spans, zero-pass and empty controls, retained identity, 40 checked processes, observer/profiler ABBA and eight CPU profiles. Collector functions dominate construction; object reads, property lookup and numeric-key conversion dominate traversal. All 23,970 samples match their process/maps with zero loss. [Evidence and limits](rust-rewrite/performance-row-phases-20261023.md). |
 | P023 / P112 | **Verified shared string-hash reuse with storage costs** | Layout 16 caches raw UTF-16 hashes for immutable pooled/dynamic strings across property and Map/Set users, leaving tag mixing and equality separate. Long property/Map/Set lookup medians fall about 83%/53%/54%; every string pays an i64 field and retention medians rise 3–6% with overlapping rounds. [Acceptance and raw evidence](rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23). |
 | P003 | **Diagnostic complete; no new speedup claim** | Byte-verified historical 256/1,024/4,096-row and 2/4/8-width measurements now have per-row/per-retained-element plots, observed spread and capacity observations. The 1,024→4,096 construction jump is superlinear in both recorded source cohorts; the 16→32-MiB capacity change is correlation, not isolated GC attribution. [Analysis and reproduction](rust-rewrite/performance-row-scaling-20261023.md). |
 | P005 | **Diagnostic complete; no automatic speedup threshold** | All 16 preserved case-wise ABBA runs have same-source round spread and adjacent paired effects, with every raw observation retained. Two medians per source establish an observed range, not a confidence interval or future-noise bound. Further balanced/same-source controls precede acceptance of small future gains. [Analysis](rust-rewrite/performance-repeatability-20261023.md). |
@@ -78,7 +88,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | P040 | **Rejected: no reliable gain** in the old unoptimized Portable/Fast cohort | The read-heavy row case rose 168.957 → 181.914 ms; ABBA controls also failed to establish a gain. Implementation removed, semantic fixtures and raw failed attempts retained. A different optimized-R cohort would require a new measured hypothesis. |
 | P091 | **Verified improvement** | Ordered, rooted multiargument concat preserves coercion and abrupt completion. Focused large-part ABBA round medians fall 24.719 → 7.796 ms and 120.461 → 8.944 ms (3.17× / 13.47×). Small-arity controls, six focused fixtures, the broad native checkpoint and original-case replay pass. |
 | P153 | **Verified improvement with an explicit image/startup tradeoff** | Separate matching Portable optimized R is admitted into the actual Engine. Matched combined-batch confirmation: integer 17.481 → 8.109 ms, objects 44.053 → 18.275 ms, retained rows 1,904.600 → 1,385.741 ms. CLI grows 116.01 MiB; paired startup adds about 58 ms cold / 22 ms cached. No claim of an isolated P153 contribution to every workload. |
-| P009 | **Diagnostic implemented; attribution investigation remains open** | Opt-in loaded-code map binds actual addresses to exact R/P Wasm and native-text hashes; symbol/name/index test passes. It is a serial single-program latest snapshot, not concurrent mapping history. Instrumented samples are excluded from ordinary scores. |
+| P009 | **Diagnostic complete; no exact function timers** | Loaded function names, Wasmtime indices, native offsets and byte lengths bind to actual R/P Wasm and native-text hashes. Eight profiles cross-check process/sample/map and executable identities. Maps remain serial single-program snapshots; sample shares do not establish exact function time. [Evidence](rust-rewrite/performance-row-phases-20261023.md). |
 | P024 | **Superseded by the existing reference guard** | Strict/SameValue String equality already checks identity before its content helper. The extra helper-level guard is removed: the same-reference ABBA control barely moved, while distinct-equal content comparison regressed. Semantic identity controls remain. |
 | P095 | **Rejected: regressed an early-miss control** | The endpoint filter helped a 65-unit tail miss (ABBA round medians 4.391 → 1.542 ms), but early-prefix misses rose 1.380 → 2.352 ms. The implementation is removed; exact 2,700-result UTF-16/coercion controls and raw failed attempts remain. A different algorithm needs a new experiment. |
 | P067 | **Rejected: inline binding payload experiment; broader access work remains** | Candidate `35fa9b048` did not establish a closure gain against `a5b4a6c5d`: paired round medians were 105.404 → 105.770 ms for captured reads, 109.845 → 113.622 ms for captured updates and 951.665 → 938.452 ms for closure construction, with overlapping rounds. The layout change is removed. Existing immutable StoredValue snapshots remain; resolved depth/handle caching is still open. The later unrelated string-hash change uses layout 16. |
@@ -101,8 +111,9 @@ The original 43-case attribution corpus (now 44 with scalar return) covers const
 read-pass scaling, call, string, collection and Intl controls. Read-pass scaling
 is marginal attribution: invocation timings still include construction, so this
 is not a traversal-only benchmark. Seven-sample confirmations, reversed runtime
-order, ABBA diagnostics and failed attempts are retained. P001/P002 remain open
-until the broader attribution and representative-workload decisions are made.
+order, ABBA diagnostics and failed attempts are retained. The subsequent
+P001/P002 diagnostic now separates retained-row phases and identifies their
+dominant helpers; broader workload coverage remains in the other P006–P015 items.
 The other hills remain Proposed unless a linked decision below states otherwise.
 
 The second batch is published on **2026-10-22** at source
@@ -402,15 +413,15 @@ These extend existing checked measurements; they do not replace the baseline.
 
 | ID | Order / kind / effort | Hill | Evidence or acceptance |
 | --- | --- | --- | --- |
-| P001 | A / I / S | Attribute the retained-row runtime with sampling and existing phase spans. | Identify dominant native/Wasm helpers; record profiler availability and overhead separately. |
-| P002 | A / I / S | Split retained rows into construction-only, traversal-only and combined cases. | Checked checksums and retained identity; separate allocation from read-loop time. |
+| P001 | A / I / S | **Diagnostic complete:** attribute retained-row runtime with phase-bounded native/Wasm samples. | Eight profiles, checked process/maps and zero loss; collector versus read-helper shares, signed profiler overhead and raw observations retained. [Evidence](rust-rewrite/performance-row-phases-20261023.md). |
+| P002 | A / I / S | **Diagnostic complete:** construction, traversal and combined spans within one fresh Store. | Zero-pass construction and empty-marker controls, 1/4 read passes, retained identity and exact checksums. Wall time is separate from CPU/allocation metrics. [Evidence](rust-rewrite/performance-row-phases-20261023.md). |
 | P003 | A / I / S | **Diagnostic complete:** analyze the preserved geometric row-count and array-width sweeps. | Per-row/per-retained-element plots and observed capacity transition identify superlinear scaling in the historical cohorts; no current-product or isolated-GC claim. [Evidence](rust-rewrite/performance-row-scaling-20261023.md). |
 | P004 | A / I / S | Add empty-program, empty-loop and scalar-return controls. | Quantify fixed realm/bootstrap/completion costs without subtracting them from published raw timings. |
 | P005 | A / I / S | **Diagnostic complete:** preserved balanced ABBA observations have explicit empirical variation. | Two same-source round medians, all raw samples and both adjacent pair effects; no significance or universal noise bound. [Evidence](rust-rewrite/performance-repeatability-20261023.md). |
 | P006 | B / I / M | Add optional helper call/probe/allocation-site diagnostic counters. | Count emitted operations without host calls per event; label instrumentation overhead and unavailable GC metrics correctly. |
 | P007 | B / I / S | Measure a sustained same-process/same-realm workload separately. | Explicit server-style boundary; preserve the fresh-Store baseline as its own cohort. |
 | P008 | B / I / S | Distinguish cold application cache, cold process and OS page-cache effects. | Label each scenario; do not call current warm-OS-cache samples a cold disk boot. |
-| P009 | A / I / S | Add external native sampling profiles and emitted-function size/name attribution. | Bind symbols/disassembly to exact Wasm/executable/native image; Wasmtime exposes no per-function timing counter here. |
+| P009 | A / I / S | **Diagnostic complete:** external sampling and loaded-function size/name attribution. | R/P names, indices, native offsets/lengths and sampled addresses bind to exact Wasm, executable and loaded native text. Serial single-program maps; no exact per-function timing counter. [Evidence](rust-rewrite/performance-row-phases-20261023.md). |
 | P010 | B / I / S | Add separately scoped compiler RSS diagnostics alongside runtime phase sampling. | Existing invocation sampling starts after source emission; align load/execution samples separately and never equate RSS with live JS bytes. |
 | P011 | B / I / S | Add direct/indirect/closure/recursion call workloads. | Vary arity, capture and depth; preserve this/arguments and observable call counts. |
 | P012 | B / I / S | Add fixed/dynamic key, prototype, accessor and proxy workloads. | Separate fast hits from fallback cost and check every observable trap/coercion. |

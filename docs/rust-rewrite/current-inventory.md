@@ -14,12 +14,27 @@ All four standalone production-helper filesystem regressions pass; no new full
 Cargo/native/conformance result is inferred from them. The next Cargo producer
 build still needs its normal admission checks. [Workflow](batch-workflow.md#cached-metadata-diagnostics).
 
-### Latest performance diagnostic — paired repeatability, 2026-10-23
+### Latest performance diagnostic — retained-row phases, 2026-10-23
+
+P001/P002/P009 are complete: 40 checked processes, seven workloads and eight
+profiles separate construction from traversal within the same fresh Store.
+Loaded-function names, offsets and native sizes are bound to the actual R/P
+images and executable. Named collector functions account for **83–84% of
+construction samples**; traversal is dominated by object reads, property lookup
+and number-to-string conversion. All **23,970 samples** match the recorded
+process/maps, with zero loss. Signed observer/profiler effects remain visible;
+no optimization speedup or exact per-function timing is claimed.
+[Analysis and portable evidence](performance-row-phases-20261023.md).
+The current ledger is **29 terminal / six partial / 125 unresolved**.
+Next: P147 capacity controls, followed by the concrete indexed-read path.
+The existing 16-MiB default and compiler product remain unchanged.
+
+### Completed performance diagnostic — paired repeatability, 2026-10-23
 
 P005 now has empirical same-source ranges and adjacent effects for all sixteen
 preserved ABBA cases. No execution reran and no earlier optimization decision is
 retroactively validated. [Analysis and reproduction](performance-repeatability-20261023.md).
-The current ledger is **26 terminal / seven partial / 127 unresolved**.
+That diagnostic brought the ledger to **26 terminal / seven partial / 127 unresolved**.
 
 ### Latest affected checkpoint — cached string hashes, 2026-10-23
 
@@ -41,8 +56,8 @@ source52 and earlier checkpoint details are historical evidence.
 P003 is complete with [analysis of 21 preserved cases](performance-row-scaling-20261023.md):
 geometric row/array-width controls, normalized cost plots and the observed
 capacity transition. These historical source cohorts are not a new current-product
-benchmark or an isolated GC measurement. No original benchmark was rerun;
-P001/P002 execution attribution remains open.
+benchmark or an isolated GC measurement. No original benchmark was rerun.
+The subsequent phase diagnostic above supplies current-product attribution.
 
 Previous accepted product: **`5c63c6597`**, the
 [prepared property-definition checkpoint](v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23).
