@@ -8,6 +8,18 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
+<!-- scriptw-string-hash-progress:start -->
+### Native-verified string-hash batch; original-case replay pending
+
+Product `97036e5a8` adds cached raw String hashes (layout 16). All **4,083 tests**
+across twelve affected native release scopes and eighteen compiled semantic
+families pass. Two native scopes use test-only repair `7efa13482` after eight
+stale fixture/trace assertions; their original failed evidence is preserved.
+The **13,104-case Test262 replay is running** on the unchanged frozen product.
+P023/P112 and published ledger totals remain pending that acceptance and evidence
+publication. [Continuation](../../CONTINUE.md#next-performance-work).
+<!-- scriptw-string-hash-progress:end -->
+
 Latest accepted product: **`5c63c6597`**, the
 [prepared property-definition checkpoint](v8-baseline.md#prepared-property-definition-checkpoint--published-2026-10-23).
 It closes **P020** with **3,893 native passes / zero failures / zero ignored**

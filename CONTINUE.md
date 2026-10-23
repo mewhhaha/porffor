@@ -24,6 +24,28 @@ each verified batch to main.
 
 ## Next performance work
 
+<!-- scriptw-string-hash-progress:start -->
+Current batch awaiting Test262 acceptance: **`97036e5a8`**, cached raw String
+hashes and runtime layout 16. Native verification is complete: **4,083 passed /
+zero failed / zero ignored** across twelve affected release scopes. The initial
+eight stale fixture/trace expectations remain recorded; test-only repair
+**`7efa13482`** passes the entire engine-lib and runtime-cache targets, joined
+with the ten unchanged passing targets. Eighteen compiled semantic families pass.
+The frozen product's **13,104 original Test262 executions are running** with four
+workers and original budgets. P023/P112 stay pending and counts below remain the
+last fully published checkpoint until the replay and portable evidence validate.
+
+Active driver: `/tmp/scriptw-performance-batch24/repair-and-continue.py`.
+Receipts and replay: `target/performance-hills-20261021-attribution/candidate53*`.
+The complete new native result uses `candidate53b-native-checkpoint/receipt.json`
+for the two repaired scopes and `candidate53-native-checkpoint/receipt.json` for
+the other ten; never erase or reclassify the initial eight failures. Finish with
+`publish-string-hash.py` and `update-docs.py` under the same batch directory,
+validate generated status artifacts, then push the evidence/documentation update.
+Product/benchmark/replay identity remains source53; native repair identity is
+separate. Next attribution notes are in that directory's `next-batch-notes.md`.
+<!-- scriptw-string-hash-progress:end -->
+
 The 160-hill backlog has **22 terminal decisions, seven partial/open outcomes,
 131 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
 code. Push each verified batch to main; keep this file/tasks until all acceptance

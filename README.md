@@ -65,6 +65,14 @@ These four failures remain open (upstream status checked 2026-10-21):
 **All four remain counted as failures.** Upstream tracking does not change their results.
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
+<!-- scriptw-string-hash-progress:start -->
+The `97036e5a8` string-hash change has passed **4,083 native tests** across twelve
+affected targets and eighteen compiled semantic families. Native acceptance
+includes test-only repairs at `7efa13482`. Its **13,104-case Test262 replay is
+running**; the full-suite chart and published benchmark table retain their
+separately identified sources. [Progress](CONTINUE.md#next-performance-work).
+<!-- scriptw-string-hash-progress:end -->
+
 The newer `5c63c6597` checkpoint passes **3,893 native tests** across nine
 affected targets and seventeen compiled semantic families. Its **7,174-case
 Test262 replay** has **7,170 passes and the same four failures**; the full chart
