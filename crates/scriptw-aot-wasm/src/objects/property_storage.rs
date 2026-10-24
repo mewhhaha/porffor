@@ -5,9 +5,9 @@ mod index;
 
 /// The borrowed canonical key remains rooted until probe and insertion finish.
 /// Each private publication/definition path owns and releases its prepared hash.
-struct PreparedOrdinaryPropertyKey<'key> {
-    key: &'key PropertyKeyLocals,
-    hash: I64Local,
+pub(super) struct PreparedOrdinaryPropertyKey<'key> {
+    pub(super) key: &'key PropertyKeyLocals,
+    pub(super) hash: I64Local,
 }
 
 /// One ordinary definition owns its object/key pairing, lookup result and
@@ -171,27 +171,31 @@ impl FunctionBuilder<'_> {
         descriptor: &GcLocal<PropertyDescriptor>,
         function: &mut Function,
     ) {
+        let storage = self.emit_dictionary_property_storage(object, function);
+        self.emit_ordinary_insert_in_dictionary(&storage, prepared, descriptor, function);
+        storage.clear(function);
+    }
+
+    pub(super) fn emit_ordinary_insert_in_dictionary(
+        &mut self,
+        storage: &GcLocal<OrdinaryPropertyStorage>,
+        prepared: &PreparedOrdinaryPropertyKey<'_>,
+        descriptor: &GcLocal<PropertyDescriptor>,
+        function: &mut Function,
+    ) {
         let schema = self.runtime_schema();
         let key = prepared.key;
-        let storage = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<OrdinaryObject>()
-                .field(OrdinaryObjectSchema::PROPERTIES)
-                .read(object, schema, function)
-                .reference(),
-            function,
-        );
         let table = schema.reserve_gc_local(function).initialize(
             schema
                 .field(OrdinaryPropertyStorageSchema::ENTRIES)
-                .read(&storage, schema, function)
+                .read(storage, schema, function)
                 .reference(),
             function,
         );
         let buckets = schema.reserve_gc_local(function).initialize(
             schema
                 .field(OrdinaryPropertyStorageSchema::INDEX)
-                .read(&storage, schema, function)
+                .read(storage, schema, function)
                 .reference(),
             function,
         );
@@ -204,7 +208,7 @@ impl FunctionBuilder<'_> {
         let entries = schema.array_type::<PropertyTable>();
         schema
             .field(OrdinaryPropertyStorageSchema::LENGTH)
-            .read(&storage, schema, function)
+            .read(storage, schema, function)
             .store(length, function);
         length.load(function);
         function.instruction(&Instruction::I32Const(1));
@@ -250,13 +254,13 @@ impl FunctionBuilder<'_> {
             function,
         );
         schema.field(OrdinaryPropertyStorageSchema::ENTRIES).write(
-            &storage,
+            storage,
             GcOperand::reference(&replacement, schema),
             schema,
             function,
         );
         schema.field(OrdinaryPropertyStorageSchema::INDEX).write(
-            &storage,
+            storage,
             GcOperand::reference(&replacement_index, schema),
             schema,
             function,
@@ -295,7 +299,7 @@ impl FunctionBuilder<'_> {
         );
         self.emit_ordinary_property_index_publish(&buckets, &table, hash, length, function);
         schema.field(OrdinaryPropertyStorageSchema::LENGTH).write(
-            &storage,
+            storage,
             GcOperand::i32_local(new_length),
             schema,
             function,
@@ -309,7 +313,6 @@ impl FunctionBuilder<'_> {
         schema.release_i32_local(length, function);
         buckets.clear(function);
         table.clear(function);
-        storage.clear(function);
     }
 
     /// Chooses max(4, required, 2 * capacity), without unsigned i32 wrap.

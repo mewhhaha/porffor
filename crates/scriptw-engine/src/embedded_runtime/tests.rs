@@ -124,7 +124,7 @@ fn embedded_manifest_rejects_metadata_and_native_mismatches_before_deserialize()
         let mut previous = images.manifest.to_vec();
         previous[8..12].copy_from_slice(&3_u32.to_le_bytes());
         assert!(manifest::Manifest::decode(&previous).is_none());
-        for (offset, unknown) in [(16, 2), (17, 3), (18, 2), (17, 255)] {
+        for (offset, unknown) in [(16, 3), (17, 4), (18, 2), (17, 255)] {
             let mut changed = images.manifest.to_vec();
             changed[offset] = unknown;
             assert!(manifest::Manifest::decode(&changed).is_none());
@@ -266,7 +266,7 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                 );
                 assert_eq!(
                     bundle.manifest.modes.execution,
-                    manifest::ExecutionModes::FastAndSizeOptimized
+                    manifest::ExecutionModes::FastSizeOptimizedAndSpeed
                 );
                 assert_eq!(
                     bundle.manifest.modes.register_allocation,
@@ -296,7 +296,7 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                     .verify_engine(&engine)
                     .unwrap();
                 let first = bundle
-                .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
+                .load(&engine, &runtime, WasmNativeCompilationMode::Fast, &mut Default::default())
                 .expect(
                     "Backtracking-produced R loads into the actual Fast/SinglePass target engine",
                 );
@@ -308,11 +308,21 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                     !Engine::same(first.engine(), &runtime_compiler),
                     "the build compiler is not an execution or retention owner"
                 );
-                let fast_admitted = load_native(&engine, &runtime, WasmNativeCompilationMode::Fast)
-                    .expect("the product factory selects this source profile in Fast mode");
+                let fast_admitted = load_native(
+                    &engine,
+                    &runtime,
+                    WasmNativeCompilationMode::Fast,
+                    &mut Default::default(),
+                )
+                .expect("the product factory selects this source profile in Fast mode");
                 assert!(Engine::same(fast_admitted.engine(), &engine));
                 let second = bundle
-                    .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
+                    .load(
+                        &engine,
+                        &runtime,
+                        WasmNativeCompilationMode::Fast,
+                        &mut Default::default(),
+                    )
                     .expect("a second factory call owns a new native mapping");
                 assert_ne!(
                     first.image_range().start,
@@ -332,6 +342,7 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                         &size_engine,
                         &runtime,
                         WasmNativeCompilationMode::SizeOptimized,
+                        &mut Default::default(),
                     )
                     .expect(
                         "the same image loads into the SizeOptimized/SinglePass product Engine",
@@ -341,6 +352,7 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                     &size_engine,
                     &runtime,
                     WasmNativeCompilationMode::SizeOptimized,
+                    &mut Default::default(),
                 )
                 .expect("the product entry admits both declared execution modes");
                 assert!(Engine::same(admitted.engine(), &size_engine));
@@ -356,13 +368,23 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                     EmbeddedNativeRuntime::admit(Images::for_profile(other_profile)).unwrap();
                 wrong_profile.manifest.runtime_key = *runtime.key().as_bytes();
                 assert!(wrong_profile
-                    .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
+                    .load(
+                        &engine,
+                        &runtime,
+                        WasmNativeCompilationMode::Fast,
+                        &mut Default::default()
+                    )
                     .is_none());
                 let mut foreign_key = EmbeddedNativeRuntime::admit(images).unwrap();
                 foreign_key.manifest.runtime_key[0] ^= 1;
                 assert!(
                     foreign_key
-                        .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
+                        .load(
+                            &engine,
+                            &runtime,
+                            WasmNativeCompilationMode::Fast,
+                            &mut Default::default()
+                        )
                         .is_none(),
                     "native R cannot attach to another raw runtime key"
                 );
@@ -374,7 +396,12 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                 let incompatible = Engine::new(&mismatched).unwrap();
                 assert!(
                     bundle
-                        .load(&incompatible, &runtime, WasmNativeCompilationMode::Fast)
+                        .load(
+                            &incompatible,
+                            &runtime,
+                            WasmNativeCompilationMode::Fast,
+                            &mut Default::default()
+                        )
                         .is_none(),
                     "known-valid native bytes with incompatible tunables are an optimization miss"
                 );

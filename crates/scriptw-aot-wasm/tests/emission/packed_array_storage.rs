@@ -1,0 +1,333 @@
+//! P calls shared R publication, physical Number/bitmap and descriptor owners.
+use scriptw_aot_wasm::{
+    emit_with_rooted_snapshot, GcSnapshotLayout, PromiseRejectionPolicy, RUNTIME_IMPORT_NAMESPACE,
+};
+use scriptw_front::{parse, ParseOptions};
+use scriptw_ir::{lower, ExprIr, SpecOperationIr, StatementIr};
+use std::collections::BTreeMap;
+use wasmparser::{
+    ExternalKind, HeapType, KnownCustom, Name, Operator, Parser, Payload, TypeRef, UnpackedIndex,
+    ValType, Validator, WasmFeatures,
+};
+
+#[derive(Default)]
+struct Module<'a> {
+    types: Vec<wasmparser::SubType>,
+    type_group_sizes: Vec<usize>,
+    names: BTreeMap<u32, String>,
+    imports: BTreeMap<u32, (String, String)>,
+    functions: BTreeMap<u32, Vec<Operator<'a>>>,
+    body_bytes: BTreeMap<u32, usize>,
+    exports: BTreeMap<String, u32>,
+    globals: Vec<wasmparser::GlobalType>,
+    global_exports: BTreeMap<String, u32>,
+}
+
+impl<'a> Module<'a> {
+    fn read(bytes: &'a [u8]) -> Self {
+        let mut output = Self::default();
+        let mut next = 0;
+        for payload in Parser::new(0).parse_all(bytes) {
+            match payload.unwrap() {
+                Payload::TypeSection(reader) => {
+                    for group in reader {
+                        let group = group.unwrap();
+                        output.type_group_sizes.push(group.types().len());
+                        output.types.extend(group.types().cloned());
+                    }
+                }
+                Payload::ImportSection(reader) => {
+                    for import in reader.into_imports() {
+                        let import = import.unwrap();
+                        match import.ty {
+                            TypeRef::Func(_) | TypeRef::FuncExact(_) => {
+                                output
+                                    .imports
+                                    .insert(next, (import.module.into(), import.name.into()));
+                                next += 1;
+                            }
+                            TypeRef::Global(ty) => output.globals.push(ty),
+                            _ => {}
+                        }
+                    }
+                }
+                Payload::GlobalSection(reader) => output
+                    .globals
+                    .extend(reader.into_iter().map(|global| global.unwrap().ty)),
+                Payload::ExportSection(reader) => {
+                    for export in reader {
+                        let export = export.unwrap();
+                        match export.kind {
+                            ExternalKind::Func => {
+                                output.exports.insert(export.name.into(), export.index);
+                            }
+                            ExternalKind::Global => {
+                                output
+                                    .global_exports
+                                    .insert(export.name.into(), export.index);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Payload::CodeSectionEntry(body) => {
+                    output.body_bytes.insert(next, body.range().len());
+                    output.functions.insert(
+                        next,
+                        body.get_operators_reader()
+                            .unwrap()
+                            .into_iter()
+                            .map(Result::unwrap)
+                            .collect(),
+                    );
+                    next += 1;
+                }
+                Payload::CustomSection(section) => {
+                    if let KnownCustom::Name(reader) = section.as_known() {
+                        for subsection in reader {
+                            if let Name::Function(names) = subsection.unwrap() {
+                                for name in names {
+                                    let name = name.unwrap();
+                                    output.names.insert(name.index, name.name.into());
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        output
+    }
+
+    fn named(&self, prefix: &str) -> (u32, &[Operator<'a>]) {
+        let names = self
+            .names
+            .iter()
+            .filter(|(_, name)| {
+                if prefix.ends_with('#') {
+                    assert!(
+                        prefix.starts_with("js::"),
+                        "only an explicit source function prefix may end in '#': {prefix}"
+                    );
+                    name.starts_with(prefix)
+                } else {
+                    name.as_str() == prefix
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names.len(),
+            1,
+            "one actual body for {prefix}; matching names: {names:?}"
+        );
+        let index = *names[0].0;
+        (index, self.functions.get(&index).unwrap())
+    }
+
+    fn witness_type(&self, layout: GcSnapshotLayout) -> u32 {
+        let index = *self
+            .global_exports
+            .get(layout.witness_export())
+            .unwrap_or_else(|| panic!("observation owner must export {:?} witness", layout));
+        let ValType::Ref(reference) = self.globals[index as usize].content_type else {
+            panic!("typed GC witness");
+        };
+        let HeapType::Concrete(UnpackedIndex::Module(index)) = reference.heap_type() else {
+            panic!("concrete witness");
+        };
+        index
+    }
+
+    fn imported_runtime(&self, runtime: &Self, definition: u32) -> u32 {
+        let indices = self
+            .imports
+            .iter()
+            .filter_map(|(&index, (namespace, name))| {
+                (namespace == RUNTIME_IMPORT_NAMESPACE
+                    && runtime.exports.get(name) == Some(&definition))
+                .then_some(index)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            indices.len(),
+            1,
+            "actual exported R definition is linked into P"
+        );
+        indices[0]
+    }
+}
+
+fn calls(body: &[Operator<'_>], target: u32) -> bool {
+    body.iter().any(|operator| {
+        matches!(operator,
+        Operator::Call { function_index } | Operator::ReturnCall { function_index }
+            if *function_index == target)
+    })
+}
+
+#[test]
+fn compiled_numbers_use_bitmap_arrays_and_keep_real_descriptor_fallback() {
+    std::thread::Builder::new().stack_size(64 * 1024 * 1024).spawn(|| {
+        // Publish callable values without directly calling them. This retains
+        // their generic bodies and avoids direct-call-specialized clones; the
+        // operand assertions must describe that one declared generic body.
+        let parsed = parse("function make(value){var a=[value];return a;}function read(array,index){return array[index];}[make,read];", ParseOptions::script()).unwrap();
+        let lowered = lower(&parsed);
+        let read_sources = lowered.script.as_ref().unwrap().functions.iter()
+            .filter(|function| function.name == "read").collect::<Vec<_>>();
+        assert_eq!(read_sources.len(), 1, "fixture retains one generic read IR carrier");
+        let read_result = read_sources[0].body.statements.iter().find_map(|statement| match statement {
+            StatementIr::Return(value) => Some(value),
+            _ => None,
+        }).expect("read source has its actual return expression");
+        let ExprIr::SpecOperation { operation: SpecOperationIr::GetV, operands } = &read_result.expr else {
+            panic!("unknown receiver/computed key must retain canonical GetV, got {read_result:?}");
+        };
+        assert_eq!(operands.len(), 2, "GetV retains target and key operands");
+        assert!(!matches!(&operands[1].expr, ExprIr::String(_)),
+            "this nonliteral key reaches ObjectRead after GetV's operand/ToObject/ToPropertyKey steps");
+        let artifact = emit_with_rooted_snapshot(&lowered, PromiseRejectionPolicy::Ignore,
+            &scriptw_intl::IntlCompilationProfile::Minimal).unwrap();
+        // Preserve the same generic signature, locals, argument read and
+        // callable publication protocol. Its empty literal owns any ordinary
+        // activation descriptors independently of element publication.
+        let control = lower(&parse("function make(value){var a=[];value;return a;}function read(array,index){return array[index];}[make,read];", ParseOptions::script()).unwrap());
+        let control_artifact = emit_with_rooted_snapshot(&control, PromiseRejectionPolicy::Ignore,
+            &scriptw_intl::IntlCompilationProfile::Minimal).unwrap();
+        let runtime = artifact.runtime().unwrap();
+        let features = WasmFeatures::default() | WasmFeatures::THREADS | WasmFeatures::MULTI_MEMORY
+            | WasmFeatures::REFERENCE_TYPES | WasmFeatures::FUNCTION_REFERENCES | WasmFeatures::GC
+            | WasmFeatures::EXCEPTIONS | WasmFeatures::TAIL_CALL;
+        for bytes in [&artifact.bytes[..], &runtime.bytes()[..], &control_artifact.bytes[..]] {
+            Validator::new_with_features(features).validate_all(bytes).unwrap();
+        }
+        let program = Module::read(&artifact.bytes);
+        let control_program = Module::read(&control_artifact.bytes);
+        let runtime = Module::read(runtime.bytes());
+        // Linked R owns snapshot globals, and the Engine observes that R
+        // instance. P imports R's core and appends program-only signatures.
+        // Verify the actual encoded index/type/recursion-group agreement before
+        // using R's witness indices to classify any instruction in P.
+        assert!(program.types.len() >= runtime.types.len());
+        assert_eq!(&program.types[..runtime.types.len()], &runtime.types,
+            "P and R declare the exact same core types at the same indices");
+        assert!(control_program.types.len() >= runtime.types.len());
+        assert_eq!(&control_program.types[..runtime.types.len()], &runtime.types,
+            "the matched control uses the same concrete descriptor index");
+        assert!(program.type_group_sizes.len() >= runtime.type_group_sizes.len());
+        assert_eq!(&program.type_group_sizes[..runtime.type_group_sizes.len()], &runtime.type_group_sizes,
+            "P's program-only type suffix must not alter shared recursive groups");
+        let numbers = runtime.witness_type(GcSnapshotLayout::ArrayNumbers);
+        let presence = runtime.witness_type(GcSnapshotLayout::ArrayNumberPresence);
+        let descriptor = runtime.witness_type(GcSnapshotLayout::Descriptor);
+        let dense = runtime.witness_type(GcSnapshotLayout::ArrayDense);
+        assert_ne!(numbers, presence, "Number payload and hole presence are distinct arrays");
+        let (_, make) = program.named("js::make#");
+        let (_, control_make) = control_program.named("js::make#");
+        let (default_publish, default_publish_body) = runtime.named("helper::array_indexed_publish_default_data");
+        assert!(calls(make, program.imported_runtime(&runtime, default_publish)),
+            "the fresh producer calls the actual linked R default-data publication owner");
+        assert!(!calls(control_make, control_program.imported_runtime(&runtime, default_publish)),
+            "the empty-array control has no element publication");
+        for array in [numbers, presence] {
+            assert!(default_publish_body.iter().any(|op| matches!(op, Operator::ArraySet { array_type_index } if *array_type_index == array)), "shared R publication writes its physical packed backing");
+            assert!(!make.iter().any(|op| matches!(op, Operator::ArraySet { array_type_index } if *array_type_index == array)), "P never duplicates the shared packed publication CFG");
+        }
+        let (publish, publish_body) = runtime.named("helper::array_indexed_publish");
+        assert!(calls(default_publish_body, publish), "non-Number values keep R's actual descriptor publication fallback");
+        assert!(default_publish_body.iter().any(|op| matches!(op, Operator::StructNew { struct_type_index } if *struct_type_index == descriptor)), "the shared default-data owner boxes the incoming descriptor before its raw publication fallback");
+        let descriptor_count = |body: &[Operator<'_>]| body.iter().filter(|op|
+            matches!(op, Operator::StructNew { struct_type_index } if *struct_type_index == descriptor)).count();
+        assert_eq!(descriptor_count(make), descriptor_count(control_make),
+            "element publication adds no P descriptor allocation beyond the matched empty-array activation");
+        assert!(publish_body.iter().any(|op| matches!(op, Operator::StructNew { struct_type_index } if *struct_type_index == descriptor)), "R's cold promotion constructs real descriptors for previously packed entries");
+        assert!(publish_body.iter().any(|op| matches!(op, Operator::ArraySet { array_type_index } if *array_type_index == dense)), "cold descriptors enter the actual dense store");
+        let (_, source_read) = program.named("js::read#");
+        let (object_read, read) = runtime.named("helper::object_read");
+        assert!(calls(source_read, program.imported_runtime(&runtime, object_read)),
+            "the canonical nonliteral GetV source body calls the actual linked R ObjectRead definition");
+        for array in [numbers, presence] {
+            assert!(read.iter().any(|op| matches!(op, Operator::ArrayGet { array_type_index } if *array_type_index == array)), "ordinary read reaches encoded packed value/presence loads");
+        }
+        let (_, delete) = runtime.named("helper::array_indexed_delete");
+        assert!(delete.iter().any(|op| matches!(op, Operator::ArraySet { array_type_index } if *array_type_index == presence)), "deletion clears explicit presence rather than inventing a Number sentinel");
+    }).unwrap().join().unwrap();
+}
+
+#[test]
+fn many_short_array_literals_keep_publication_cfg_in_one_runtime_body() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            const LITERALS: usize = 256;
+            const ELEMENTS: usize = 3;
+            // This fixed source stays below the current Engine's 1-MiB
+            // large-body native-policy boundary. Unrelated lowering may
+            // change exact operator counts without duplicating publication.
+            const SOURCE_BODY_BYTE_CEILING: usize = 1024 * 1024;
+            // Each literal is far below passive-recipe admission. One source
+            // body must remain cheap even when it contains many such literals.
+            let mut source = String::from("function make(consume){");
+            for ordinal in 0..LITERALS {
+                source.push_str(&format!(
+                    "consume([{ordinal},{},{}]);",
+                    ordinal + 1,
+                    ordinal + 2
+                ));
+            }
+            source.push_str("}make;");
+            let lowered = lower(&parse(&source, ParseOptions::script()).unwrap());
+            let artifact = emit_with_rooted_snapshot(
+                &lowered,
+                PromiseRejectionPolicy::Ignore,
+                &scriptw_intl::IntlCompilationProfile::Minimal,
+            )
+            .unwrap();
+            let program = Module::read(&artifact.bytes);
+            let runtime = Module::read(artifact.runtime().unwrap().bytes());
+            let (publish, publication) =
+                runtime.named("helper::array_indexed_publish_default_data");
+            let imported_publish = program.imported_runtime(&runtime, publish);
+            let (make_index, make) = program.named("js::make#");
+            assert!(program.types.len() >= runtime.types.len());
+            assert_eq!(&program.types[..runtime.types.len()], &runtime.types,
+                "backing witnesses retain their actual shared core indices");
+            for array in [
+                runtime.witness_type(GcSnapshotLayout::ArrayNumbers),
+                runtime.witness_type(GcSnapshotLayout::ArrayNumberPresence),
+            ] {
+                assert!(!make.iter().any(|op| matches!(op,
+                    Operator::ArraySet { array_type_index } if *array_type_index == array)),
+                    "the many-literal P body has no duplicated packed backing publication");
+            }
+            let publications = make
+                .iter()
+                .filter(|operator| {
+                    matches!(operator,
+                        Operator::Call { function_index }
+                        | Operator::ReturnCall { function_index }
+                        if *function_index == imported_publish)
+                })
+                .count();
+            assert_eq!(
+                publications,
+                LITERALS * ELEMENTS,
+                "every occupied source element reaches the actual R publication owner"
+            );
+            assert!(
+                publication
+                    .iter()
+                    .any(|op| matches!(op, Operator::Loop { .. })),
+                "the one R publication body owns geometric growth rather than deleting it"
+            );
+            assert!(
+                program.body_bytes[&make_index] < SOURCE_BODY_BYTE_CEILING,
+                "the fixed many-short-literal control stays below the large-body native-policy boundary, got {} bytes",
+                program.body_bytes[&make_index]
+            );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}

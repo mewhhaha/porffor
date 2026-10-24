@@ -3,8 +3,13 @@ use scriptw_front::{parse, ParseOptions};
 use scriptw_ir::{lower, lower_with_host_surface_policy, BigIntLiteralIr, HostSurfacePolicy};
 use wasmparser::{Operator, Parser, Payload, Validator, WasmFeatures};
 
+mod array_data_producers;
+mod call_arity;
 mod direct_eval_dispatch;
 mod numeric_imul;
+mod plain_data_literals;
+mod scalar_regions;
+mod unobserved_arguments;
 
 fn emit_script(source: &str) -> Result<WasmArtifact, EmitError> {
     let source = parse(source, ParseOptions::script()).expect("script should parse");

@@ -93,6 +93,13 @@ impl PlannedFunctionEntry {
         }
     }
 
+    /// A function index contributes to a checked, program-local source-site pair.
+    pub(crate) fn source_site_owner(&self) -> Result<u32, EmitError> {
+        self.wasm_index
+            .checked_add(1)
+            .ok_or_else(|| EmitError::unsupported("source-site owner exceeds u32"))
+    }
+
     pub(crate) fn emit_ref_func(&self, function: &mut Function) {
         function.instruction(&Instruction::RefFunc(self.wasm_index));
     }

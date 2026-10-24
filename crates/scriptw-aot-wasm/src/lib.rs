@@ -71,10 +71,11 @@ mod function_layout;
 mod functions;
 mod gc_types;
 pub use gc_types::{
-    check_gc_main_completion, snapshot_descriptor_flags, snapshot_function_protocol,
-    snapshot_intrinsic_index, snapshot_symbol_index, GcHostField, GcHostFieldDefinition,
-    GcHostImport, GcHostLayout, GcHostStorage, GcHostValue, GcHostValueStorage, GcSnapshotField,
-    GcSnapshotLayout, SNAPSHOT_ENTRY_REALM_EXPORT, SNAPSHOT_REALMS_EXPORT, SNAPSHOT_SYMBOLS_EXPORT,
+    check_gc_main_completion, snapshot_array_storage_mode, snapshot_descriptor_flags,
+    snapshot_function_protocol, snapshot_intrinsic_index, snapshot_symbol_index,
+    ArrayIndexedStorageMode, GcHostField, GcHostFieldDefinition, GcHostImport, GcHostLayout,
+    GcHostStorage, GcHostValue, GcHostValueStorage, GcSnapshotField, GcSnapshotLayout,
+    SNAPSHOT_ENTRY_REALM_EXPORT, SNAPSHOT_REALMS_EXPORT, SNAPSHOT_SYMBOLS_EXPORT,
 };
 mod generator_delegation;
 mod generator_reference;
@@ -98,7 +99,8 @@ mod runtime_artifact;
 pub const GLOBAL_SCRIPT_PRELUDE_PHASE_EXPORT: &str = "scriptw.global_prelude_phase";
 
 pub use runtime_artifact::{
-    build_runtime_artifact, build_runtime_artifact_with_source_compilation_profile,
+    admit_portable_runtime_package, build_runtime_artifact,
+    build_runtime_artifact_with_source_compilation_profile, encode_portable_runtime_package,
     runtime_artifact, runtime_artifact_with_cache, runtime_artifact_with_inputs, RuntimeArtifact,
     RuntimeArtifactCache, RuntimeArtifactCacheKey, RuntimeArtifactInputs, RuntimeArtifactKey,
     RuntimeBuildArtifact, RuntimeSourceCompilationProfile, ValidatedRuntimeArtifact,
@@ -152,6 +154,8 @@ pub(crate) use emitted_function::{
 };
 pub use emitted_function::{EmittedFunctionSummary, FunctionBodySize, FunctionLocalCount};
 use function_layout::{FunctionIndexLayout, SourceFunctions};
+mod foreign;
+pub use foreign::{foreign_registry_from_module, FOREIGN_MODULES_CUSTOM_SECTION};
 pub(crate) use functions::NonArrayRealmIntrinsicSlot;
 use heap::*;
 use intrinsics::*;

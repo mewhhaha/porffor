@@ -150,6 +150,7 @@ fn assemble_sources(
                     graph.keys.insert(source.record_key(), id);
                 }
                 graph.units.push(ModuleUnitIr {
+                    foreign: source.foreign.clone(),
                     record,
                     source_text: source.source_text().to_string(),
                     meta_url: source.meta_url().to_string(),

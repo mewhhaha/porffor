@@ -1007,16 +1007,30 @@ impl FunctionBuilder<'_> {
                 ExprIr::SpreadArgument(_) | ExprIr::CapturedArgumentList(_)
             )
         }) {
-            let mut values = Vec::with_capacity(arguments.len());
+            if arguments.is_empty() {
+                return Ok(self.emit_pre_evaluated_arg_vector(&[], function));
+            }
+            let value = schema.reserve_value_local(function);
+            let mut stored = Vec::with_capacity(arguments.len());
             for argument in arguments {
-                let value = schema.reserve_value_local(function);
                 self.compile_expr_to_value(argument, &value, function)?;
                 self.emit_propagate_current_throw_if_needed(function);
-                values.push(value);
+                // The immutable snapshot roots this argument across every later
+                // argument's calls/GC. Reuse only the evaluation scratch triple;
+                // a later evaluation cannot overwrite an earlier argument.
+                stored.push(
+                    schema.reserve_gc_local(function).initialize(
+                        schema
+                            .struct_type::<crate::gc_types::StoredValue>()
+                            .from_value(&value, function),
+                        function,
+                    ),
+                );
+                value.reference().clear(function);
             }
-            let borrowed = values.iter().collect::<Vec<_>>();
-            let list = self.emit_pre_evaluated_arg_vector(&borrowed, function);
-            for value in values.into_iter().rev() {
+            value.clear(function);
+            let list = self.emit_argument_vector_from_snapshots(&stored, function);
+            for value in stored.into_iter().rev() {
                 value.clear(function);
             }
             return Ok(list);

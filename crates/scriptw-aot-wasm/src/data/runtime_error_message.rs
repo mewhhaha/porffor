@@ -28,6 +28,8 @@ macro_rules! runtime_error_message_catalog {
 }
 
 runtime_error_message_catalog! {
+    FOREIGN_NUMBER_ARGUMENT_REQUIRED => "Foreign function requires Number arguments",
+    FOREIGN_HOST_OPERATION_FAILED => "Foreign host operation failed",
     MAXIMUM_SOURCE_CALL_STACK_SIZE_EXCEEDED => "Maximum source call stack size exceeded",
     SHADOW_REALM_REQUIRES_NEW => "ShadowRealm constructor requires new",
     SHADOW_REALM_INCOMPATIBLE_RECEIVER => "ShadowRealm method called on incompatible receiver",

@@ -1,11 +1,11 @@
-//! The single strong-GC indexed store for Array exotics. Logical Array length
-//! never sizes backing storage. Registered mutation bodies own unique entries,
-//! a nonzero power-of-two bucket count and publication of complete descriptors.
+//! The shared indexed store dispatches between bounded dense descriptors and
+//! sparse nodes and packed Number bits. An explicit closed mode selects the
+//! active backing. Logical Array length never sizes any backing.
 use super::*;
 use crate::gc_types::{
     ArrayIndexBucketTable, ArrayIndexEntry, ArrayIndexEntrySchema, ArrayIndexKeyConstruction,
-    ArrayIndexKeyTable, ArrayIndexStorage, ArrayIndexStorageSchema, ArrayObject, ArrayObjectSchema,
-    I64Local,
+    ArrayIndexKeyTable, ArrayIndexStorage, ArrayIndexStorageSchema, ArrayIndexedStorageMode,
+    ArrayObject, ArrayObjectSchema, I64Local,
 };
 use crate::runtime_helpers::{
     ArrayIndexedDeleteArguments, ArrayIndexedDeleteParameters, ArrayIndexedPublishArguments,
@@ -13,7 +13,7 @@ use crate::runtime_helpers::{
 };
 
 impl FunctionBuilder<'_> {
-    fn emit_array_index_storage(
+    pub(super) fn emit_array_index_storage(
         &self,
         array: &GcLocal<ArrayObject>,
         f: &mut Function,
@@ -38,6 +38,21 @@ impl FunctionBuilder<'_> {
     ) -> GcLocal<PropertyDescriptor, Nullable> {
         let schema = self.runtime_schema();
         let storage = self.emit_array_index_storage(array, f);
+        // A query for a missing index must not retire packed storage (Array
+        // push and ordinary definition probe a missing index before publishing).
+        schema.array_storage_mode_is(&storage, ArrayIndexedStorageMode::PackedNumbers, f);
+        self.open_frame(ControlFrameKind::If, f);
+        let found = schema.reserve_i32_local(f);
+        found.set_constant(0, f);
+        self.emit_packed_array_present(&storage, index, found, f);
+        found.load(f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_materialize_packed_array(&storage, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        schema.release_i32_local(found, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         let buckets = schema.reserve_gc_local(f).initialize(
             schema
                 .struct_type::<ArrayIndexStorage>()
@@ -51,6 +66,15 @@ impl FunctionBuilder<'_> {
             .array_type::<ArrayIndexBucketTable>()
             .length(&buckets, schema, f);
         capacity.store(f);
+        let output = schema
+            .reserve_gc_local::<PropertyDescriptor, Nullable>(f)
+            .initialize_null(schema, f);
+        schema.array_storage_mode_is(&storage, ArrayIndexedStorageMode::DenseDescriptors, f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_dense_array_descriptor(&storage, index, &output, f);
+        f.instruction(&Instruction::Else);
+        capacity.load(f);
+        self.open_frame(ControlFrameKind::If, f);
         let bucket = schema.reserve_i32_local(f);
         Self::emit_array_index_hash(index, capacity, bucket, f);
         let cursor = schema.reserve_gc_local(f).initialize(
@@ -60,9 +84,6 @@ impl FunctionBuilder<'_> {
                 .reference(),
             f,
         );
-        let output = schema
-            .reserve_gc_local::<PropertyDescriptor, Nullable>(f)
-            .initialize_null(schema, f);
         let key = schema.reserve_i64_local(f);
         let exit = self.open_frame(ControlFrameKind::Block, f);
         let repeat = self.open_frame(ControlFrameKind::Loop, f);
@@ -105,6 +126,10 @@ impl FunctionBuilder<'_> {
         schema.release_i64_local(key, f);
         cursor.clear(f);
         schema.release_i32_local(bucket, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         schema.release_i32_local(capacity, f);
         buckets.clear(f);
         storage.clear(f);
@@ -149,7 +174,12 @@ impl FunctionBuilder<'_> {
 
     /// A fixed integer mixing function. References and semantic addresses are
     /// absent; equal admitted index words always select the same bucket.
-    fn emit_array_index_hash(index: I64Local, capacity: I32Local, out: I32Local, f: &mut Function) {
+    pub(super) fn emit_array_index_hash(
+        index: I64Local,
+        capacity: I32Local,
+        out: I32Local,
+        f: &mut Function,
+    ) {
         index.load(f);
         f.instruction(&Instruction::I32WrapI64);
         out.store(f);
@@ -323,6 +353,21 @@ impl FunctionBuilder<'_> {
         let p = self.helper_parameters::<ArrayIndexedPublishParameters>(&mut f);
         Self::emit_array_index_admission(p.index, &mut f);
         let schema = self.runtime_schema();
+        let handled =
+            self.emit_packed_array_publish_descriptor(&p.storage, p.index, &p.descriptor, &mut f);
+        handled.load(&mut f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, &mut f);
+        let dense_handled =
+            self.emit_dense_array_publish(&p.storage, p.index, &p.descriptor, &mut f);
+        dense_handled.load(&mut f);
+        handled.store(&mut f);
+        schema.release_i32_local(dense_handled, &mut f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        handled.load(&mut f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, &mut f);
         let buckets = schema.reserve_gc_local(&mut f).initialize(
             schema
                 .struct_type::<ArrayIndexStorage>()
@@ -336,6 +381,20 @@ impl FunctionBuilder<'_> {
             .array_type::<ArrayIndexBucketTable>()
             .length(&buckets, schema, &mut f);
         capacity.store(&mut f);
+        capacity.load(&mut f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, &mut f);
+        capacity.set_constant(8, &mut f);
+        self.emit_array_index_rehash(&p.storage, capacity, &mut f);
+        buckets.replace(
+            schema
+                .field(ArrayIndexStorageSchema::BUCKETS)
+                .read(&p.storage, schema, &mut f)
+                .reference(),
+            &mut f,
+        );
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         let bucket = schema.reserve_i32_local(&mut f);
         Self::emit_array_index_hash(p.index, capacity, bucket, &mut f);
         let cursor = schema.reserve_gc_local(&mut f).initialize(
@@ -470,6 +529,9 @@ impl FunctionBuilder<'_> {
         schema.release_i32_local(bucket, &mut f);
         schema.release_i32_local(capacity, &mut f);
         buckets.clear(&mut f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        schema.release_i32_local(handled, &mut f);
         p.release(&mut f);
         f.instruction(&Instruction::End);
         Ok(self.finish_function(f))
@@ -480,6 +542,19 @@ impl FunctionBuilder<'_> {
         let p = self.helper_parameters::<ArrayIndexedDeleteParameters>(&mut f);
         Self::emit_array_index_admission(p.index, &mut f);
         let schema = self.runtime_schema();
+        let handled = self.emit_packed_array_delete(&p.storage, p.index, &mut f);
+        handled.load(&mut f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, &mut f);
+        let dense_handled = self.emit_dense_array_delete(&p.storage, p.index, &mut f);
+        dense_handled.load(&mut f);
+        handled.store(&mut f);
+        schema.release_i32_local(dense_handled, &mut f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        handled.load(&mut f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, &mut f);
         let buckets = schema.reserve_gc_local(&mut f).initialize(
             schema
                 .struct_type::<ArrayIndexStorage>()
@@ -493,6 +568,8 @@ impl FunctionBuilder<'_> {
             .array_type::<ArrayIndexBucketTable>()
             .length(&buckets, schema, &mut f);
         capacity.store(&mut f);
+        capacity.load(&mut f);
+        self.open_frame(ControlFrameKind::If, &mut f);
         let bucket = schema.reserve_i32_local(&mut f);
         Self::emit_array_index_hash(p.index, capacity, bucket, &mut f);
         let cursor = schema.reserve_gc_local(&mut f).initialize(
@@ -569,6 +646,20 @@ impl FunctionBuilder<'_> {
         cursor.set_null(schema, &mut f);
         previous.set_null(schema, &mut f);
         next.set_null(schema, &mut f);
+        count.load(&mut f);
+        f.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, &mut f);
+        let empty = schema
+            .reserve_gc_local(&mut f)
+            .initialize(schema.empty_array_buckets(&mut f), &mut f);
+        schema.field(ArrayIndexStorageSchema::BUCKETS).write(
+            &p.storage,
+            GcOperand::reference(&empty, schema),
+            schema,
+            &mut f,
+        );
+        empty.clear(&mut f);
+        f.instruction(&Instruction::Else);
         capacity.load(&mut f);
         f.instruction(&Instruction::I32Const(8));
         f.instruction(&Instruction::I32GtU);
@@ -585,6 +676,8 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::I32ShrU);
         capacity.store(&mut f);
         self.emit_array_index_rehash(&p.storage, capacity, &mut f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
         self.emit_branch_to_target(exit, &mut f);
@@ -610,8 +703,13 @@ impl FunctionBuilder<'_> {
         previous.clear(&mut f);
         cursor.clear(&mut f);
         schema.release_i32_local(bucket, &mut f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         schema.release_i32_local(capacity, &mut f);
         buckets.clear(&mut f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        schema.release_i32_local(handled, &mut f);
         p.release(&mut f);
         f.instruction(&Instruction::End);
         Ok(self.finish_function(f))
@@ -660,6 +758,14 @@ impl FunctionBuilder<'_> {
         let cursor = schema
             .reserve_gc_local::<ArrayIndexEntry, Nullable>(f)
             .initialize_null(schema, f);
+        schema.array_storage_mode_is(&storage, ArrayIndexedStorageMode::PackedNumbers, f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_packed_array_keys(&storage, &keys, output, f);
+        f.instruction(&Instruction::Else);
+        schema.array_storage_mode_is(&storage, ArrayIndexedStorageMode::DenseDescriptors, f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_dense_array_keys(&storage, &keys, output, f);
+        f.instruction(&Instruction::Else);
         let exit = self.open_frame(ControlFrameKind::Block, f);
         let repeat = self.open_frame(ControlFrameKind::Loop, f);
         bucket.load(f);
@@ -709,6 +815,10 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         output.load(f);
         count.load(f);
         f.instruction(&Instruction::I32Ne);
@@ -716,7 +826,11 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::Unreachable);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
+        capacity.load(f);
+        self.open_frame(ControlFrameKind::If, f);
         self.emit_array_index_sort(&keys, count, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         let result = schema
             .reserve_gc_local(f)
             .initialize(keys.publish(schema, f), f);

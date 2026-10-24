@@ -12,7 +12,6 @@ use scriptw_intl::{INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION, INTL_SERVICE_SELECTION
 use sha2::{Digest, Sha256};
 use wasmparser::{
     DataKind, ExternalKind, Operator, Parser, Payload, TypeRef, ValidPayload, Validator,
-    WasmFeatures,
 };
 
 use super::source_compilation::SourceCompilationProfileAdmission;
@@ -306,14 +305,7 @@ fn decode_layout(
     jobs: std::num::NonZeroUsize,
     body_validation: super::validation::FunctionBodyValidation,
 ) -> Option<RuntimeLayout> {
-    let features = WasmFeatures::default()
-        | WasmFeatures::THREADS
-        | WasmFeatures::MULTI_MEMORY
-        | WasmFeatures::REFERENCE_TYPES
-        | WasmFeatures::FUNCTION_REFERENCES
-        | WasmFeatures::GC
-        | WasmFeatures::EXCEPTIONS
-        | WasmFeatures::TAIL_CALL;
+    let features = super::validation::required_features();
     let mut validator = Validator::new_with_features(features);
     let mut parser = Parser::new(0);
     parser.set_features(features);

@@ -89,13 +89,7 @@ impl FunctionBuilder<'_> {
     ) -> Result<GcLocal<PropertyEntry, Nullable>, EmitError> {
         let schema = self.runtime_schema();
         let key = query.key();
-        let storage = schema.reserve_gc_local(function).initialize(
-            schema
-                .field(OrdinaryObjectSchema::PROPERTIES)
-                .read(object, schema, function)
-                .reference(),
-            function,
-        );
+        let storage = self.emit_dictionary_property_storage(object, function);
         let entries = schema.reserve_gc_local(function).initialize(
             schema
                 .field(OrdinaryPropertyStorageSchema::ENTRIES)

@@ -10,6 +10,7 @@ pub(crate) const CONFIGURATION_SCHEMA: u32 = 4;
 pub(crate) enum WasmNativeCompilationMode {
     Fast,
     SizeOptimized,
+    Speed,
 }
 
 impl WasmNativeCompilationMode {
@@ -17,6 +18,7 @@ impl WasmNativeCompilationMode {
         match self {
             Self::Fast => "fast",
             Self::SizeOptimized => "size-optimized",
+            Self::Speed => "speed",
         }
     }
 }
@@ -35,7 +37,7 @@ const WASM_LINEAR_MEMORY_GUARD_BYTES: u64 = 32 * 1024 * 1024;
 // records, rather than repeatedly copying their live graph while growing from
 // zero. Pages remain committed on demand; the existing Store limit and the
 // collector's normal growth and forced-collection paths still apply.
-const WASM_GC_HEAP_INITIAL_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const WASM_GC_HEAP_INITIAL_BYTES: usize = 16 * 1024 * 1024;
 const _: () = assert!(WASM_GC_HEAP_INITIAL_BYTES < WASM_STORE_MEMORY_CAP_BYTES);
 
 pub(crate) fn base_config(
@@ -47,6 +49,7 @@ pub(crate) fn base_config(
     config.cranelift_opt_level(match mode {
         WasmNativeCompilationMode::Fast => OptLevel::None,
         WasmNativeCompilationMode::SizeOptimized => OptLevel::SpeedAndSize,
+        WasmNativeCompilationMode::Speed => OptLevel::Speed,
     });
     config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);
     config.gc_heap_initial_size(WASM_GC_HEAP_INITIAL_BYTES as u64);

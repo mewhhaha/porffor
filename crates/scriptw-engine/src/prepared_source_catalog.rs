@@ -36,12 +36,31 @@ pub(super) fn prepare_source_catalog(
         let ir = ir.with_language_features(options.language_features);
         if let PreparedModuleCompilation::Embedded { graph, .. } = modules {
             let sites = session.prepared_script_import_sites();
-            if sites.is_empty()
-                || !graph.modules[graph.entry as usize].include_prepared_script_import_sites(&sites)
-            {
+            let sites_changed = !sites.is_empty()
+                && graph.modules[graph.entry as usize].include_prepared_script_import_sites(&sites);
+            let foreign_requests = session
+                .realm_module_requests()
+                .into_iter()
+                .filter(|request| {
+                    options
+                        .foreign_modules
+                        .module(request.specifier())
+                        .is_some()
+                        && !graph.realm_requests.contains_key(request)
+                })
+                .collect::<Vec<_>>();
+            if !sites_changed && foreign_requests.is_empty() {
                 // Only declared host resolutions may satisfy these new sites.
                 // Annotating retained syntax grants no ambient load authority.
                 return Ok(ir);
+            }
+            if !options.foreign_modules.is_empty() {
+                module_loader::include_foreign_module_registry_requests(
+                    graph,
+                    &options.foreign_modules,
+                    &foreign_requests,
+                )
+                .map_err(|error| EngineError::new(error.to_string()))?;
             }
             continue;
         }

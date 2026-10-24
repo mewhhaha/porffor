@@ -22,6 +22,10 @@ use scriptw_runtime::{
 mod module_paths;
 use module_paths::normalize;
 
+#[cfg(test)]
+#[path = "module_loader_foreign_tests.rs"]
+mod foreign_tests;
+
 /// Root source belongs to the declared entry. Agent source has no graph locator
 /// and can use only explicit Unlocated edges from that same immutable graph.
 #[derive(Clone, Copy)]
@@ -234,6 +238,11 @@ fn load_embedded_module_graph(
 /// What a successful load produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadedModuleKind {
+    /// Explicit synchronous host capabilities, never discovered from files.
+    Foreign {
+        module: scriptw_ir::foreign::ForeignModuleDeclaration,
+        error_tag: Option<scriptw_ir::foreign::ForeignErrorTag>,
+    },
     /// A genuine opaque host module source, with no ECMAScript source body.
     ModuleSource { source_tag: String },
     /// A Source Text Module Record's source text.
@@ -331,6 +340,16 @@ pub trait HostModuleLoader: Send + Sync {
     /// Returns an error when the module cannot be read.
     fn load(&self, key: &ModuleRecordKey) -> Result<LoadedModule, ModuleLoadError>;
 
+    /// Checks explicit declaration authority when a graph reuses a record or
+    /// accepts a newly loaded one. This performs no loading or ambient lookup.
+    fn validate_resolved_module(
+        &self,
+        _request: &ModuleRequestKeyIr,
+        _source: &ModuleSourceIr,
+    ) -> Result<(), ModuleLoadError> {
+        Ok(())
+    }
+
     /// Normalizes an entry locator the embedder supplied directly, without a
     /// referrer, and mints its stable [`ModuleKey`].
     ///
@@ -342,6 +361,151 @@ pub trait HostModuleLoader: Send + Sync {
     fn canonical_key(&self, key: &str) -> ModuleKey {
         ModuleKey::from_host(key)
     }
+}
+
+/// Resolves explicit foreign capabilities before consulting the fallback host
+/// loader, including a RejectAll loader. No native names are discovered from
+/// a filesystem or an ambient Linker.
+pub struct ForeignModuleLoader {
+    registry: scriptw_ir::foreign::ForeignModuleRegistry,
+    fallback: Box<dyn HostModuleLoader>,
+}
+impl ForeignModuleLoader {
+    pub fn new(
+        registry: scriptw_ir::foreign::ForeignModuleRegistry,
+        fallback: Box<dyn HostModuleLoader>,
+    ) -> Self {
+        Self { registry, fallback }
+    }
+    fn foreign_key(specifier: &str) -> ModuleKey {
+        ModuleKey::from_host(format!("scriptw:foreign/{specifier}"))
+    }
+}
+impl HostModuleLoader for ForeignModuleLoader {
+    fn resolve(
+        &self,
+        referrer: Option<&ModuleKey>,
+        request: &ModuleRequestKeyIr,
+    ) -> Result<ModuleKey, ModuleLoadError> {
+        if self.registry.module(request.specifier()).is_some() {
+            if let Some(attribute) = request.attributes().first() {
+                return Err(ModuleLoadError::UnsupportedAttribute {
+                    key: attribute.key.clone(),
+                    value: attribute.value.clone(),
+                });
+            }
+            return Ok(Self::foreign_key(request.specifier()));
+        }
+        self.fallback.resolve(referrer, request)
+    }
+    fn load(&self, record: &ModuleRecordKey) -> Result<LoadedModule, ModuleLoadError> {
+        if let Some(module) = self
+            .registry
+            .modules()
+            .iter()
+            .find(|module| Self::foreign_key(module.specifier()) == *record.locator())
+        {
+            if record.kind() != ModuleKindIr::SourceText {
+                return Err(ModuleLoadError::Denied {
+                    specifier: module.specifier().to_owned(),
+                    reason:
+                        "foreign modules accept evaluation/defer imports without attributes only"
+                            .to_owned(),
+                });
+            }
+            return Ok(LoadedModule {
+                key: record.locator().clone(),
+                meta_url: format!("scriptw:foreign/{}", module.specifier()),
+                kind: LoadedModuleKind::Foreign {
+                    module: module.clone(),
+                    error_tag: self.registry.error_tag().copied(),
+                },
+            });
+        }
+        self.fallback.load(record)
+    }
+    fn canonical_key(&self, key: &str) -> ModuleKey {
+        self.fallback.canonical_key(key)
+    }
+    fn validate_resolved_module(
+        &self,
+        request: &ModuleRequestKeyIr,
+        source: &ModuleSourceIr,
+    ) -> Result<(), ModuleLoadError> {
+        if self.registry.module(request.specifier()).is_some() {
+            validate_foreign_module_source(&self.registry, request, source)
+        } else {
+            self.fallback.validate_resolved_module(request, source)
+        }
+    }
+}
+
+/// Adds declared native targets to a complete embedded catalog without granting
+/// filesystem authority. Conflicting explicit host resolutions are rejected.
+pub(crate) fn include_foreign_module_registry(
+    graph: &mut ModuleGraphSources,
+    registry: &scriptw_ir::foreign::ForeignModuleRegistry,
+) -> Result<(), ModuleLoadError> {
+    include_foreign_module_registry_requests(graph, registry, &[])
+}
+
+/// The same closed catalog owner also admits prepared Realm requests. Keep
+/// their loading and the final capability/conflict check in one operation.
+pub(crate) fn include_foreign_module_registry_requests(
+    graph: &mut ModuleGraphSources,
+    registry: &scriptw_ir::foreign::ForeignModuleRegistry,
+    requests_to_add: &[ModuleRequestKeyIr],
+) -> Result<(), ModuleLoadError> {
+    if registry.is_empty() {
+        return Ok(());
+    }
+    validate_foreign_module_resolutions(graph, registry)?;
+    // A complete catalog owns source records reached through computed import
+    // resolution rows too. Literal-only discovery from entry cannot open their
+    // declared native dependencies. Inspect every already-owned record while
+    // keeping the fallback loader incapable of any ambient IO.
+    let roots = (0..graph.modules.len()).collect();
+    let loader = ForeignModuleLoader::new(registry.clone(), Box::new(RejectAllModuleLoader));
+    extend_module_graph_requests_from_roots(graph, requests_to_add, &loader, roots)?;
+    // Canonical host keys can collide even before a request has a resolution.
+    // An existing source record must not silently replace the registered
+    // capability when the loading driver reuses that key.
+    validate_foreign_module_resolutions(graph, registry)
+}
+
+fn validate_foreign_module_resolutions(
+    graph: &ModuleGraphSources,
+    registry: &scriptw_ir::foreign::ForeignModuleRegistry,
+) -> Result<(), ModuleLoadError> {
+    for (_, request, target) in &graph.resolutions {
+        validate_foreign_module_source(registry, request, &graph.modules[*target as usize])?;
+    }
+    for (request, resolution) in &graph.realm_requests {
+        if let scriptw_ir::RealmModuleResolutionIr::Loaded(target) = resolution {
+            validate_foreign_module_source(registry, request, &graph.modules[*target as usize])?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_foreign_module_source(
+    registry: &scriptw_ir::foreign::ForeignModuleRegistry,
+    request: &ModuleRequestKeyIr,
+    source: &ModuleSourceIr,
+) -> Result<(), ModuleLoadError> {
+    if let Some(module) = registry.module(request.specifier()) {
+        if source.foreign_modules().is_none_or(|foreign| {
+            foreign.module(module.specifier()) != Some(module)
+                || foreign.error_tag() != registry.error_tag()
+        }) {
+            return Err(ModuleLoadError::Denied {
+                specifier: module.specifier().to_owned(),
+                reason: "declared foreign module conflicts with the resolved module record"
+                    .to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// A host loader that proves an execution cannot consult module state.
@@ -652,6 +816,16 @@ pub(crate) fn extend_module_graph_realm_requests(
     requests_to_add: &[ModuleRequestKeyIr],
     loader: &dyn HostModuleLoader,
 ) -> Result<(), ModuleLoadError> {
+    let roots = VecDeque::from([graph.entry as usize]);
+    extend_module_graph_requests_from_roots(graph, requests_to_add, loader, roots)
+}
+
+fn extend_module_graph_requests_from_roots(
+    graph: &mut ModuleGraphSources,
+    requests_to_add: &[ModuleRequestKeyIr],
+    loader: &dyn HostModuleLoader,
+    mut pending: VecDeque<usize>,
+) -> Result<(), ModuleLoadError> {
     let entry = graph.entry as usize;
     if entry >= graph.modules.len() {
         return Err(ModuleLoadError::Denied {
@@ -674,7 +848,6 @@ pub(crate) fn extend_module_graph_realm_requests(
             indices.insert(module.record_key(), index as u32);
         }
     }
-    let mut pending = VecDeque::from([entry]);
     let mut expanded = BTreeSet::new();
 
     while let Some(cursor) = pending.pop_front() {
@@ -739,6 +912,7 @@ pub(crate) fn extend_module_graph_realm_requests(
             let target_record =
                 ModuleRecordKey::new(target_key.clone(), ModuleKindIr::requested(&request));
             if let Some(index) = indices.get(&target_record).copied() {
+                loader.validate_resolved_module(&request, &modules[index as usize])?;
                 if !modules[index as usize].kind().matches_request(&request) {
                     if origin.is_none() {
                         realm_requests.insert(
@@ -775,6 +949,7 @@ pub(crate) fn extend_module_graph_realm_requests(
                 }
             };
             let source = loaded_module_source(loaded);
+            loader.validate_resolved_module(&request, &source)?;
             let loaded_kind = source.kind();
             if !loaded_kind.matches_request(&request) {
                 if origin.is_none() {
@@ -831,6 +1006,9 @@ pub(crate) fn extend_module_graph_realm_requests(
 
 fn loaded_module_source(loaded: LoadedModule) -> ModuleSourceIr {
     match loaded.kind {
+        LoadedModuleKind::Foreign { module, error_tag } => {
+            ModuleSourceIr::foreign(loaded.key, module, error_tag)
+        }
         LoadedModuleKind::Source(text) => ModuleSourceIr::new(loaded.key, text, loaded.meta_url),
         LoadedModuleKind::ModuleSource { source_tag } => {
             ModuleSourceIr::module_source(loaded.key, source_tag, loaded.meta_url)

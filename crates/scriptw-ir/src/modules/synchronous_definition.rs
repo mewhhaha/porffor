@@ -6,6 +6,8 @@ use crate::*;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ModuleExecutionAnalysis {
+    pub(crate) foreign_modules: crate::foreign::ForeignModuleRegistry,
+    pub(crate) foreign_calls: BTreeMap<usize, crate::foreign::ForeignFunctionId>,
     private_dispatchers: BTreeMap<FunctionId, String>,
     original_callable_sources: BTreeMap<(usize, usize), String>,
     pub(crate) graphs: BTreeMap<usize, ModuleExecutionGraphIr>,
@@ -49,6 +51,7 @@ impl ModuleExecutionAnalysis {
 
 #[derive(Debug)]
 pub(super) struct ModuleUnitDefinition {
+    pub(super) foreign: Option<crate::foreign::ForeignModuleDeclaration>,
     pub(super) module: u32,
     pub(super) imports: Vec<ResolvedBindingIr>,
     pub(super) namespaces: Vec<(ModuleNamespaceModeIr, Vec<ResolvedBindingIr>)>,
@@ -62,6 +65,7 @@ pub(super) struct ModuleUnitDefinition {
 
 #[derive(Debug)]
 pub(super) struct ModuleExecutionDefinitions {
+    pub(super) foreign_modules: crate::foreign::ForeignModuleRegistry,
     pub(super) realm_requests: BTreeMap<ModuleRequestKeyIr, RealmModuleResolutionIr>,
     pub(super) graph_span: (boa_ast::Position, boa_ast::Position),
     pub(super) units: Vec<ModuleUnitDefinition>,
@@ -81,6 +85,7 @@ impl ModuleExecutionDefinitions {
         analysis: &mut Analysis<'a>,
         interner: &Interner,
     ) {
+        analysis.module_execution.foreign_modules = self.foreign_modules.clone();
         let root_statements = script.statements().statements();
         let (initializer_index, initializer_expression, initializer, graph_index, graph) =
             root_statements
@@ -182,6 +187,79 @@ impl ModuleExecutionDefinitions {
             .collect::<Vec<_>>();
         let mut cells = BTreeMap::new();
         for ((unit, owner), function) in self.units.iter().zip(&owners).zip(&functions) {
+            if let Some(foreign) = &unit.foreign {
+                // Only this synthetic module's retained owner can authorize
+                // its generated functions. User functions with identical names
+                // or bodies never enter this provenance table.
+                let wrappers = owner
+                    .body()
+                    .statements()
+                    .iter()
+                    .filter_map(|statement| {
+                        let StatementListItem::Declaration(declaration) = statement else {
+                            return None;
+                        };
+                        let Declaration::Lexical(declaration) = declaration.as_ref() else {
+                            return None;
+                        };
+                        let [variable] = declaration.variable_list().as_ref() else {
+                            return None;
+                        };
+                        let Some(Expression::FunctionExpression(wrapper)) =
+                            variable.init().map(Expression::flatten)
+                        else {
+                            return None;
+                        };
+                        Some(wrapper)
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    wrappers.len(),
+                    foreign.functions().len(),
+                    "validated native module has exactly its declared wrappers"
+                );
+                for (wrapper, declaration) in wrappers.into_iter().zip(foreign.functions()) {
+                    let [StatementListItem::Statement(statement)] = wrapper.body().statements()
+                    else {
+                        panic!("foreign wrapper has one return");
+                    };
+                    let Statement::Return(statement) = statement.as_ref() else {
+                        panic!("foreign wrapper returns its declared operation");
+                    };
+                    let operand = statement.target().expect("foreign argument scaffold");
+                    let Expression::ArrayLiteral(arguments) = operand else {
+                        panic!("foreign argument scaffold is a fixed list");
+                    };
+                    assert_eq!(arguments.as_ref().len(), declaration.parameters().len());
+                    let id = self
+                        .foreign_modules
+                        .function_id(foreign.specifier(), declaration.js_export())
+                        .expect("linked declaration owns its function ID");
+                    analysis
+                        .module_execution
+                        .foreign_calls
+                        .insert(std::ptr::from_ref(operand) as usize, id);
+                    let function = &analysis.function_expr_ids[&function_expression_key(wrapper)];
+                    let owner_plan = &analysis.owner_plans[function];
+                    assert_eq!(owner_plan.flavor, FunctionFlavor::Ordinary);
+                    assert_eq!(owner_plan.execution_kind, FunctionExecutionKind::Ordinary);
+                    let plan = analysis
+                        .function_plans
+                        .get_mut(function)
+                        .expect("foreign function was analyzed");
+                    // Binding, this/arguments and eval ownership were analyzed
+                    // as an ordinary strict function from the outset. Only
+                    // trusted native declarations remove [[Construct]]; an
+                    // ordinary user function retains its source protocol.
+                    assert_eq!(plan.protocol, FunctionProtocolIr::OrdinaryCallAndConstruct);
+                    assert!(plan.strict);
+                    plan.protocol = FunctionProtocolIr::OrdinaryCallOnly;
+                    plan.name = declaration.js_export().to_owned();
+                    plan.to_string_representation = CallableToStringRepresentation::NativeNamed(
+                        declaration.js_export().to_owned(),
+                    );
+                }
+            }
             analysis
                 .function_plans
                 .get_mut(function)

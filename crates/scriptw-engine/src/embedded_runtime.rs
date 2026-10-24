@@ -12,7 +12,9 @@ mod digests;
 mod images;
 mod load;
 mod manifest;
+mod matched_capacity;
 use crate::wasmtime_config::{WasmNativeCompilationMode, CONFIGURATION_SCHEMA};
+pub(super) use matched_capacity::load as load_capacity_matched_native;
 use scriptw_aot_wasm::{
     RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactInputs, RuntimeSourceCompilationProfile,
 };
@@ -118,7 +120,9 @@ pub(super) fn load_native(
     engine: &Engine,
     runtime: &RuntimeArtifact,
     mode: WasmNativeCompilationMode,
+    timings: &mut crate::WasmRuntimeEmbeddedImageTimings,
 ) -> Option<Module> {
+    let admission_started = std::time::Instant::now();
     // Unadmitted modes and different raw R keys do not touch the large
     // embedded images. This cheap metadata check can only reject a candidate;
     // the private authority still validates all manifest fields and digests.
@@ -135,10 +139,11 @@ pub(super) fn load_native(
         RuntimeSourceCompilationProfile::NativeHost => &NATIVE_HOST,
         RuntimeSourceCompilationProfile::Portable => &PORTABLE,
     };
-    bundle
+    let admitted = bundle
         .get_or_init(|| EmbeddedNativeRuntime::admit(images))
-        .as_ref()?
-        .load(engine, runtime, mode)
+        .as_ref()?;
+    timings.admission = admission_started.elapsed();
+    admitted.load(engine, runtime, mode, timings)
 }
 
 #[cfg(test)]

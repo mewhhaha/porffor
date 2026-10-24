@@ -665,6 +665,7 @@ impl CompilerOwnedPool {
             "error",
             "suppressed",
             "cause",
+            "code",
             "errors",
             "global",
             FUNCTION_NAME,
@@ -3016,6 +3017,12 @@ impl StringPool {
 
     fn collect_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
+            ExprIr::ForeignCall(call) => {
+                self.uses_heap = true;
+                for operand in call.operands() {
+                    self.collect_expr(operand);
+                }
+            }
             ExprIr::BytesModuleValue(plan) => {
                 self.uses_heap = true;
                 if !self.module_bytes.contains_key(&plan.module()) {

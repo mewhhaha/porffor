@@ -1,74 +1,59 @@
-//! CreateListFromArrayLike can retain an immutable own data value directly.
-//! Numeric Array indices live exclusively in the strong-GC sparse store. A
-//! missing entry or accessor must still use ordinary Get with the Array receiver.
+//! Allocation-free own indexed data value probe. `found` is separate from the
+//! value: a present undefined is never confused with a hole or an accessor.
 use super::*;
-use crate::gc_types::{ArrayObject, GcNullability};
+use crate::gc_types::{ArrayIndexedStorageMode, ArrayObject};
 
 impl FunctionBuilder<'_> {
-    pub(crate) fn emit_array_own_indexed_data_reference(
+    pub(crate) fn emit_array_own_indexed_value(
         &mut self,
-        target: &ValueLocals,
-        index: I32Local,
-        function: &mut Function,
-    ) -> GcLocal<StoredValue, Nullable> {
-        let schema = self.runtime_schema();
-        let output = schema
-            .reserve_gc_local(function)
-            .initialize_null(schema, function);
-        target.reference().load(function);
-        function.instruction(&Instruction::RefTestNonNull(
-            schema
-                .reference_type::<ArrayObject>(GcNullability::NonNullable)
-                .heap_type,
-        ));
-        self.open_frame(ControlFrameKind::If, function);
-        let array = schema.reserve_gc_local(function).initialize(
-            target.cast_reference::<ArrayObject>(schema, function),
-            function,
+        array: &GcLocal<ArrayObject>,
+        index: I64Local,
+        output: &ValueLocals,
+        found: I32Local,
+        f: &mut Function,
+    ) {
+        let s = self.runtime_schema();
+        found.set_constant(0, f);
+        let storage = self.emit_array_index_storage(array, f);
+        s.array_storage_mode_is(&storage, ArrayIndexedStorageMode::PackedNumbers, f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_packed_array_value(&storage, index, output, found, f);
+        f.instruction(&Instruction::Else);
+        let descriptor = self.emit_array_indexed_descriptor(array, index, f);
+        descriptor.load(s, f).is_null(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        let present = s
+            .reserve_gc_local(f)
+            .initialize(descriptor.load(s, f).require_non_null(f), f);
+        let flags = s.reserve_i64_local(f);
+        s.field(PropertyDescriptorSchema::FLAGS)
+            .read(&present, s, f)
+            .store_i64(flags, f);
+        flags.load(f);
+        f.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        f.instruction(&Instruction::I64And);
+        f.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        let stored = s.reserve_gc_local(f).initialize(
+            s.field(PropertyDescriptorSchema::VALUE)
+                .read(&present, s, f)
+                .reference(),
+            f,
         );
-        let index64 = schema.reserve_i64_local(function);
-        index.load(function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        index64.store(function);
-        let descriptor = self.emit_array_indexed_descriptor(&array, index64, function);
-        descriptor.load(schema, function).is_null(function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        let present = schema.reserve_gc_local(function).initialize(
-            descriptor.load(schema, function).require_non_null(function),
-            function,
-        );
-        let flags = schema.reserve_i64_local(function);
-        schema
-            .struct_type::<PropertyDescriptor>()
-            .field(PropertyDescriptorSchema::FLAGS)
-            .read(&present, schema, function)
-            .store_i64(flags, function);
-        flags.load(function);
-        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        output.replace(
-            schema
-                .struct_type::<PropertyDescriptor>()
-                .field(PropertyDescriptorSchema::VALUE)
-                .read(&present, schema, function)
-                .reference()
-                .nullable(),
-            function,
-        );
+        s.struct_type::<StoredValue>()
+            .read_into(&stored, output, s, f);
+        found.set_constant(1, f);
+        stored.clear(f);
         self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        schema.release_i64_local(flags, function);
-        present.clear(function);
+        f.instruction(&Instruction::End);
+        s.release_i64_local(flags, f);
+        present.clear(f);
         self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        descriptor.clear(function);
-        schema.release_i64_local(index64, function);
-        array.clear(function);
+        f.instruction(&Instruction::End);
+        descriptor.clear(f);
         self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        output
+        f.instruction(&Instruction::End);
+        storage.clear(f);
     }
 }

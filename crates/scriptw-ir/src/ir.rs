@@ -2262,6 +2262,8 @@ impl ModuleNamespaceModeIr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprIr {
+    /// A compiler-owned first-class wrapper's declared native scalar call.
+    ForeignCall(Box<crate::foreign::ForeignCallIr>),
     Undefined,
     ArrayHole,
     Null,
@@ -4439,6 +4441,8 @@ impl<'a> IntoIterator for &'a GlobalBindingPlan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptIr {
+    /// Exact linked capabilities; unused compilation declarations are omitted.
+    pub foreign_modules: crate::foreign::ForeignModuleRegistry,
     /// Exact compile-time language semantics retained by this P and its prepared code.
     pub language_features: crate::LanguageFeaturePolicy,
     pub template_source: Option<crate::TemplateSourceIr>,
@@ -5873,6 +5877,12 @@ impl IrSummaryCounts {
             self.function_values += 1;
         }
         match &expr.expr {
+            ExprIr::ForeignCall(call) => {
+                self.calls += 1;
+                for operand in call.operands() {
+                    self.visit_expr(operand);
+                }
+            }
             ExprIr::EnvironmentIdentifier(identifier) => {
                 self.track_storage(&identifier.name);
                 match &identifier.operation {

@@ -10,3 +10,4 @@ crates/scriptw-test262/assets/local-harness/spec-exec.js whitespace=-blank-at-eo
 
 # Preserve hashed patch bytes; empty diff context lines contain one space.
 test262/errata/proposals/*.patch -text whitespace=-blank-at-eol
+docs/rust-rewrite/foreign-modules-20261024.patch -text whitespace=-blank-at-eol

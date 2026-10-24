@@ -15,13 +15,15 @@ impl EmbeddedNativeRuntime {
         engine: &Engine,
         runtime: &RuntimeArtifact,
         mode: WasmNativeCompilationMode,
+        timings: &mut crate::WasmRuntimeEmbeddedImageTimings,
     ) -> Option<Module> {
         if !self.matches(runtime, mode) {
             return None;
         }
         // The weak lease shares only concurrent loads, never a mutable Store
         // or a Module. Its private constructor hashes the exact decoded Box;
-        // the independent v4 manifest must admit that digest before deserialize.
+        // the independent v5 manifest must admit that digest before deserialize.
+        let lease_started = std::time::Instant::now();
         let lease = match self.images.profile {
             RuntimeSourceCompilationProfile::NativeHost => None,
             RuntimeSourceCompilationProfile::Portable => {
@@ -32,6 +34,9 @@ impl EmbeddedNativeRuntime {
                 Some(image)
             }
         };
+        if self.images.profile == RuntimeSourceCompilationProfile::Portable {
+            timings.portable_lease_decode_and_digest = lease_started.elapsed();
+        }
         let bytes = match &lease {
             Some(image) => image.bytes(),
             None => scriptw_runtime_image::native(),
@@ -47,11 +52,12 @@ impl EmbeddedNativeRuntime {
         // Compatibility is checked by the actual destination Engine; no build
         // Engine or Module is cached here. Dropping the lease after this call
         // cannot invalidate the Module's separate Arc<CodeMemory> mapping.
-        let started = std::env::var_os("SCRIPTW_WASM_TRACE").map(|_| std::time::Instant::now());
+        let started = std::time::Instant::now();
         let native_length = bytes.len();
         let loaded = unsafe { Module::deserialize(engine, bytes) };
+        timings.deserialize = started.elapsed();
         drop(lease);
-        if let Some(started) = started {
+        if std::env::var_os("SCRIPTW_WASM_TRACE").is_some() {
             eprintln!(
                 "scriptw wasm trace: runtime-native-bundle deserialization: {:?}",
                 started.elapsed()

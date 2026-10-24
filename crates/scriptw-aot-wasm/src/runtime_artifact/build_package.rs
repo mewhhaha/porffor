@@ -41,6 +41,50 @@ impl RuntimeBuildArtifact {
     }
 }
 
+/// Persist an already emitted portable R. This does not consult a cache or
+/// emit a replacement. The selected Intl data and every Wasm body/layout are
+/// checked by the same safe admission as a disk package.
+pub fn encode_portable_runtime_package(
+    runtime: &RuntimeArtifact,
+    selection: &scriptw_intl::IntlDataSelection,
+    compiler_source: &[u8; DIGEST_BYTES],
+) -> Result<Vec<u8>, EmitError> {
+    if runtime.source_compilation_profile() != RuntimeSourceCompilationProfile::Portable {
+        return Err(EmitError::unsupported(
+            "portable package requires a portable runtime",
+        ));
+    }
+    let identity =
+        cache::RuntimeIdentity::admit(selection, RuntimeSourceCompilationProfile::Portable)?;
+    let package = encode(runtime, &identity, compiler_source);
+    let admitted = admit_portable_runtime_package(&package, selection, compiler_source)?;
+    if admitted.key() != runtime.key() || admitted.layout() != runtime.layout() {
+        return Err(EmitError::unsupported(
+            "portable package changed the runtime identity or layout",
+        ));
+    }
+    Ok(package)
+}
+
+/// Strict safe raw R admission. Invalid, mismatched or missing bytes are an
+/// error; this API has no emitter/cache fallback and grants no native compiler
+/// or machine-code deserialization authority.
+pub fn admit_portable_runtime_package(
+    package: &[u8],
+    selection: &scriptw_intl::IntlDataSelection,
+    compiler_source: &[u8; DIGEST_BYTES],
+) -> Result<Arc<RuntimeArtifact>, EmitError> {
+    let identity =
+        cache::RuntimeIdentity::admit(selection, RuntimeSourceCompilationProfile::Portable)?;
+    decode(package, &identity, compiler_source)
+        .map(Arc::new)
+        .ok_or_else(|| {
+            EmitError::unsupported(
+                "portable runtime package failed source, Intl, checksum, Wasm or layout admission",
+            )
+        })
+}
+
 /// Emit and round-trip one raw R for a build producer before it precompiles
 /// these exact Wasm bytes. The normal executable-bound cache is not consulted.
 pub fn build_runtime_artifact(
@@ -65,9 +109,11 @@ pub fn build_runtime_artifact_with_source_compilation_profile(
     let runtime = emit_runtime_artifact(selection, source_compilation_profile)?;
     let package = encode(&runtime, &identity, compiler_source);
     let admitted = decode(&package, &identity, compiler_source).ok_or_else(|| {
-        EmitError::unsupported(
-            "compiler invariant: emitted build runtime failed its canonical raw admission",
-        )
+        let detail = super::validation::explain_wasm_validation(runtime.bytes()).err()
+            .unwrap_or_else(|| "Wasm validates, but canonical package metadata/layout admission rejected it".to_owned());
+        EmitError::unsupported(format!(
+            "compiler invariant: emitted build runtime {source_compilation_profile:?} failed its canonical raw admission: {detail}"
+        ))
     })?;
     if admitted.key() != runtime.key() || admitted.layout() != runtime.layout() {
         return Err(EmitError::unsupported(

@@ -11,7 +11,9 @@ import subprocess
 import sys
 import tomllib
 
-from benchmark_metrics import SCHEMA, compare, digest, load_report, measure_process, render, summarize
+from benchmark_metrics import (POLICY_SCHEMA, SCHEMA, boundary_scoreboard, compare, digest, load_report,
+                               measure_process, render, render_boundary_scoreboard, summarize,
+                               validate_native_policy, validate_workload_metadata)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FIXTURES = ROOT / 'crates/scriptw-cli/tests/fixtures/v8_baseline'
@@ -44,12 +46,13 @@ def machine():
                 effective_cpu_quota=min(cpu_limits) if cpu_limits else None)
 
 
-def workload_plan(root, selected):
+def workload_plan(root, selected, partition='all'):
     plan = json.loads((root / 'manifest.json').read_text())
     if plan['schema'] != 'scriptw-v8-workloads-v1':
         raise ValueError('unsupported workload manifest')
     names = []
     for case in [plan['startup'], *plan['execution']]:
+        validate_workload_metadata(case)
         name = case['file']
         if Path(name).name != name or not name.endswith('.js') or name in names:
             raise ValueError('workloads must have distinct .js basenames')
@@ -57,10 +60,14 @@ def workload_plan(root, selected):
         path = (root / name).resolve()
         if not path.is_relative_to(root) or not path.is_file() or not isinstance(case['stdout'], str):
             raise ValueError('invalid workload source or expected stdout')
+    if partition not in ('all', 'tuning', 'holdout'):
+        raise ValueError('partition must be all, tuning or holdout')
     if selected:
         if len(set(selected)) != len(selected) or set(selected) - {c['file'] for c in plan['execution']}:
             raise ValueError('--case must name distinct execution entries in the manifest')
         plan['execution'] = [c for c in plan['execution'] if c['file'] in selected]
+    if partition != 'all':
+        plan['execution'] = [c for c in plan['execution'] if c.get('partition', 'unassigned') == partition]
     if not plan['execution']:
         raise ValueError('execution inventory must not be empty')
     return plan
@@ -96,7 +103,29 @@ def runtime_order(index, first):
     return runtimes
 
 
+def native_policy_plan(native_mode=None, gc_initial_mib=None, regalloc=None):
+    if native_mode is None and gc_initial_mib is None and regalloc is None:
+        return None
+    policy = dict(native_mode=native_mode or 'fast', gc_initial_mib=16 if gc_initial_mib is None else gc_initial_mib,
+                  register_allocation=regalloc or 'single-pass')
+    validate_native_policy(policy)
+    return policy
+
+
 def main():
+    if sys.argv[1:2] == ['scoreboard']:
+        parser = argparse.ArgumentParser(description='Derive separate performance boundaries from an admitted retained v2 report.')
+        parser.add_argument('report', type=Path)
+        parser.add_argument('--output', type=Path, help='retain derived JSON without overwriting existing evidence')
+        args = parser.parse_args(sys.argv[2:])
+        report = load_report(args.report)
+        board = boundary_scoreboard(report)
+        board['source_report'] = dict(path=str(args.report.resolve()), sha256=digest(args.report))
+        if args.output:
+            with args.output.open('x') as stream:
+                stream.write(json.dumps(board, indent=2) + '\n')
+        print(render_boundary_scoreboard(board))
+        return
     if sys.argv[1:2] == ['compare']:
         parser = argparse.ArgumentParser(description='Verify retained artifacts and compare matching v2 benchmark reports.')
         parser.add_argument('baseline', type=Path)
@@ -115,22 +144,33 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--fixtures', type=Path, default=DEFAULT_FIXTURES)
     parser.add_argument('--case', action='append', dest='cases', help='select an execution manifest entry; repeatable')
+    parser.add_argument('--partition', choices=('all', 'tuning', 'holdout'), default='all',
+                        help='select a declared corpus partition; holdout scores remain separate from tuning')
     parser.add_argument('--skip-startup', action='store_true', help='measure only selected execution workloads')
     parser.add_argument('--execution-cache', type=Path, help='reuse checked execution caches across runs; startup caches remain isolated')
     parser.add_argument('--first-runtime', choices=('wasmtime', 'v8'), default='wasmtime',
                         help='reverse paired run order; observations retain the actual order')
     parser.add_argument('--baseline', type=Path, help='compatible complete v2 report to compare')
+    parser.add_argument('--native-mode', choices=('fast', 'size-optimized', 'speed'),
+                        help='explicit runner policy cohort; requires --skip-startup')
+    parser.add_argument('--gc-initial-mib', type=int, choices=(16, 32, 64, 128),
+                        help='explicit initial GC capacity cohort; requires --skip-startup')
+    parser.add_argument('--regalloc', choices=('single-pass', 'backtracking'),
+                        help='explicit native register allocation cohort; requires --skip-startup')
     parser.add_argument('--samples', type=int, default=7, choices=range(3, 101), metavar='3..100')
     parser.add_argument('--warmups', type=int, default=10, choices=range(1, 101), metavar='1..100')
     parser.add_argument('--timeout', type=int, default=900, choices=range(1, 3601), metavar='SECONDS')
     parser.add_argument('--idle-machine', action='store_true', required=True)
     args = parser.parse_args()
+    native_policy = native_policy_plan(args.native_mode, args.gc_initial_mib, args.regalloc)
+    if native_policy is not None and not args.skip_startup:
+        parser.error('explicit native-policy cohorts require --skip-startup; CLI startup uses its ordinary product policy')
     cli, runner = args.scriptw.resolve(), args.runtime_runner.resolve()
     if subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT):
         raise ValueError('commit the coherent source batch before measuring')
     producers = require_producers(args.build_log, cli, runner)
     fixtures = args.fixtures.resolve()
-    plan = workload_plan(fixtures, args.cases)
+    plan = workload_plan(fixtures, args.cases, args.partition)
     baseline = load_report(args.baseline) if args.baseline else None
     env = dict(os.environ)
     if env.get('NODE_OPTIONS'):
@@ -140,7 +180,7 @@ def main():
     spec = machine()
     selected_cpu = min(os.sched_getaffinity(0))
     spec['measurement_affinity'] = [selected_cpu]
-    report = dict(schema=SCHEMA, complete=False,
+    report = dict(schema=POLICY_SCHEMA if native_policy is not None else SCHEMA, complete=False,
                   started_at=datetime.now(timezone.utc).isoformat(), machine=spec,
                   source_commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                   measurement_order=dict(first_runtime=args.first_runtime, alternation='per startup sample and execution case'),
@@ -150,6 +190,7 @@ def main():
                   profile='release; default features; opt-level 3', samples=args.samples,
                   configuration=dict(startup=not args.skip_startup, warmups=args.warmups,
                                      timeout_seconds=args.timeout, native_jobs=1,
+                                     selection_partition=args.partition,
                                      execution_cache=dict(kind='shared', path=str(args.execution_cache.resolve())) if args.execution_cache else dict(kind='fresh-per-report')),
                   process_samples=[], execution={r: dict(cases=[]) for r in ('wasmtime', 'v8')},
                   commands=[], retained_files=[],
@@ -164,7 +205,10 @@ def main():
                               sampler='existing Wasmtime invocation RSS sampling every 10ms plus endpoints; Node memoryUsage endpoints; instrumentation is part of the measured configuration',
                               gc='normal runtime GC and V8 tiering; no forced collections; no unavailable Wasmtime allocation/live-heap/GC-pause claims',
                               wasmtime_compilation='product default Fast: Cranelift OptLevel::None',
-                              limitations='single cloud VM; no OS cache flush, DVFS control, statistical significance or conformance acceptance'))
+                              limitations='single machine; no OS cache flush, DVFS control, statistical significance or conformance acceptance'))
+    if native_policy is not None:
+        report['configuration']['native_policy'] = native_policy
+        report['policy']['wasmtime_compilation'] = 'explicit runner native-policy cohort; actual per-invocation options verified'
     report['harness_sha256'] = {str(path.relative_to(ROOT)): digest(path) for path in
         [Path(__file__).resolve(), ROOT / 'scripts/benchmark_metrics.py', DEFAULT_FIXTURES / 'node-runtime.cjs',
          ROOT / 'crates/scriptw-cli/examples/runtime_baseline.rs']}
@@ -243,6 +287,9 @@ def main():
                 label = 'execution-' + runtime + '-' + case['file']
                 command = ([runner, workload_root, str(args.samples), str(args.warmups), case['file'], output / 'wasm'] if runtime == 'wasmtime' else
                            [args.node, str(DEFAULT_FIXTURES / 'node-runtime.cjs'), workload_root, str(args.samples), str(args.warmups), case['file']])
+                if runtime == 'wasmtime' and native_policy is not None:
+                    command += ['--native-mode', native_policy['native_mode'], '--gc-initial-mib', str(native_policy['gc_initial_mib']),
+                                '--regalloc', native_policy['register_allocation']]
                 execution_cache = args.execution_cache.resolve() if args.execution_cache else output / 'execution-cache'
                 report['execution_cache_directory'] = str(execution_cache)
                 _, text = invoke(label, command, dict(env, SCRIPTW_CACHE_DIR=str(execution_cache)))
@@ -251,6 +298,11 @@ def main():
                     raise ValueError('runtime sample plan differs')
                 if runtime == 'wasmtime' and (result['source_commit'] != report['source_commit'] or result['source_fingerprint'] != identity['source_fingerprint'] or result['executable_sha256'] != report['runtime_runner_sha256']):
                     raise ValueError('runtime runner compiler/executable identity differs')
+                if runtime == 'wasmtime' and native_policy is not None:
+                    if result.get('schema') != 'scriptw-wasmtime-policy-baseline-v1' or result.get('requested_native_policy') != native_policy:
+                        raise ValueError('runtime runner requested policy differs')
+                    if any(row.get('actual_native_policy') != native_policy for row in result['cases'][0]['observations']):
+                        raise ValueError('runtime runner actual policy differs')
                 report['execution'][runtime]['cases'].append(dict(result['cases'][0], command_label=label))
                 save()
         report['summaries'] = summarize(report)

@@ -1,5 +1,4 @@
 //! An iterative UTF-16 parser publishes only completed private records.
-use super::parse_array::JsonArrayDataDescriptors;
 use super::parse_frame_state::JsonParseChildKey;
 use super::*;
 impl FunctionBuilder<'_> {
@@ -35,7 +34,6 @@ impl FunctionBuilder<'_> {
             .initialize_null(s, f);
         let value = s.reserve_value_local(f);
         let container = s.reserve_value_local(f);
-        let array_descriptors = JsonArrayDataDescriptors::new(self, f);
         let done = self.open_frame(ControlFrameKind::Block, f);
         let next = self.open_frame(ControlFrameKind::Loop, f);
         self.emit_json_skip_whitespace(text, index, length, f);
@@ -175,7 +173,7 @@ impl FunctionBuilder<'_> {
         holder.clear(f);
         self.emit_json_parse_state(&frame, JsonParseFrameState::ObjectCommaOrEnd, f);
         f.instruction(&Instruction::Else);
-        self.emit_json_parse_array_append(&frame, &stored, &array_descriptors, ordinal, f)?;
+        self.emit_json_parse_array_append(&frame, &stored, ordinal, f)?;
         capture_source.load(f);
         self.open_frame(ControlFrameKind::If, f);
         self.emit_json_parse_child(
@@ -318,7 +316,6 @@ impl FunctionBuilder<'_> {
         let result = s
             .reserve_gc_local(f)
             .initialize(delivered.load(s, f).require_non_null(f), f);
-        array_descriptors.clear(f);
         container.clear(f);
         value.clear(f);
         no_children.clear(f);

@@ -2,8 +2,7 @@
 //! Spread and suspension-owned accumulation retain their observable owner.
 
 use super::*;
-use crate::gc_types::{GcLocal, PropertyDescriptor, StoredValue};
-use crate::heap::StoredPropertyAttributes;
+use crate::gc_types::GcLocal;
 
 mod compact;
 
@@ -12,7 +11,6 @@ mod compact;
 #[must_use = "a fresh literal stays private until all elements are initialized"]
 struct FreshArrayLiteral {
     array: GcLocal<ArrayObject>,
-    absent_accessor: GcLocal<StoredValue>,
     index: I64Local,
 }
 
@@ -27,21 +25,8 @@ impl FreshArrayLiteral {
         length_local.set_constant(i64::from(length), f);
         let array = builder.emit_array_literal_object(length_local, f)?;
         schema.release_i64_local(length_local, f);
-        let undefined = schema.reserve_value_local(f);
-        undefined.set_undefined(f);
-        let absent_accessor = schema.reserve_gc_local(f).initialize(
-            schema
-                .struct_type::<StoredValue>()
-                .from_value(&undefined, f),
-            f,
-        );
-        undefined.clear(f);
         let index = schema.reserve_i64_local(f);
-        Ok(Self {
-            array,
-            absent_accessor,
-            index,
-        })
+        Ok(Self { array, index })
     }
 
     /// The sole caller derives ordinals from a length-checked fixed literal.
@@ -53,33 +38,8 @@ impl FreshArrayLiteral {
         builder: &mut FunctionBuilder<'_>,
         f: &mut Function,
     ) -> Result<(), EmitError> {
-        let schema = builder.runtime_schema();
-        let stored = schema
-            .reserve_gc_local(f)
-            .initialize(schema.struct_type::<StoredValue>().from_value(value, f), f);
-        let descriptor = schema.reserve_gc_local(f).initialize(
-            schema.struct_type::<PropertyDescriptor>().construct(
-                (
-                    GcOperand::descriptor_word(
-                        StoredPropertyAttributes::Data {
-                            writable: true,
-                            enumerable: true,
-                            configurable: true,
-                        }
-                        .descriptor_word(),
-                    ),
-                    GcOperand::reference(&stored, schema),
-                    GcOperand::reference(&self.absent_accessor, schema),
-                    GcOperand::reference(&self.absent_accessor, schema),
-                ),
-                f,
-            ),
-            f,
-        );
         self.index.set_constant(i64::from(ordinal), f);
-        builder.emit_array_indexed_publish_descriptor(&self.array, self.index, &descriptor, f)?;
-        descriptor.clear(f);
-        stored.clear(f);
+        builder.emit_array_indexed_publish_default_data(&self.array, self.index, value, f)?;
         Ok(())
     }
 
@@ -87,7 +47,6 @@ impl FreshArrayLiteral {
         let schema = builder.runtime_schema();
         output.set_reference(&self.array, schema, f);
         schema.release_i64_local(self.index, f);
-        self.absent_accessor.clear(f);
         self.array.clear(f);
     }
 }

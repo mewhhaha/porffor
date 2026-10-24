@@ -286,6 +286,17 @@ mod runtime_operations;
 mod template_objects;
 pub(crate) use template_objects::TemplateSourceExecution;
 
+/// Injective (function owner, source-site ordinal) identity within one P.
+/// Main owns zero; planned entries own their checked Wasm index plus one.
+#[derive(Clone, Copy)]
+pub(crate) struct ProgramSiteId(u64);
+impl ProgramSiteId {
+    pub(crate) fn emit(self, output: crate::gc_types::I64Local, function: &mut Function) {
+        function.instruction(&Instruction::I64Const(self.0 as i64));
+        output.store(function);
+    }
+}
+
 pub(crate) struct FunctionBuilder<'a> {
     schema: &'a RuntimeSchema,
     owned_body: Option<Function>,
@@ -329,6 +340,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) uses_heap: bool,
     pub(crate) completion_exit: CompletionExit,
     module_state: FunctionModuleState<'a>,
+    next_program_site: u32,
     pub(crate) binding_scopes: Vec<BTreeMap<String, BindingStorage>>,
     pub(crate) hoisted_vars: Vec<String>,
     emitted_local_count: u32,
@@ -1665,13 +1677,14 @@ impl<'a> FunctionBuilder<'a> {
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
         runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
     ) -> Result<Self, EmitError> {
-        let arguments_protocol = FunctionArgumentsProtocol::for_user_function(function)?;
+        let (function, arguments_protocol, owned_env_bindings) =
+            UserFunctionActivationPlan::for_function(function)?.into_parts();
         Ok(Self::new(
             schema,
             &function.body,
             function.template_source,
             function.params.as_slice(),
-            function.owned_env_bindings.as_slice(),
+            owned_env_bindings,
             function.eval_environment.as_ref(),
             function.captured_bindings.as_slice(),
             strings,
@@ -1980,6 +1993,7 @@ impl<'a> FunctionBuilder<'a> {
             uses_heap,
             completion_exit: CompletionExit::for_return_abi(return_abi),
             module_state,
+            next_program_site: 0,
             hoisted_vars,
             binding_scopes: Vec::new(),
             emitted_local_count: 0,
@@ -2017,6 +2031,31 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) const fn is_program_initialize(&self) -> bool {
         matches!(self.module_state, FunctionModuleState::ProgramInitialize)
+    }
+
+    pub(crate) fn next_program_site(&mut self) -> Result<ProgramSiteId, EmitError> {
+        let owner = match &self.module_state {
+            FunctionModuleState::Main(_, _) => 0,
+            FunctionModuleState::PreparedScript(_, entry)
+            | FunctionModuleState::Internal(entry)
+                if self.has_source_execution_environment() =>
+            {
+                entry.source_site_owner()?
+            }
+            FunctionModuleState::PreparedScript(_, _)
+            | FunctionModuleState::Internal(_)
+            | FunctionModuleState::RuntimeOperation(_)
+            | FunctionModuleState::ProgramInitialize => {
+                return Err(EmitError::unsupported(
+                    "program caches require a genuine source site",
+                ))
+            }
+        };
+        let ordinal = self.next_program_site;
+        self.next_program_site = ordinal
+            .checked_add(1)
+            .ok_or_else(|| EmitError::unsupported("source-site ordinal exceeds u32"))?;
+        Ok(ProgramSiteId((u64::from(owner) << 32) | u64::from(ordinal)))
     }
 
     pub(crate) fn has_source_execution_environment(&self) -> bool {

@@ -4,7 +4,7 @@ use super::*;
 use crate::emit::AccessorThrowRouting;
 use crate::gc_types::{
     ArrayObject, BoundFunction, CompletionLocals, FunctionObject, GcLocal, GcNullability,
-    GcOperand, PropertyDescriptor, ProxyObject, StoredValue, ValueArray, ValueLocals,
+    GcOperand, ProxyObject, StoredValue, ValueArray, ValueLocals,
 };
 use crate::objects::ProxyRevocationRoute;
 
@@ -657,14 +657,7 @@ impl FunctionBuilder<'_> {
             function,
         );
         let sparse_index = schema.reserve_i64_local(function);
-        let undefined = schema.reserve_value_local(function);
-        undefined.set_undefined(function);
-        let absent_accessor = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<StoredValue>()
-                .from_value(&undefined, function),
-            function,
-        );
+        let value = schema.reserve_value_local(function);
         function.instruction(&Instruction::I32Const(0));
         index.store(function);
         let done = self.open_frame(ControlFrameKind::Block, function);
@@ -683,30 +676,13 @@ impl FunctionBuilder<'_> {
                 .reference(),
             function,
         );
-        let descriptor = schema.reserve_gc_local(function).initialize(
-            schema.struct_type::<PropertyDescriptor>().construct(
-                (
-                    GcOperand::descriptor_word(
-                        StoredPropertyAttributes::Data {
-                            writable: true,
-                            enumerable: true,
-                            configurable: true,
-                        }
-                        .descriptor_word(),
-                    ),
-                    GcOperand::reference(&stored, schema),
-                    GcOperand::reference(&absent_accessor, schema),
-                    GcOperand::reference(&absent_accessor, schema),
-                ),
-                function,
-            ),
-            function,
-        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &value, schema, function);
         index.load(function);
         function.instruction(&Instruction::I64ExtendI32U);
         sparse_index.store(function);
-        self.emit_array_indexed_publish_descriptor(&array, sparse_index, &descriptor, function)?;
-        descriptor.clear(function);
+        self.emit_array_indexed_publish_default_data(&array, sparse_index, &value, function)?;
         stored.clear(function);
         index.load(function);
         function.instruction(&Instruction::I32Const(1));
@@ -717,8 +693,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        absent_accessor.clear(function);
-        undefined.clear(function);
+        value.clear(function);
         schema.release_i64_local(sparse_index, function);
         schema.release_i32_local(index, function);
         schema.release_i32_local(count, function);

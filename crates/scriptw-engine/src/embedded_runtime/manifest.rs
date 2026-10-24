@@ -2,7 +2,7 @@
 
 use crate::wasmtime_config::WasmNativeCompilationMode;
 const MAGIC: &[u8; 8] = b"SCRWNR01";
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 
 /// Only the immutable Cargo-produced image uses the optimizing allocator.
 /// Its native stack maps are emitted by Wasmtime and remain admission-checked.
@@ -27,6 +27,7 @@ pub(crate) enum ExecutionModes {
     Fast,
     SizeOptimized,
     FastAndSizeOptimized,
+    FastSizeOptimizedAndSpeed,
 }
 
 impl ExecutionModes {
@@ -34,7 +35,15 @@ impl ExecutionModes {
         match self {
             Self::Fast => mode == WasmNativeCompilationMode::Fast,
             Self::SizeOptimized => mode == WasmNativeCompilationMode::SizeOptimized,
-            Self::FastAndSizeOptimized => true,
+            Self::FastAndSizeOptimized => matches!(
+                mode,
+                WasmNativeCompilationMode::Fast | WasmNativeCompilationMode::SizeOptimized
+            ),
+            Self::FastSizeOptimizedAndSpeed => match mode {
+                WasmNativeCompilationMode::Fast
+                | WasmNativeCompilationMode::SizeOptimized
+                | WasmNativeCompilationMode::Speed => true,
+            },
         }
     }
 }
@@ -50,7 +59,7 @@ pub(crate) struct CompilationModes {
 
 pub(crate) const COMPILATION_MODES: CompilationModes = CompilationModes {
     runtime: WasmNativeCompilationMode::SizeOptimized,
-    execution: ExecutionModes::FastAndSizeOptimized,
+    execution: ExecutionModes::FastSizeOptimizedAndSpeed,
     register_allocation: RuntimeRegisterAllocation::Backtracking,
 };
 
@@ -74,11 +83,13 @@ impl Manifest {
         bytes.push(match self.modes.runtime {
             WasmNativeCompilationMode::Fast => 0,
             WasmNativeCompilationMode::SizeOptimized => 1,
+            WasmNativeCompilationMode::Speed => 2,
         });
         bytes.push(match self.modes.execution {
             ExecutionModes::Fast => 0,
             ExecutionModes::SizeOptimized => 1,
             ExecutionModes::FastAndSizeOptimized => 2,
+            ExecutionModes::FastSizeOptimizedAndSpeed => 3,
         });
         bytes.push(match self.modes.register_allocation {
             RuntimeRegisterAllocation::SinglePass => 0,
@@ -116,6 +127,7 @@ impl Manifest {
             match byte {
                 0 => Some(WasmNativeCompilationMode::Fast),
                 1 => Some(WasmNativeCompilationMode::SizeOptimized),
+                2 => Some(WasmNativeCompilationMode::Speed),
                 _ => None,
             }
         }
@@ -125,6 +137,7 @@ impl Manifest {
                 0 => ExecutionModes::Fast,
                 1 => ExecutionModes::SizeOptimized,
                 2 => ExecutionModes::FastAndSizeOptimized,
+                3 => ExecutionModes::FastSizeOptimizedAndSpeed,
                 _ => return None,
             },
             register_allocation: match take::<1>(&mut bytes)?[0] {

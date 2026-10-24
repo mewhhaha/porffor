@@ -4,6 +4,9 @@ use scriptw_ir::{
 
 use crate::EmitError;
 
+mod unobservable_leaf;
+pub(crate) use unobservable_leaf::UserFunctionActivationPlan;
+
 /// Whether this invocation needs a materialized arguments object, and the only legal
 /// construction protocol when it does.
 ///
@@ -19,6 +22,7 @@ enum FunctionArgumentsState {
 enum FunctionArgumentsKind {
     Absent,
     EmptyStrictBody(EmptyStrictBody),
+    UnobservableLeaf,
     Present(PresentArgumentsObjectProtocol),
 }
 
@@ -100,7 +104,9 @@ impl FunctionArgumentsProtocol {
     pub(crate) fn take_for_binding(&mut self) -> Result<ArgumentsBindingProtocol, EmitError> {
         match core::mem::replace(&mut self.0, FunctionArgumentsState::BoundAbsent) {
             FunctionArgumentsState::Pending(
-                FunctionArgumentsKind::Absent | FunctionArgumentsKind::EmptyStrictBody(_),
+                FunctionArgumentsKind::Absent
+                | FunctionArgumentsKind::EmptyStrictBody(_)
+                | FunctionArgumentsKind::UnobservableLeaf,
             ) => Ok(ArgumentsBindingProtocol(None)),
             FunctionArgumentsState::Pending(FunctionArgumentsKind::Present(protocol)) => {
                 self.0 = FunctionArgumentsState::BoundPresent;
@@ -133,7 +139,9 @@ impl FunctionArgumentsProtocol {
     pub(crate) const fn present(&self) -> Option<()> {
         match &self.0 {
             FunctionArgumentsState::Pending(
-                FunctionArgumentsKind::Absent | FunctionArgumentsKind::EmptyStrictBody(_),
+                FunctionArgumentsKind::Absent
+                | FunctionArgumentsKind::EmptyStrictBody(_)
+                | FunctionArgumentsKind::UnobservableLeaf,
             )
             | FunctionArgumentsState::BoundAbsent => None,
             FunctionArgumentsState::Pending(FunctionArgumentsKind::Present(_))

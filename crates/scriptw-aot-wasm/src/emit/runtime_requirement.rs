@@ -9,6 +9,7 @@ use scriptw_ir::{
 /// Admitted expressions still go through the same Wasm expression emitter.
 pub(super) fn requires_runtime(script: &ScriptIr) -> bool {
     script.eval_environment.is_some()
+        || !script.foreign_modules.is_empty()
         || script.module_prelude.is_some()
         || !script.prepared_scripts.is_empty()
         || script.runtime_declarations != Default::default()

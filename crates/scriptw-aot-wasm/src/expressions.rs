@@ -7,6 +7,7 @@ use crate::operations::PropertyKeyLocals;
 use scriptw_ir::{NativeErrorKind, StaticRegExpCompilation};
 
 mod environment_identifier;
+mod foreign_call;
 mod optional_chain;
 mod regexp_program;
 mod super_property_mutation;
@@ -706,6 +707,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
         match &expr.expr {
+            ExprIr::ForeignCall(call) => self.emit_foreign_call(call, output, function)?,
             ExprIr::DynamicImport {
                 specifier,
                 options,
@@ -1135,14 +1137,14 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_string_concat_payload(lhs, rhs, output, function)?
             }
             ExprIr::CompareNumber { op, lhs, rhs } => {
-                let left = schema.reserve_value_local(function);
-                let right = schema.reserve_value_local(function);
+                let left = schema.reserve_i64_local(function);
+                let right = schema.reserve_i64_local(function);
                 let result = schema.reserve_i32_local(function);
-                self.compile_expr_to_value(lhs, &left, function)?;
-                self.compile_expr_to_value(rhs, &right, function)?;
-                left.scalar().load(function);
+                self.compile_number_payload(lhs, left, function)?;
+                self.compile_number_payload(rhs, right, function)?;
+                left.load(function);
                 function.instruction(&Instruction::F64ReinterpretI64);
-                right.scalar().load(function);
+                right.load(function);
                 function.instruction(&Instruction::F64ReinterpretI64);
                 match op {
                     RelationalBinaryOp::LessThan => function.instruction(&Instruction::F64Lt),
@@ -1157,8 +1159,8 @@ impl<'a> FunctionBuilder<'a> {
                 result.store(function);
                 output.set_boolean(result, function);
                 schema.release_i32_local(result, function);
-                right.clear(function);
-                left.clear(function);
+                schema.release_i64_local(right, function);
+                schema.release_i64_local(left, function);
             }
             ExprIr::CompareValue { op, lhs, rhs } => {
                 let result = schema.reserve_i32_local(function);

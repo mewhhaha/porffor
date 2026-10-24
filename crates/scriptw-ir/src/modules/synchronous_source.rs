@@ -43,6 +43,27 @@ pub(super) fn linked_module_execution_source(
     eligible: ModuleInstantiationGraph<'_>,
 ) -> Result<LinkedScriptSource, Vec<IrDiagnostic>> {
     let ModuleInstantiationGraph { graph, entry } = eligible;
+    let mut foreign_declarations = Vec::new();
+    let mut foreign_error_tag = None;
+    let mut has_foreign = false;
+    for (_, _, unit) in graph.materialized_units() {
+        if let Some(foreign) = &unit.foreign {
+            let tag = foreign.registry.error_tag().copied();
+            if has_foreign && tag != foreign_error_tag {
+                return Err(vec![IrDiagnostic::lowering(
+                    "foreign modules disagree on their expected-error tag authority",
+                )]);
+            }
+            has_foreign = true;
+            foreign_error_tag = tag;
+            foreign_declarations.extend(foreign.registry.modules().iter().cloned());
+        }
+    }
+    let mut foreign_modules = crate::foreign::ForeignModuleRegistry::new(foreign_declarations)
+        .map_err(|error| vec![IrDiagnostic::lowering(error.to_string())])?;
+    if let Some(tag) = foreign_error_tag {
+        foreign_modules = foreign_modules.with_error_tag(tag);
+    }
     let diagnostics = graph.check_dynamic_import_linkable();
     if !diagnostics.is_empty() {
         return Err(diagnostics);
@@ -208,14 +229,22 @@ pub(super) fn linked_module_execution_source(
             text.push_str(default_name.as_str());
             text.push_str(" = 0;\n");
         } else {
-            text.push_str(
-                linked
-                    .callable_sources
-                    .record_body(body.expect("Source Text body"), &text),
-            );
+            let body = body.expect("Source Text body");
+            if unit.foreign.is_some() {
+                // Native wrapper scaffolding is not observable source text.
+                // Its exact NativeNamed representation is installed from the
+                // declaration after parsing, never restored from this body.
+                text.push_str(body.text());
+            } else {
+                text.push_str(linked.callable_sources.record_body(body, &text));
+            }
         }
         text.push_str("\n;\n},\n");
         definitions.push(ModuleUnitDefinition {
+            foreign: unit
+                .foreign
+                .as_ref()
+                .map(|source| source.registry.modules()[0].clone()),
             module,
             imports,
             namespaces,
@@ -289,6 +318,7 @@ pub(super) fn linked_module_execution_source(
         })
         .collect();
     linked.synchronous = Some(ModuleExecutionDefinitions {
+        foreign_modules,
         realm_requests: graph.realm_requests.clone(),
         graph_span: (
             boa_ast::Position::new(graph_start_line, 1),

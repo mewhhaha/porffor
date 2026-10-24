@@ -1032,11 +1032,16 @@ macro_rules! runtime_helper_domain {
 
 runtime_helper_domain! {
     TransientByteAlloc / TransientByteAllocArguments / TransientByteAllocParameters / "transient_byte_alloc" { size:I64 } => I64;
+    ArrayIndexedPublishDefaultData / ArrayIndexedPublishDefaultDataArguments / ArrayIndexedPublishDefaultDataParameters / "array_indexed_publish_default_data" { array:(Ref ArrayObject NonNullable),index:I64,value:Value } => Void;
     ArrayIndexedPublish / ArrayIndexedPublishArguments / ArrayIndexedPublishParameters / "array_indexed_publish" { storage:(Ref ArrayIndexStorage NonNullable),index:I64,descriptor:(Ref PropertyDescriptor NonNullable) } => Void;
     ArrayIndexedDelete / ArrayIndexedDeleteArguments / ArrayIndexedDeleteParameters / "array_indexed_delete" { storage:(Ref ArrayIndexStorage NonNullable),index:I64 } => Void;
     ObjectRead / ObjectReadArguments / ObjectReadParameters / "object_read" { target:Value,receiver:Value,key:Key,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     ObjectWrite / ObjectWriteArguments / ObjectWriteParameters / "object_write" { target:Value,key:Key,value:Value,strict:I32,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     ObjectDefineData / ObjectDefineDataArguments / ObjectDefineDataParameters / "object_define_data" { target:Value,key:Key,value:Value,writable:I32,enumerable:I32,configurable:I32,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    OrdinaryPropertyStorageEnsure / OrdinaryPropertyStorageEnsureArguments / OrdinaryPropertyStorageEnsureParameters / "ordinary_property_storage_ensure" { object:(Ref OrdinaryObject NonNullable) } => (Ref OrdinaryPropertyStorage NonNullable);
+    OrdinaryOwnDescriptor / OrdinaryOwnDescriptorArguments / OrdinaryOwnDescriptorParameters / "ordinary_own_descriptor" { object:(Ref OrdinaryObject NonNullable),key:Key } => (Ref PropertyDescriptor Nullable);
+    CompactLiteralAllocate / CompactLiteralAllocateArguments / CompactLiteralAllocateParameters / "compact_literal_allocate" { prototype:Value,shape:(Ref CompactDataShape NonNullable) } => (Ref OrdinaryObject NonNullable);
+    CachedPropertyRead / CachedPropertyReadArguments / CachedPropertyReadParameters / "cached_property_read" { target:Value,receiver:Value,key:Key,site:I64,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     OrdinaryPropertyFind / OrdinaryPropertyFindArguments / OrdinaryPropertyFindParameters / "ordinary_property_find" { object:(Ref OrdinaryObject NonNullable),key:Key } => (Ref PropertyEntry Nullable);
     OrdinaryPropertyAppend / OrdinaryPropertyAppendArguments / OrdinaryPropertyAppendParameters / "ordinary_property_append" { object:(Ref OrdinaryObject NonNullable),key:Key,descriptor:(Ref PropertyDescriptor NonNullable) } => Void;
     ObjectHeaderProjection / ObjectHeaderProjectionArguments / ObjectHeaderProjectionParameters / "object_header_projection" { value:Value } => (Ref OrdinaryObject NonNullable);
@@ -1167,11 +1172,16 @@ impl RuntimeHelperId {
     pub(crate) const fn owner(self) -> HelperOwner {
         match self {
             Self::TransientByteAlloc => HelperOwner::Runtime,
+            Self::ArrayIndexedPublishDefaultData => HelperOwner::Runtime,
             Self::ArrayIndexedPublish => HelperOwner::Runtime,
             Self::ArrayIndexedDelete => HelperOwner::Runtime,
             Self::ObjectRead => HelperOwner::Runtime,
             Self::ObjectWrite => HelperOwner::Runtime,
             Self::ObjectDefineData => HelperOwner::Runtime,
+            Self::OrdinaryPropertyStorageEnsure => HelperOwner::Runtime,
+            Self::OrdinaryOwnDescriptor => HelperOwner::Runtime,
+            Self::CompactLiteralAllocate => HelperOwner::Runtime,
+            Self::CachedPropertyRead => HelperOwner::Runtime,
             Self::OrdinaryPropertyFind => HelperOwner::Runtime,
             Self::OrdinaryPropertyAppend => HelperOwner::Runtime,
             Self::ObjectHeaderProjection => HelperOwner::Runtime,
@@ -1288,11 +1298,16 @@ impl RuntimeHelperId {
     pub(crate) const fn is_emitted(self, emission: RuntimeHelperEmission) -> bool {
         match self {
             Self::TransientByteAlloc => true,
+            Self::ArrayIndexedPublishDefaultData => true,
             Self::ArrayIndexedPublish => true,
             Self::ArrayIndexedDelete => true,
             Self::ObjectRead => true,
             Self::ObjectWrite => true,
             Self::ObjectDefineData => true,
+            Self::OrdinaryPropertyStorageEnsure => true,
+            Self::OrdinaryOwnDescriptor => true,
+            Self::CompactLiteralAllocate => true,
+            Self::CachedPropertyRead => true,
             Self::OrdinaryPropertyFind => true,
             Self::OrdinaryPropertyAppend => true,
             Self::ObjectHeaderProjection => true,

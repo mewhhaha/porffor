@@ -241,9 +241,7 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                     let CompositeInnerType::Struct(owner) = &ty.composite_type.inner else {
                         continue;
                     };
-                    if owner.fields.len() != owner_field_count
-                        || owner.fields.iter().any(|field| field.mutable)
-                    {
+                    if owner.fields.len() != owner_field_count {
                         continue;
                     }
                     let mut hooks = BTreeMap::new();
@@ -277,7 +275,7 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
             assert_eq!(
                 owners.len(),
                 1,
-                "one immutable ProgramInstance owns all five typed nullable hook fields"
+                "one ProgramInstance owns all five typed nullable hook fields"
             );
             let (owner_type, hook_types) = owners.pop().unwrap();
             assert!(
@@ -286,6 +284,62 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                         .values()
                         .all(|index| recursive_types.contains(&(*index as usize))),
                 "the actual ProgramInstance and its five hook signatures remain in the GC group"
+            );
+            let CompositeInnerType::Struct(owner) =
+                &core_types[owner_type as usize].composite_type.inner
+            else {
+                panic!("the selected ProgramInstance is an actual encoded struct");
+            };
+            // GC18 appends two mutable, nullable metadata roots. Code/data and
+            // the original five hook fields remain immutable; selecting an
+            // owner by requiring every field immutable would discard it.
+            let immutable_fields = owner_field_count
+                .checked_sub(2)
+                .expect("ProgramInstance retains its two GC18 metadata roots");
+            assert!(immutable_fields >= 5);
+            assert!(
+                owner.fields[..immutable_fields]
+                    .iter()
+                    .all(|field| !field.mutable),
+                "ProgramInstance hook and code/data ownership remain immutable"
+            );
+            let mut metadata_types = BTreeSet::new();
+            for field in &owner.fields[immutable_fields..] {
+                assert!(
+                    field.mutable,
+                    "only the appended metadata roots are mutable"
+                );
+                let StorageType::Val(ValType::Ref(reference)) = field.element_type else {
+                    panic!("metadata roots remain typed GC references");
+                };
+                assert!(
+                    reference.is_nullable(),
+                    "metadata registration starts empty"
+                );
+                let HeapType::Concrete(index) = reference.heap_type() else {
+                    panic!("metadata roots cannot be opaque references");
+                };
+                let index = index
+                    .as_module_index()
+                    .or_else(|| {
+                        index
+                            .as_rec_group_index()
+                            .map(|index| recursive_types.start as u32 + index)
+                    })
+                    .expect("metadata root uses the actual module/recursion-group type");
+                assert!(
+                    matches!(
+                        &core_types[index as usize].composite_type.inner,
+                        CompositeInnerType::Struct(_)
+                    ),
+                    "metadata roots select records, never callable hooks"
+                );
+                metadata_types.insert(index);
+            }
+            assert_eq!(
+                metadata_types.len(),
+                2,
+                "shape and read-site cache metadata retain distinct typed roots"
             );
             let mut called_fields = BTreeSet::new();
             for &(owner, field, type_index) in &core.owner_reference_calls {

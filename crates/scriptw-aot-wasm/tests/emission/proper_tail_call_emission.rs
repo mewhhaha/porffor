@@ -105,9 +105,28 @@ impl Module {
         let indices = self
             .names
             .iter()
-            .filter_map(|(&index, name)| name.starts_with(prefix).then_some(index))
+            .filter_map(|(&index, name)| {
+                let matched = if prefix.ends_with('#') {
+                    assert!(
+                        prefix.starts_with("js::"),
+                        "only an explicit source function prefix may end in '#': {prefix}"
+                    );
+                    name.starts_with(prefix)
+                } else {
+                    name.as_str() == prefix
+                };
+                matched.then_some(index)
+            })
             .collect::<Vec<_>>();
-        assert_eq!(indices.len(), 1, "one encoded function matches {prefix}");
+        assert_eq!(
+            indices.len(),
+            1,
+            "one encoded function matches {prefix}; matching names: {:?}",
+            indices
+                .iter()
+                .map(|index| (index, &self.names[index]))
+                .collect::<Vec<_>>()
+        );
         (
             indices[0],
             self.bodies

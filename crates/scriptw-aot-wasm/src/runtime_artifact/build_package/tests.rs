@@ -39,6 +39,26 @@ fn resign(package: &mut [u8]) {
 }
 
 #[test]
+fn strict_public_portable_package_codec_never_uses_the_emitter_fallback() {
+    let selection = IntlDataSelection::new(IntlCompilationProfile::Minimal);
+    let produced = fixture();
+    let bytes = encode_portable_runtime_package(&produced.runtime, &selection, &SOURCE).unwrap();
+    let admitted = admit_portable_runtime_package(&bytes, &selection, &SOURCE).unwrap();
+    assert_eq!(admitted.key(), produced.key());
+    assert_eq!(admitted.bytes().as_ref(), produced.wasm());
+    assert!(admit_portable_runtime_package(&[], &selection, &SOURCE).is_err());
+    assert!(admit_portable_runtime_package(&bytes, &selection, &[20; 32]).is_err());
+    let mut corrupted = bytes.clone();
+    let end = corrupted.len() - 1;
+    corrupted[end] ^= 1;
+    assert!(admit_portable_runtime_package(&corrupted, &selection, &SOURCE).is_err());
+    let mut forged = bytes;
+    forged[12] ^= 1;
+    resign(&mut forged);
+    assert!(admit_portable_runtime_package(&forged, &selection, &SOURCE).is_err());
+}
+
+#[test]
 fn build_package_round_trips_real_runtime_and_matches_fresh_target_emission() {
     let package = fixture();
     let identity = minimal_identity();

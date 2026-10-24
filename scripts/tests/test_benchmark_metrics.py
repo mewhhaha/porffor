@@ -60,6 +60,115 @@ class AccountingTests(unittest.TestCase):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_explicit_native_policy_defaults_and_bounds(self):
+        self.assertIsNone(BENCH.native_policy_plan())
+        self.assertEqual(BENCH.native_policy_plan(gc_initial_mib=32),
+            dict(native_mode='fast', gc_initial_mib=32, register_allocation='single-pass'))
+        self.assertEqual(BENCH.native_policy_plan('speed', 64, 'backtracking'),
+            dict(native_mode='speed', gc_initial_mib=64, register_allocation='backtracking'))
+        for mode, capacity, allocation in [('jit', 16, 'single-pass'), ('fast', 17, 'single-pass'),
+                                           ('fast', True, 'single-pass'), ('fast', 16, 'automatic')]:
+            with self.subTest(mode=mode, capacity=capacity, allocation=allocation), self.assertRaises(ValueError):
+                BENCH.native_policy_plan(mode, capacity, allocation)
+
+    def test_native_policy_wire_options_are_bound_and_incompatible_cohorts_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, ordinary = self.make_report(root)
+            report = copy.deepcopy(ordinary)
+            policy = BENCH.native_policy_plan('speed', 32, 'backtracking')
+            report['schema'] = metrics.POLICY_SCHEMA
+            report['configuration']['native_policy'] = policy
+            case = report['execution']['wasmtime']['cases'][0]
+            for row in case['observations']:
+                row['actual_native_policy'] = dict(policy)
+            stdout = root / 'logs' / (case['command_label'] + '.stdout')
+            stdout.write_text(json.dumps(dict(schema='scriptw-wasmtime-policy-baseline-v1',
+                samples=3, warmups=1, requested_native_policy=policy,
+                cases=[{key: value for key, value in case.items() if key != 'command_label'}])))
+            for command in report['commands']:
+                if command['label'] == case['command_label']:
+                    command['stdout_sha256'] = metrics.digest(stdout)
+            for member in report['retained_files']:
+                member['sha256'] = metrics.digest(root / member['path'])
+            path.write_text(json.dumps(report))
+            self.assertEqual(metrics.load_report(path), report)
+            with self.assertRaisesRegex(ValueError, 'incompatible'):
+                metrics.compare(ordinary, report)
+            changed = copy.deepcopy(report)
+            changed['configuration']['native_policy']['gc_initial_mib'] = 64
+            with self.assertRaisesRegex(ValueError, 'incompatible'):
+                metrics.compare(report, changed)
+            changed['summaries'] = metrics.summarize(changed)
+            path.write_text(json.dumps(changed))
+            with self.assertRaisesRegex(ValueError, 'requested native policy'):
+                metrics.load_report(path)
+            changed = copy.deepcopy(report)
+            changed['execution']['wasmtime']['cases'][0]['observations'][2]['actual_native_policy']['gc_initial_mib'] = 64
+            path.write_text(json.dumps(changed))
+            with self.assertRaisesRegex(ValueError, 'actual native policy'):
+                metrics.load_report(path)
+            changed = copy.deepcopy(report)
+            changed['schema'] = metrics.SCHEMA
+            path.write_text(json.dumps(changed))
+            with self.assertRaisesRegex(ValueError, 'ordinary benchmark reports'):
+                metrics.load_report(path)
+
+    def test_boundary_scoreboard_preserves_missing_context_as_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path, report = self.make_report(Path(directory))
+            board = metrics.boundary_scoreboard(metrics.load_report(path))
+            self.assertEqual(board['schema'], metrics.SCOREBOARD_SCHEMA)
+            self.assertEqual(board['source_startup']['status'], 'unavailable')
+            fresh = board['precompiled_invocation'][0]
+            self.assertEqual(fresh['runtimes']['wasmtime']['elapsed_ns']['median'], 1000)
+            self.assertEqual(fresh['runtimes']['v8']['status'], 'unavailable')
+            self.assertIsNone(fresh['scriptw_over_v8'])
+            self.assertEqual(board['same_realm_batched'], [])
+            self.assertEqual(board['isolated_steady_state']['status'], 'unavailable')
+            self.assertEqual(board['aggregates'][0]['status'], 'unavailable')
+
+    def test_boundary_scoreboard_uses_observed_spans_and_amortizes_complete_invocation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, report = self.make_report(Path(directory))
+            workload = next(w for w in report['workloads'] if w['role'] == 'execution')
+            workload.update(partition='holdout', execution_mode='same-realm-batched', parameters={'batches': 4})
+            for row in report['execution']['v8']['cases'][0]['observations']:
+                row['context_ns'] = 17
+            board = metrics.boundary_scoreboard(report)
+            fresh = board['precompiled_invocation'][0]
+            self.assertEqual(fresh['partition'], 'holdout')
+            self.assertEqual(fresh['runtimes']['v8']['elapsed_ns']['samples'], [28, 29, 30])
+            self.assertAlmostEqual(fresh['scriptw_over_v8'], 1000 / 29)
+            batched = board['same_realm_batched'][0]
+            self.assertEqual(batched['runtimes']['wasmtime']['median_ns_per_batch'], 3)
+            self.assertEqual(batched['runtimes']['wasmtime']['invocation_ns']['samples'], [11, 12, 13])
+            self.assertEqual(batched['scriptw_over_v8'], 1)
+            self.assertTrue(all(row['partition'] == 'holdout' for row in board['aggregates']))
+            self.assertIn('includes realm bootstrap', batched['runtimes']['wasmtime']['scope'])
+            report['execution']['v8']['cases'][0]['observations'][2].pop('context_ns')
+            with self.assertRaisesRegex(ValueError, 'context spans'):
+                metrics.boundary_scoreboard(report)
+
+    def test_scoreboard_cli_binds_admitted_report_and_does_not_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, _ = self.make_report(root)
+            output = root / 'scoreboard.json'
+            command = [sys.executable, str(SCRIPTS / 'benchmark-v8.py'), 'scoreboard', str(path), '--output', str(output)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Isolated persistent-instance steady-state timing is unavailable', result.stdout)
+            board = json.loads(output.read_text())
+            self.assertEqual(board['source_report']['sha256'], metrics.digest(path))
+            self.assertNotEqual(subprocess.run(command, capture_output=True, timeout=10).returncode, 0)
+            original = output.read_bytes()
+            (root / 'wasm' / 'case.js.wasm').write_bytes(b'changed')
+            command[-1] = str(root / 'forged-scoreboard.json')
+            self.assertNotEqual(subprocess.run(command, capture_output=True, timeout=10).returncode, 0)
+            self.assertEqual(output.read_bytes(), original)
+            self.assertFalse((root / 'forged-scoreboard.json').exists())
+
     def test_runtime_order_can_be_balanced_across_paired_reports(self):
         left = [BENCH.runtime_order(i, 'wasmtime') for i in range(4)]
         right = [BENCH.runtime_order(i, 'v8') for i in range(4)]
@@ -198,6 +307,25 @@ class EvidenceTests(unittest.TestCase):
         for selected in (['missing.js'], ['integer.js', 'integer.js']):
             with self.assertRaises(ValueError):
                 BENCH.workload_plan(FIXTURES, selected)
+
+    def test_partition_selection_and_closed_batch_metadata(self):
+        import performance_corpus as corpus
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'corpus'
+            corpus.write_corpus(root, (8,), (2,), (1,), sustained_batches=8)
+            tune = BENCH.workload_plan(root, None, 'tuning')['execution']
+            holdout = BENCH.workload_plan(root, None, 'holdout')['execution']
+            self.assertEqual(len(tune), 7)
+            self.assertEqual(len(holdout), 3)
+            self.assertFalse({c['file'] for c in tune} & {c['file'] for c in holdout})
+            with self.assertRaisesRegex(ValueError, 'inventory must not be empty'):
+                BENCH.workload_plan(root, [tune[0]['file']], 'holdout')
+        for changed in ({'partition': 'unknown'}, {'execution_mode': 'steady-state'},
+                        {'execution_mode': 'same-realm-batched', 'partition': 'tuning'},
+                        {'execution_mode': 'same-realm-batched', 'partition': 'tuning', 'parameters': {'batches': True}},
+                        {'execution_mode': 'same-realm-batched', 'partition': 'tuning', 'parameters': {'batches': 0}}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                metrics.validate_workload_metadata(changed)
 
     def test_workload_manifest_rejects_escaping_or_duplicate_sources(self):
         with tempfile.TemporaryDirectory() as directory:

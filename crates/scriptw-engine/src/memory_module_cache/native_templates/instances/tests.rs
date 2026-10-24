@@ -12,6 +12,7 @@ fn store_instance_reuse_checks_exact_code_and_execution_authority_within_origina
     let other_authority = Arc::new(());
     let key = WasmModuleMemoryCacheKey {
         native_compilation_mode: WasmNativeCompilationMode::Fast,
+        runtime_image_policy: crate::WasmRuntimeImagePolicy::EmbeddedBuild,
         wasm_sha256: [7; 32],
     };
     let bytes = module_image_bytes(&module).unwrap() + code.len();

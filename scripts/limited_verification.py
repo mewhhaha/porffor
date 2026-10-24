@@ -148,7 +148,15 @@ def require_cloud_budget(*, serial: bool = True) -> int:
     """Inspect the actual inherited cap, including tighter visible ancestors."""
     limits = []
     for group in cgroup_ancestors():
-        limit = (group / "memory.max").read_text().strip()
+        try:
+            limit = (group / "memory.max").read_text().strip()
+        except FileNotFoundError:
+            # The host controller root has no limit file. A namespaced root
+            # can have one; read it whenever present. Missing delegated scope
+            # files still fail, and some visible finite limit remains required.
+            if group == Path("/sys/fs/cgroup"):
+                continue
+            raise
         if limit != "max":
             if not limit.isascii() or not limit.isdecimal() or int(limit) <= 0:
                 raise ValueError("invalid inherited cloud memory.max")
@@ -167,7 +175,12 @@ def cloud_affinity(*, native_limits: bool) -> int:
         raise ValueError("the inherited CPU set is empty")
     capacity = len(inherited)
     for group in cgroup_ancestors():
-        fields = (group / "cpu.max").read_text().split()
+        try:
+            fields = (group / "cpu.max").read_text().split()
+        except FileNotFoundError:
+            if group == Path("/sys/fs/cgroup"):
+                continue
+            raise
         if len(fields) != 2:
             raise ValueError("invalid inherited cloud cpu.max")
         quota, period = fields

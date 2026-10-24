@@ -5,9 +5,10 @@
 //! data selection, so hosts compile it once and link each small program
 //! module (P) against it. R exports every function and global it defines
 //! under a name derived from its index; P imports each of them from
-//! [`RUNTIME_IMPORT_NAMESPACE`] in index order, so the index spaces of R and P
-//! together equal the one monolithic index space and P's bodies address
-//! runtime functions and globals by the same numbers R uses.
+//! [`RUNTIME_IMPORT_NAMESPACE`] in index order. Common host and runtime
+//! function indices are identical in R and P. P then appends its declared
+//! foreign imports before its own defined bodies; that application-owned
+//! suffix never relocates an R function, global or export.
 
 use std::ops::Range;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -28,7 +29,8 @@ pub use source_compilation::{
 mod validated_profile;
 mod validation;
 pub use build_package::{
-    build_runtime_artifact, build_runtime_artifact_with_source_compilation_profile,
+    admit_portable_runtime_package, build_runtime_artifact,
+    build_runtime_artifact_with_source_compilation_profile, encode_portable_runtime_package,
     RuntimeArtifactInputs, RuntimeBuildArtifact,
 };
 pub use cache::{RuntimeArtifactCache, RuntimeArtifactCacheKey};
@@ -51,7 +53,11 @@ pub const NATIVE_REGEXP_LITERAL_FACTORY_EXPORT: &str = "scriptw.native_regexp_li
 // Version 11 adds typed shared function naming and native RegExp literal kernels.
 // Version 12 adds shared array-pattern step, elision and close kernels.
 // Version 13 adds the separate shared array-accumulation step-value kernel.
-const LAYOUT_VERSION: u32 = 16;
+// Version 17 adds complete dense indexed descriptors beside sparse storage.
+// Version 18 adds sealed compact ordinary storage, ProgramInstance metadata-only
+// shapes/read caches, packed Number arrays, and their typed runtime kernels.
+// Its read-cache boundary carries lookup, original receiver and canonical key.
+const LAYOUT_VERSION: u32 = 18;
 
 /// A checked current envelope, or the compiler's own current emission.
 /// Decoding a raw payload cannot silently mint its version authority.

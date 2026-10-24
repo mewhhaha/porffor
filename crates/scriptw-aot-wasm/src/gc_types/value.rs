@@ -482,6 +482,7 @@ word_i32_codec!(
 );
 enum_i32_codec!(ProxyCallCapability; ObjectOnly => 0, CallOnly => 1, CallAndConstruct => 2);
 enum_i32_codec!(MapIterationKind; Key => 0, Value => 1, KeyAndValue => 2);
+enum_i32_codec!(ArrayIndexedStorageMode; DenseDescriptors => 0, SparseDescriptors => 1, PackedNumbers => 2);
 enum_i32_codec!(SetIterationKind; Value => 0, KeyAndValue => 1);
 enum_i32_codec!(ArrayIterationKind; Key => 0, Value => 1, KeyAndValue => 2);
 enum_i32_codec!(PrivateElementKind; Brand => 0, Field => 1, Method => 2, Accessor => 3);
@@ -1210,6 +1211,41 @@ impl<T: GcHeapType, N: GcFieldNullability> GcStackReference<T, N> {
         Self { shape: PhantomData }
     }
 }
+impl<T: GcHeapType, N: GcFieldNullability> GcStackReference<T, N> {
+    pub(crate) fn upcast<Base: GcHeapType>(self) -> GcStackReference<Base, N>
+    where
+        T: GcSubtype<Base>,
+    {
+        GcStackReference::new()
+    }
+
+    pub(crate) fn cast_subtype<Sub: GcSubtype<T>>(
+        self,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) -> GcStackReference<Sub> {
+        function.instruction(&Instruction::RefCastNonNull(
+            schema
+                .reference_type::<Sub>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        GcStackReference::new()
+    }
+}
+impl<T: GcHeapType, N: GcFieldNullability> GcLocal<T, N> {
+    pub(crate) fn is_subtype<Sub: GcSubtype<T>>(
+        &self,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) {
+        self.load(schema, function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<Sub>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+    }
+}
 impl<T: GcHeapType> GcRootGlobal<T> {
     /// A declared root's actual nullable type is the only authority for this
     /// stack token. The unchecked token constructor remains private here.
@@ -1222,6 +1258,13 @@ impl<T: GcArrayHeapType> EmptyArrayGlobal<T> {
     /// The declaration owns a non-null, immutable global containing exactly the
     /// registered zero-length array type. It is a root in this runtime instance.
     pub(super) fn load(self, function: &mut Function) -> GcStackReference<T> {
+        function.instruction(&Instruction::GlobalGet(self.index()));
+        GcStackReference::new()
+    }
+}
+
+impl StoredUndefinedGlobal {
+    fn load(&self, function: &mut Function) -> GcStackReference<StoredValue> {
         function.instruction(&Instruction::GlobalGet(self.index()));
         GcStackReference::new()
     }
@@ -1477,6 +1520,31 @@ pub(crate) enum RuntimeQueueEnd {
 }
 
 impl RuntimeSchema {
+    pub(crate) fn array_storage_mode_is(
+        &self,
+        storage: &GcLocal<ArrayIndexStorage>,
+        mode: ArrayIndexedStorageMode,
+        function: &mut Function,
+    ) {
+        storage.load(self, function);
+        self.field(ArrayIndexStorageSchema::MODE).emit_get(function);
+        function.instruction(&Instruction::I32Const(mode.encode()));
+        function.instruction(&Instruction::I32Eq);
+    }
+
+    pub(crate) fn set_array_storage_mode(
+        &self,
+        storage: &GcLocal<ArrayIndexStorage>,
+        mode: ArrayIndexedStorageMode,
+        function: &mut Function,
+    ) {
+        self.field(ArrayIndexStorageSchema::MODE).write(
+            storage,
+            GcOperand::constant(mode),
+            self,
+            function,
+        );
+    }
     /// Mint one stable nonzero object/Symbol key identity. Exhaustion traps
     /// before zero can be published or a prior identity can be reused.
     pub(crate) fn emit_next_collection_key_hash_id(
@@ -1671,6 +1739,41 @@ impl RuntimeSchema {
         function: &mut Function,
     ) -> GcStackReference<PrivateElementTable> {
         self.empty_arrays.private_elements.load(function)
+    }
+
+    pub(crate) fn empty_array_buckets(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<ArrayIndexBucketTable> {
+        self.empty_arrays.array_buckets.load(function)
+    }
+
+    pub(crate) fn empty_array_elements(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<IndexedTable> {
+        self.empty_arrays.array_elements.load(function)
+    }
+
+    pub(crate) fn empty_number_bits(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<NumberBitsI64Array> {
+        self.empty_arrays.number_bits.load(function)
+    }
+
+    pub(crate) fn empty_number_presence(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<NumberPresenceU64Array> {
+        self.empty_arrays.number_presence.load(function)
+    }
+
+    pub(crate) fn stored_undefined(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<StoredValue> {
+        self.stored_undefined.load(function)
     }
 
     pub(crate) fn pooled_strings_initialized(&self, function: &mut Function) {
@@ -2452,6 +2555,19 @@ impl<'a, T: GcHeapType, N: GcFieldNullability> GcOperand<'a, GcRef<T>, N> {
         }
     }
 }
+impl<'a, Base: GcHeapType> GcOperand<'a, GcRef<Base>, NonNullable> {
+    pub(crate) fn subtype_reference<Sub: GcSubtype<Base>>(
+        value: &'a GcLocal<Sub>,
+        _schema: &RuntimeSchema,
+    ) -> Self {
+        Self {
+            // GC locals are physically nullable so they can release roots.
+            // A nominal upcast preserves the logical non-null requirement.
+            source: OperandSource::NonNullLocal(value.index),
+            shape: PhantomData,
+        }
+    }
+}
 impl<'a, T: GcHeapType> GcOperand<'a, GcRef<T>, Nullable> {
     pub(crate) fn nullable_reference(value: &'a GcLocal<T>, _schema: &RuntimeSchema) -> Self {
         Self {
@@ -3152,32 +3268,42 @@ iterator_entry_construction!(
     IteratorZipEntry
 );
 
-/// The only initial sparse storage producer: eight empty buckets and zero
-/// occupied entries. Later capacity changes are owned by the two registered
-/// mutation kernels, which retain the same storage identity.
+/// A fresh ordinary Array starts in packed Number mode with every backing
+/// empty. The registered indexed mutation owners alone publish closed modes;
+/// logical Array length never determines a backing allocation size.
 impl GcStructType<ArrayIndexStorage> {
     pub(crate) fn empty(
         self,
         schema: &RuntimeSchema,
         function: &mut Function,
     ) -> GcStackReference<ArrayIndexStorage> {
-        let length = schema.reserve_i32_local(function);
-        function.instruction(&Instruction::I32Const(8));
-        length.store(function);
-        let buckets = schema.reserve_gc_local(function).initialize(
-            schema.array_type::<ArrayIndexBucketTable>().filled(
-                GcOperand::null(schema),
-                length,
-                function,
+        let buckets = schema
+            .reserve_gc_local(function)
+            .initialize(schema.empty_arrays.array_buckets.load(function), function);
+        let dense = schema
+            .reserve_gc_local(function)
+            .initialize(schema.empty_array_elements(function), function);
+        let numbers = schema
+            .reserve_gc_local(function)
+            .initialize(schema.empty_number_bits(function), function);
+        let presence = schema
+            .reserve_gc_local(function)
+            .initialize(schema.empty_number_presence(function), function);
+        let result = self.construct(
+            (
+                GcOperand::reference(&buckets, schema),
+                GcOperand::i64(0),
+                GcOperand::reference(&dense, schema),
+                GcOperand::constant(ArrayIndexedStorageMode::PackedNumbers),
+                GcOperand::reference(&numbers, schema),
+                GcOperand::reference(&presence, schema),
             ),
             function,
         );
-        let result = self.construct(
-            (GcOperand::reference(&buckets, schema), GcOperand::i64(0)),
-            function,
-        );
+        dense.clear(function);
+        presence.clear(function);
+        numbers.clear(function);
         buckets.clear(function);
-        schema.release_i32_local(length, function);
         result
     }
 }

@@ -87,43 +87,6 @@ impl FunctionBuilder<'_> {
         s.release_i32_local(index, f);
     }
 
-    fn publish_compact_array_element(
-        &mut self,
-        array: &GcLocal<ArrayObject>,
-        index: I64Local,
-        value: &ValueLocals,
-        absent: &GcLocal<StoredValue>,
-        f: &mut Function,
-    ) -> Result<(), EmitError> {
-        let s = self.runtime_schema();
-        let stored = s
-            .reserve_gc_local(f)
-            .initialize(s.struct_type::<StoredValue>().from_value(value, f), f);
-        let descriptor = s.reserve_gc_local(f).initialize(
-            s.struct_type::<PropertyDescriptor>().construct(
-                (
-                    GcOperand::descriptor_word(
-                        StoredPropertyAttributes::Data {
-                            writable: true,
-                            enumerable: true,
-                            configurable: true,
-                        }
-                        .descriptor_word(),
-                    ),
-                    GcOperand::reference(&stored, s),
-                    GcOperand::reference(absent, s),
-                    GcOperand::reference(absent, s),
-                ),
-                f,
-            ),
-            f,
-        );
-        self.emit_array_indexed_publish_descriptor(array, index, &descriptor, f)?;
-        descriptor.clear(f);
-        stored.clear(f);
-        Ok(())
-    }
-
     pub(crate) fn compile_compact_array_literal_helper(&mut self) -> Result<Function, EmitError> {
         let mut f = self.begin_helper_body(RuntimeHelperId::CompactArrayLiteral);
         let parameters = self.helper_parameters::<CompactArrayLiteralParameters>(&mut f);
@@ -144,10 +107,6 @@ impl FunctionBuilder<'_> {
         let indices = ArrayIndexKeyConstruction::allocate(s, parameters.depth, &mut f);
         let value = s.reserve_value_local(&mut f);
         value.set_undefined(&mut f);
-        let absent = s.reserve_gc_local(&mut f).initialize(
-            s.struct_type::<StoredValue>().from_value(&value, &mut f),
-            &mut f,
-        );
         let cursor = s.reserve_i32_local(&mut f);
         cursor.set_constant(0, &mut f);
         let depth = s.reserve_i32_local(&mut f);
@@ -310,7 +269,8 @@ impl FunctionBuilder<'_> {
                     .require_non_null(&mut f),
                 &mut f,
             );
-        self.publish_compact_array_element(&parent, ordinal, &value, &absent, &mut f)?;
+        // Validated recipes supply unique in-range ordinals in private arrays.
+        self.emit_array_indexed_publish_default_data(&parent, ordinal, &value, &mut f)?;
         parent.clear(&mut f);
         value.set_undefined(&mut f);
         self.pop_control(ControlFrameKind::If);
@@ -336,7 +296,6 @@ impl FunctionBuilder<'_> {
         result.emit(&mut f);
         result.clear(&mut f);
         value.clear(&mut f);
-        absent.clear(&mut f);
         indices.clear(&mut f);
         arrays.clear(&mut f);
         tape.clear(&mut f);

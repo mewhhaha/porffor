@@ -495,40 +495,9 @@ impl FunctionBuilder<'_> {
         value: &ValueLocals,
         f: &mut Function,
     ) -> Result<(), EmitError> {
-        let s = self.runtime_schema();
-        let stored = s
-            .reserve_gc_local(f)
-            .initialize(s.struct_type::<StoredValue>().from_value(value, f), f);
-        let undefined = s.reserve_value_local(f);
-        undefined.set_undefined(f);
-        let accessor = s
-            .reserve_gc_local(f)
-            .initialize(s.struct_type::<StoredValue>().from_value(&undefined, f), f);
-        let descriptor = s.reserve_gc_local(f).initialize(
-            s.struct_type::<PropertyDescriptor>().construct(
-                (
-                    GcOperand::descriptor_word(
-                        crate::heap::StoredPropertyAttributes::Data {
-                            writable: true,
-                            enumerable: true,
-                            configurable: true,
-                        }
-                        .descriptor_word(),
-                    ),
-                    GcOperand::reference(&stored, s),
-                    GcOperand::reference(&accessor, s),
-                    GcOperand::reference(&accessor, s),
-                ),
-                f,
-            ),
-            f,
-        );
-        self.emit_array_indexed_publish_descriptor(array, index, &descriptor, f)?;
-        descriptor.clear(f);
-        accessor.clear(f);
-        undefined.clear(f);
-        stored.clear(f);
-        Ok(())
+        // Only native string/RegExp result builders pass their private arrays
+        // here; they retain responsibility for ordinals and logical length.
+        self.emit_array_indexed_publish_default_data(array, index, value, f)
     }
 
     pub(super) fn emit_native_string_array_read(
@@ -539,21 +508,17 @@ impl FunctionBuilder<'_> {
         f: &mut Function,
     ) {
         let s = self.runtime_schema();
-        let descriptor = self.emit_array_indexed_descriptor(array, index, f);
-        let present = s
-            .reserve_gc_local(f)
-            .initialize(descriptor.load(s, f).require_non_null(f), f);
-        let stored = s.reserve_gc_local(f).initialize(
-            s.field(PropertyDescriptorSchema::VALUE)
-                .read(&present, s, f)
-                .reference(),
-            f,
-        );
-        s.struct_type::<StoredValue>()
-            .read_into(&stored, value, s, f);
-        stored.clear(f);
-        present.clear(f);
-        descriptor.clear(f);
+        let found = s.reserve_i32_local(f);
+        self.emit_array_own_indexed_value(array, index, value, found, f);
+        // These private native result arrays contain an own data property at
+        // every requested ordinal; absence was also an invariant trap before.
+        found.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        s.release_i32_local(found, f);
     }
 
     fn emit_native_regexp_metadata(

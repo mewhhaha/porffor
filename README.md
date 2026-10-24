@@ -4,27 +4,33 @@ Scriptw is an experimental JavaScript-to-WebAssembly compiler written in Rust.
 Compile JavaScript and its builtins to Wasm, run it through Wasmtime, or embed
 it in a Rust application. WebAssembly is the sole output target.
 
+Rust embedders can explicitly declare synchronous numeric foreign modules,
+compile ordinary JavaScript imports, and supply implementations through their
+own Wasmtime `Store` and `Linker`. ABI requirements persist in source-free
+Portable bundles. See the [foreign-module contract and runnable example](docs/rust-rewrite/contracts/foreign-modules.md).
+
 ## Benchmarks vs V8
 
-Measured on 2026-10-22 at compiler source `b9ecfe64b`. Medians of seven samples;
+Measured on 2026-10-24 at compiler source `31c5958d2`. Medians of seven samples;
 all workload outputs checked against Node. V8 is faster in these measured cases.
 
 | Measurement | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start | 1,084.901 ms | 32.679 ms |
-| Cached start | 801.288 ms | 37.437 ms |
-| Execute: 10,000 integer steps | 6.505 ms | 2.493 ms |
-| Execute: 500 objects | 15.040 ms | 0.064 ms |
-| Execute: 8,192 retained objects | 1,287.305 ms | 3.357 ms |
+| Cold start | 698.400 ms | 17.521 ms |
+| Cached start | 517.923 ms | 17.595 ms |
+| Execute: 10,000 integer steps | 4.799 ms | 2.025 ms |
+| Execute: 500 objects | 5.515 ms | 0.052 ms |
+| Execute: 8,192 retained objects | 422.117 ms | 2.614 ms |
 
 | Peak process RSS | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start (median) | 383.04 MiB | 27.12 MiB |
-| Cached start (median) | 349.78 MiB | 27.12 MiB |
-| Retained-object run (one process) | 392.80 MiB | 52.88 MiB |
+| Cold start (median) | 388.71 MiB | 49.79 MiB |
+| Cached start (median) | 358.03 MiB | 49.82 MiB |
+| Retained-object run (one process) | 405.25 MiB | 76.68 MiB |
 
-AMD EPYC 9V74; 32 GiB memory limit; four-CPU cloud quota. Both runtimes pinned
-to one CPU. Wasmtime 47.0.0; Node 24.19.0 / V8 13.6.233.17-node.51.
+AMD Ryzen 7 7800X3D; kernel-enforced 4 GiB memory limit, zero swap and one CPU.
+Wasmtime 47.0.0; Node 24.12.0 / V8 13.6.233.17-node.37. These local results
+have a different machine identity from the earlier cloud baseline.
 
 Cold and cached starts use fresh processes with empty or populated application
 caches; the shared runtime is precompiled and the OS cache is not flushed.
@@ -35,7 +41,7 @@ includes compilation and warmups. It is not JavaScript heap usage.
 The Rust compiler uses `release`; generated program modules use Fast compilation.
 NativeHost and Portable have separate matching optimized runtime images.
 Portable native-image storage is compressed, and decoded load buffers are
-transient. The measured CLI is 277.10 MiB, with Rust debug information stripped.
+transient. The measured CLI is 264.30 MiB with line-table debug information.
 These small workloads are a local baseline; short timing differences overlap
 across paired controls.
 [Methodology, raw evidence and reproduction](docs/rust-rewrite/v8-baseline.md).
@@ -43,13 +49,24 @@ The [performance tooling](docs/rust-rewrite/v8-baseline.md#current-performance-a
 also records memory, runtime phases and code size, with selected-workload and
 before/after comparisons. A selected three-sample integer run takes about three
 seconds with the checked execution cache already populated.
-The newer `97036e5a8` string-hash cache improves paired long-key property reads
+The earlier `97036e5a8` string-hash checkpoint improved paired long-key property reads
 about 83% and Map/Set lookups about 53–54%. Every string carries an extra i64 field;
 two retention controls have 3–6% higher medians, with overlapping rounds.
 [Measurements and tradeoffs](docs/rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23).
 [Retained-row phase profiles](docs/rust-rewrite/performance-row-phases-20261023.md)
 identify collector work as 83–84% of construction samples; traversal is dominated by property reads.
 [Prioritized performance backlog](docs/performance-hills.md).
+[Compact ordinary storage and guarded read-cache contract](docs/rust-rewrite/contracts/compact-ordinary-data-storage.md).
+
+[Performance implementation and resource limits](docs/rust-rewrite/v8-performance-program.md)
+track guarded property reads, packed arrays, scalar lowering, startup reuse
+and explicit GC/native-code experiments. The
+[measured checkpoint and tradeoffs](docs/rust-rewrite/performance-six-workstreams-20261024.md)
+reports about 17% faster object workloads and 50% faster retained execution
+against its frozen compiler control. Sustained arrays regress about 3%; several
+small storage controls also regress. Separate existing-Realm measurements still
+show a large V8 gap. Refresh commands, exact scopes and identities are in that
+report; these results do not establish V8 parity.
 [Bounded native verification workflow](docs/rust-rewrite/batch-workflow.md#optional-sequential-cli-chunks).
 
 ## Tests
@@ -68,13 +85,24 @@ These four failures remain open (upstream status checked 2026-10-21):
 **All four remain counted as failures.** Upstream tracking does not change their results.
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
-The newer `97036e5a8` checkpoint passes **4,083 native tests** across twelve
+The earlier `97036e5a8` checkpoint passed **4,083 native tests** across twelve
 affected targets and eighteen compiled semantic families. Its **13,104-case
 Test262 replay** has **13,100 passes and the same four failures**; the full chart
 below remains bound to `b9ecfe64b`. Native acceptance includes two complete
 target reruns after test-only fixture/trace repairs.
 [Full-run evidence](docs/rust-rewrite/test262-current.md) ·
 [Latest checkpoint](docs/rust-rewrite/v8-baseline.md#cached-string-hash-checkpoint--published-2026-10-23).
+The [performance checkpoint](docs/rust-rewrite/performance-six-workstreams-20261024.md)
+reports its own native checks and selected original-case replay. The full
+chart below remains bound to `b9ecfe64b`.
+
+The [foreign-module checkpoint](docs/rust-rewrite/contracts/foreign-modules.md#verified-checkpoint-2026-10-24),
+refreshed 2026-10-24 at `559151e32`, passed **5,662 affected native checks**
+and the ordinary custom-Linker example (`42`). Its complete module-code and
+Function apply/bind/call subsets plus known-failure controls passed
+**980 / 984 executions**, with the same four failures
+and zero crashes, unsupported cases or timeouts. The linked checkpoint retains
+refresh commands and exact inventories; it does not replace the full chart.
 
 <!-- scriptw-test-graph:start -->
 ![Test262: 102,561 passing in scope, 4 failing, 0 not implemented, 429 out of standalone Wasm scope](docs/rust-rewrite/assets/test262-status.svg)

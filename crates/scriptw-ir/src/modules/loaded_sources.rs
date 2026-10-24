@@ -15,6 +15,7 @@ use super::record::{
 /// placement before graph construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleSourceIr {
+    pub(super) foreign: Option<crate::foreign::ForeignModuleSource>,
     key: ModuleKey,
     meta_url: String,
     pub(super) parse: ModuleParse,
@@ -92,6 +93,32 @@ pub(super) enum ModuleParse {
 }
 
 impl ModuleSourceIr {
+    /// A declared native module uses compiler-owned source scaffolding solely
+    /// for normal module bindings and function identity. Trusted provenance
+    /// replaces wrapper return expressions with real ForeignCall operations.
+    pub fn foreign(
+        key: ModuleKey,
+        module: crate::foreign::ForeignModuleDeclaration,
+        error_tag: Option<crate::foreign::ForeignErrorTag>,
+    ) -> Self {
+        let text = module.wrapper_source();
+        let meta_url = format!("scriptw:foreign/{}", module.specifier());
+        let mut registry = crate::foreign::ForeignModuleRegistry::new(vec![module])
+            .expect("one validated foreign module has no duplicate imports");
+        if let Some(tag) = error_tag {
+            registry = registry.with_error_tag(tag);
+        }
+        let mut source = Self::new(key, text, meta_url);
+        source.foreign = Some(crate::foreign::ForeignModuleSource {
+            canonical_bytes: registry.to_normalized_json(),
+            registry,
+        });
+        source
+    }
+
+    pub fn foreign_modules(&self) -> Option<&crate::foreign::ForeignModuleRegistry> {
+        self.foreign.as_ref().map(|foreign| &foreign.registry)
+    }
     /// Whether retained Script syntax has a call that could be direct eval.
     /// This whole-tree check only avoids impossible finite-source discovery;
     /// it proves neither intrinsic identity nor source or module authority.
@@ -156,6 +183,7 @@ impl ModuleSourceIr {
             Err(error) => ModuleParse::JsonRejected { source_text, error },
         };
         Self {
+            foreign: None,
             key,
             meta_url,
             prepared_script_import_sites: Vec::new(),
@@ -166,6 +194,7 @@ impl ModuleSourceIr {
     /// Retains raw data without parsing or decoding it as JavaScript or UTF-8.
     pub fn bytes(key: ModuleKey, bytes: Vec<u8>, meta_url: String) -> Self {
         Self {
+            foreign: None,
             key,
             meta_url,
             prepared_script_import_sites: Vec::new(),
@@ -176,6 +205,7 @@ impl ModuleSourceIr {
     /// Retains the host-decoded String for CreateTextModule without a grammar parse.
     pub fn text(key: ModuleKey, text: String, meta_url: String) -> Self {
         Self {
+            foreign: None,
             key,
             meta_url,
             prepared_script_import_sites: Vec::new(),
@@ -186,6 +216,7 @@ impl ModuleSourceIr {
     /// One opaque host ModuleSource record. No ECMAScript parse is performed.
     pub fn module_source(key: ModuleKey, source_tag: String, meta_url: String) -> Self {
         Self {
+            foreign: None,
             key,
             meta_url,
             parse: ModuleParse::ModuleSource { source_tag },
@@ -199,6 +230,9 @@ impl ModuleSourceIr {
 
     /// Exact loaded payload used for host identity, including invalid UTF-8.
     pub fn payload_bytes(&self) -> &[u8] {
+        if let Some(foreign) = &self.foreign {
+            return &foreign.canonical_bytes;
+        }
         match &self.parse {
             ModuleParse::Bytes(bytes) => bytes,
             ModuleParse::ModuleSource { source_tag } => source_tag.as_bytes(),
@@ -247,6 +281,7 @@ impl ModuleSourceIr {
             },
         };
         Self {
+            foreign: None,
             key,
             meta_url,
             prepared_script_import_sites: Vec::new(),
@@ -260,6 +295,7 @@ impl ModuleSourceIr {
     #[must_use]
     pub fn from_parsed(key: ModuleKey, meta_url: String, source: ParsedModule) -> Self {
         Self {
+            foreign: None,
             key,
             meta_url,
             prepared_script_import_sites: Vec::new(),
@@ -274,6 +310,7 @@ impl ModuleSourceIr {
     #[must_use]
     pub fn from_parsed_script(key: ModuleKey, meta_url: String, source: ParsedScript) -> Self {
         Self {
+            foreign: None,
             key,
             meta_url,
             prepared_script_import_sites: Vec::new(),

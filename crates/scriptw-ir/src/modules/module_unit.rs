@@ -10,6 +10,7 @@ use super::resolved_binding::ResolvedBindingIr;
 /// the link stage produces from them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleUnitIr {
+    pub(super) foreign: Option<crate::foreign::ForeignModuleSource>,
     /// Static entry tables for this module.
     pub record: ModuleRecordIr,
     /// The module source text, kept so the lowerer can slice spans from it.
@@ -41,6 +42,9 @@ pub struct ModuleUnitIr {
 
 impl ModuleUnitIr {
     pub(super) fn payload_bytes(&self) -> &[u8] {
+        if let Some(foreign) = &self.foreign {
+            return &foreign.canonical_bytes;
+        }
         if let Some(tag) = self.record.module_source_tag() {
             return tag.as_bytes();
         }

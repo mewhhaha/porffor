@@ -143,8 +143,92 @@ if (rows[0] !== first || rows[rows.length - 1] !== last ||
     return entries
 
 
-def write_corpus(destination, rows, widths, passes, row_phases=False):
-    entries = row_phase_workloads(rows, widths, passes) if row_phases else workloads(rows, widths, passes)
+def same_realm_workloads(batches):
+    """Repeat checked work in one guest realm, amortizing its single bootstrap.
+
+    The ordinary runner still times the complete invocation. Dividing that
+    duration by batches is an amortized score, not an isolated steady-state
+    timer. Every batch contributes to the observed result, including the
+    persistent captured counter in the closure workload.
+    """
+    if type(batches) is not int or not 1 <= batches <= 256:
+        raise ValueError('same-realm batches must be an integer from 1 to 256')
+    entries = []
+
+    def add(name, setup, body, expected, family, partition='tuning'):
+        source = f'''(function () {{
+{setup}
+function batch(seed) {{
+{body}
+}}
+var checksum = 0;
+for (var round = 0; round < {batches}; round++) checksum += batch(round % 8);
+print(checksum);
+}})();
+'''
+        entries.append(dict(file=f'sustained-{name}-b{batches}.js', source=source,
+                            stdout=str(expected) + '\n', work=family, family=family,
+                            partition=partition, execution_mode='same-realm-batched',
+                            parameters=dict(batches=batches,
+                                boundary='whole invocation divided by checked batches; includes one realm bootstrap, setup and final checksum; no isolated steady-state timer')))
+
+    seed_sum = sum(round % 8 for round in range(batches))
+    add('calls', 'function step(x) { return x + 1; }',
+        'var s=0; for(var i=0;i<64;i++) s+=step(i+seed); return s;',
+        batches * (64 * 65 // 2) + 64 * seed_sum, 'same-realm small direct calls')
+    add('closures', 'var next=(function(){var n=0;return function(){return ++n;};})();',
+        'var s=0; for(var i=0;i<32;i++) s+=next(); return s;',
+        (32 * batches) * (32 * batches + 1) // 2,
+        'same-realm persistent captured binding')
+    add('objects', '',
+        'var a=[];for(var i=0;i<32;i++)a.push({x:i+seed,y:2*i+1});'
+        'var s=0;for(var i=0;i<a.length;i++)s+=a[i].x+a[i].y;return s;',
+        batches * (3 * 32 * 31 // 2 + 32) + 32 * seed_sum,
+        'same-realm ordinary allocation and property reads')
+    add('arrays', '',
+        'var a=[];for(var i=0;i<128;i++)a.push(i+seed);'
+        'var s=0;for(var i=0;i<a.length;i++)s+=a[i];return s;',
+        batches * (128 * 127 // 2) + 128 * seed_sum,
+        'same-realm packed array construction and traversal')
+    add('strings', '',
+        "var s='a'.repeat(64)+seed;return s.slice(1).length+s.indexOf(String(seed));",
+        128 * batches, 'same-realm string construction and search')
+    add('map', '',
+        "var m=new Map();for(var i=0;i<32;i++)m.set('k'+i,i+seed);"
+        "var s=0;for(var i=0;i<32;i++)s+=m.get('k'+i);return s;",
+        batches * (32 * 31 // 2) + 32 * seed_sum,
+        'same-realm Map insertion and lookup')
+    add('json', '',
+        'var a=[];for(var i=0;i<16;i++)a.push({x:i+seed,y:i*2});'
+        'var b=JSON.parse(JSON.stringify(a));var s=0;'
+        'for(var i=0;i<b.length;i++)s+=b[i].x+b[i].y;return s;',
+        batches * (3 * 16 * 15 // 2) + 16 * seed_sum,
+        'same-realm JSON round trip')
+    add('polymorphic-calls',
+        'var fs=[function(x){return x+1;},function(x){return x+2;}];',
+        'var s=0;for(var i=0;i<48;i++)s+=fs[i%2](i+seed);return s;',
+        batches * (48 * 47 // 2 + 72) + 48 * seed_sum,
+        'held-out same-realm polymorphic calls', partition='holdout')
+    add('array-holes', '',
+        'var a=[];for(var i=0;i<48;i++)a[i*2]=i+seed;'
+        'var s=0;for(var i=0;i<a.length;i++)if(i in a)s+=a[i];return s;',
+        batches * (48 * 47 // 2) + 48 * seed_sum,
+        'held-out same-realm holey array traversal', partition='holdout')
+    add('object-mutation', '',
+        'var a={x:seed,y:7};var s=0;for(var i=0;i<32;i++){'
+        'a.x=i+seed;delete a.y;a.y=i+1;s+=a.x+a.y;}return s;',
+        batches * (32 * 32) + 32 * seed_sum,
+        'held-out same-realm deletion and reinsertion', partition='holdout')
+    return entries
+
+
+def write_corpus(destination, rows, widths, passes, row_phases=False, sustained_batches=None):
+    if row_phases and sustained_batches is not None:
+        raise ValueError('row phases and same-realm batching are separate corpora')
+    if sustained_batches is not None:
+        entries = same_realm_workloads(sustained_batches)
+    else:
+        entries = row_phase_workloads(rows, widths, passes) if row_phases else workloads(rows, widths, passes)
     destination.mkdir(parents=True, exist_ok=False)
     (destination / 'startup.js').write_text('print("scriptw-startup-ok");\n')
     for entry in entries:
@@ -171,6 +255,8 @@ def main():
     parser.add_argument('--passes', default='0,1,4')
     parser.add_argument('--row-phases', action='store_true',
                         help='emit only marked row cases and an empty boundary control for runtime_baseline --row-phases')
+    parser.add_argument('--sustained-batches', type=int, metavar='1..256',
+                        help='emit same-realm batched tuning and holdout workloads; complete-invocation time includes amortized setup')
     args = parser.parse_args()
     try:
         rows = bounded_list(args.rows, 16384)
@@ -180,7 +266,8 @@ def main():
             raise ValueError('row and width counts must be positive')
         if len(rows) * len(widths) * len(passes) > 128:
             raise ValueError('at most 128 row/width/pass combinations per corpus')
-        plan = write_corpus(args.output_dir, rows, widths, passes, row_phases=args.row_phases)
+        plan = write_corpus(args.output_dir, rows, widths, passes, row_phases=args.row_phases,
+                            sustained_batches=args.sustained_batches)
     except (OSError, ValueError) as error:
         parser.exit(1, f'performance-corpus: {error}\n')
     print(f"Wrote {len(plan['execution'])} checked workloads to {args.output_dir}")

@@ -248,6 +248,8 @@ impl ProgramInstanceLocals {
                     GcOperand::reference(&metadata.bytes, schema),
                     GcOperand::constant(image.language_features),
                     GcOperand::reference(&source_payload, schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
                 ),
                 function,
             ),
@@ -262,6 +264,55 @@ impl ProgramInstanceLocals {
         literals.table.clear(function);
         metadata.bytes.clear(function);
         Ok(Self { owner })
+    }
+
+    pub(crate) fn compact_shapes(
+        &self,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) -> GcStackReference<CompactDataShape, Nullable> {
+        schema
+            .field(ProgramInstanceSchema::COMPACT_SHAPES)
+            .read(&self.owner, schema, function)
+            .reference()
+    }
+    pub(crate) fn publish_compact_shape(
+        &self,
+        shape: &GcLocal<CompactDataShape>,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) {
+        schema.field(ProgramInstanceSchema::COMPACT_SHAPES).write(
+            &self.owner,
+            GcOperand::nullable_reference(shape, schema),
+            schema,
+            function,
+        );
+    }
+    pub(crate) fn own_data_read_caches(
+        &self,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) -> GcStackReference<OwnDataReadCache, Nullable> {
+        schema
+            .field(ProgramInstanceSchema::OWN_DATA_READ_CACHES)
+            .read(&self.owner, schema, function)
+            .reference()
+    }
+    pub(crate) fn publish_own_data_read_cache(
+        &self,
+        cache: &GcLocal<OwnDataReadCache>,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) {
+        schema
+            .field(ProgramInstanceSchema::OWN_DATA_READ_CACHES)
+            .write(
+                &self.owner,
+                GcOperand::nullable_reference(cache, schema),
+                schema,
+                function,
+            );
     }
 
     pub(crate) fn bind(

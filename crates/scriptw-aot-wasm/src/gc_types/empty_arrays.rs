@@ -48,6 +48,10 @@ pub(super) struct EmptyArrays {
     pub(super) properties: EmptyArrayGlobal<PropertyTable>,
     pub(super) property_index: EmptyArrayGlobal<OrdinaryPropertyIndex>,
     pub(super) private_elements: EmptyArrayGlobal<PrivateElementTable>,
+    pub(super) array_buckets: EmptyArrayGlobal<ArrayIndexBucketTable>,
+    pub(super) array_elements: EmptyArrayGlobal<IndexedTable>,
+    pub(super) number_bits: EmptyArrayGlobal<NumberBitsI64Array>,
+    pub(super) number_presence: EmptyArrayGlobal<NumberPresenceU64Array>,
 }
 
 impl EmptyArrays {
@@ -57,6 +61,10 @@ impl EmptyArrays {
             properties: EmptyArrayGlobal::declare(layouts, globals),
             property_index: EmptyArrayGlobal::declare(layouts, globals),
             private_elements: EmptyArrayGlobal::declare(layouts, globals),
+            array_buckets: EmptyArrayGlobal::declare(layouts, globals),
+            array_elements: EmptyArrayGlobal::declare(layouts, globals),
+            number_bits: EmptyArrayGlobal::declare(layouts, globals),
+            number_presence: EmptyArrayGlobal::declare(layouts, globals),
         }
     }
 }

@@ -15,10 +15,13 @@ use crate::Function;
 
 mod layouts;
 pub(crate) mod native_payload;
+pub use layouts::ArrayIndexedStorageMode;
 pub(crate) use layouts::*;
 
 mod empty_arrays;
 use empty_arrays::{EmptyArrayGlobal, EmptyArrays};
+mod stored_undefined;
+use stored_undefined::StoredUndefinedGlobal;
 
 mod value;
 pub(crate) use value::*;
@@ -40,6 +43,7 @@ mod sealed {
     pub trait Struct {}
     pub trait Array {}
     pub trait WritableArray {}
+    pub trait Subtype<Base> {}
 }
 
 /// Nullability is part of the actual signature/field contract.
@@ -91,6 +95,9 @@ impl AbiType {
 pub(crate) trait GcHeapType: sealed::Sealed + Copy + 'static {
     const LAYOUT: GcLayout;
 }
+
+/// A sealed nominal Wasm GC subtype relation, declared beside its layouts.
+pub(crate) trait GcSubtype<Base: GcHeapType>: GcHeapType + sealed::Subtype<Base> {}
 
 /// A type-section index that can name only `T`'s declared Wasm-GC type.
 ///
@@ -400,6 +407,7 @@ impl RuntimeGcTypes {
         let atomics_async_waiters_head = GcRootGlobal::declare(&self.layouts, &mut globals);
         let atomics_async_waiters_tail = GcRootGlobal::declare(&self.layouts, &mut globals);
         let empty_arrays = EmptyArrays::declare(&self.layouts, &mut globals);
+        let stored_undefined = StoredUndefinedGlobal::declare(&self.layouts, &mut globals);
         let snapshot =
             snapshot.then(|| snapshot::SnapshotRoots::declare(&self.layouts, &mut globals));
         let module_guards_first = globals.len();
@@ -433,6 +441,7 @@ impl RuntimeGcTypes {
             atomics_async_waiters_head,
             atomics_async_waiters_tail,
             empty_arrays,
+            stored_undefined,
             snapshot,
             module_guards: ModuleGuardGlobals {
                 first: module_guards_first,
@@ -453,10 +462,12 @@ impl RuntimeGcTypes {
 /// R contains only the core graph; P and standalone modules append direct
 /// program-helper signatures after that graph without moving any core type.
 /// Multi-member recursion groups make TypeSection::len a group-entry count;
-/// no later caller can append or guess a type index through that section.
-/// The only transition finalizes globals into the existing sealed package.
+/// callers cannot append or guess a type index through that section. The
+/// registry may append validated P-only foreign signatures before finalizing
+/// globals into the existing sealed package.
 pub(crate) struct RuntimeModuleTypes {
     section: Arc<TypeSection>,
+    next_type_index: u32,
     program_globals: bool,
     global_prelude: bool,
     runtime: RuntimeGcTypes,
@@ -466,6 +477,7 @@ pub(crate) struct RuntimeModuleTypes {
 /// Every registry still consumes its own globals and owns its own prelude flag.
 struct RuntimeTypeDeclarations {
     section: Arc<TypeSection>,
+    next_type_index: u32,
     layouts: Arc<GcLayoutRegistry>,
 }
 
@@ -478,6 +490,7 @@ impl RuntimeModuleTypes {
             .get_or_init(|| Self::build_declarations(program_globals));
         Self {
             section: Arc::clone(&declarations.section),
+            next_type_index: declarations.next_type_index,
             runtime: RuntimeGcTypes::from_layouts(Arc::clone(&declarations.layouts)),
             program_globals,
             global_prelude: false,
@@ -495,6 +508,7 @@ impl RuntimeModuleTypes {
             u32::try_from(function_count).expect("function type count overflow"),
         );
         let mut section = TypeSection::new();
+        let mut declared_types = 0u32;
         let mut members = Vec::new();
         let function_type = |definition: crate::module::StaticSignatureDefinition| SubType {
             is_final: true,
@@ -518,6 +532,7 @@ impl RuntimeModuleTypes {
                     definition.parameters().iter().copied(),
                     definition.results().iter().copied(),
                 );
+                declared_types = declared_types.checked_add(1).expect("type count fits u32");
             }
         }
         for helper in RuntimeHelperId::ALL {
@@ -530,6 +545,9 @@ impl RuntimeModuleTypes {
                 .iter()
                 .map(|layout| layout.definition(&layouts)),
         );
+        declared_types = declared_types
+            .checked_add(u32::try_from(members.len()).expect("recursive type count fits u32"))
+            .expect("type count fits u32");
         section.ty().rec(members);
         // A runtime helper signature can refer to the complete GC schema
         // without making every helper part of its recursive identity. Separate
@@ -541,6 +559,7 @@ impl RuntimeModuleTypes {
                     definition.parameters().iter().copied(),
                     definition.results().iter().copied(),
                 );
+                declared_types = declared_types.checked_add(1).expect("type count fits u32");
             }
         }
         if program_globals {
@@ -551,11 +570,13 @@ impl RuntimeModuleTypes {
                         definition.parameters().iter().copied(),
                         definition.results().iter().copied(),
                     );
+                    declared_types = declared_types.checked_add(1).expect("type count fits u32");
                 }
             }
         }
         RuntimeTypeDeclarations {
             section: Arc::new(section),
+            next_type_index: declared_types,
             layouts: Arc::new(layouts),
         }
     }
@@ -567,6 +588,52 @@ impl RuntimeModuleTypes {
         );
         self.global_prelude = present;
         self
+    }
+
+    /// Append only P's declared scalar ABI, after the complete shared GC and
+    /// program-helper prefix. R's recursive identity and declaration bytes do
+    /// not depend on an application's registry.
+    pub(crate) fn with_foreign_modules(
+        mut self,
+        registry: &scriptw_ir::foreign::ForeignModuleRegistry,
+    ) -> Result<(Self, crate::foreign::ForeignImportTypes), crate::EmitError> {
+        if !registry.is_empty() && !self.program_globals {
+            return Err(crate::EmitError::unsupported(
+                "runtime module cannot declare foreign function types",
+            ));
+        }
+        let mut registered = crate::foreign::ForeignImportTypes::default();
+        if registry.is_empty() {
+            return Ok((self, registered));
+        }
+        let section = Arc::make_mut(&mut self.section);
+        for (id, declaration) in registry.functions() {
+            let index = self.next_type_index;
+            self.next_type_index = index.checked_add(1).ok_or_else(|| {
+                crate::EmitError::unsupported("foreign function type exceeds the Wasm index space")
+            })?;
+            let parameters = declaration
+                .parameters()
+                .iter()
+                .map(|parameter| match parameter {
+                    scriptw_ir::foreign::ForeignScalarType::Number => ValType::F64,
+                });
+            let results = match declaration.result() {
+                scriptw_ir::foreign::ForeignResultType::Number => Some(ValType::F64),
+                scriptw_ir::foreign::ForeignResultType::Void => None,
+            };
+            section.ty().function(parameters, results);
+            registered.register_function(id, index);
+        }
+        if registry.error_tag().is_some() {
+            let index = self.next_type_index;
+            self.next_type_index = index.checked_add(1).ok_or_else(|| {
+                crate::EmitError::unsupported("foreign error tag type exceeds the Wasm index space")
+            })?;
+            section.ty().function([ValType::I32], []);
+            registered.register_error_tag(index);
+        }
+        Ok((self, registered))
     }
 
     pub(crate) fn finalize_globals(
@@ -676,6 +743,7 @@ pub(crate) struct RuntimeSchema {
     atomics_async_waiters_head: GcRootGlobal<AtomicsAsyncWaiter>,
     atomics_async_waiters_tail: GcRootGlobal<AtomicsAsyncWaiter>,
     empty_arrays: EmptyArrays,
+    stored_undefined: StoredUndefinedGlobal,
     snapshot: Option<snapshot::SnapshotRoots>,
     module_guards: ModuleGuardGlobals,
 }
@@ -873,6 +941,14 @@ mod tests {
 
     #[test]
     fn finalized_globals_bind_the_root_to_the_actual_next_index() {
+        let base_global_count =
+            RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime(
+                crate::RuntimeSourceCompilationProfile::Portable,
+            ))
+            .finalize_globals(GlobalLedger::new(), false, 0)
+            .globals
+            .section
+            .len();
         for existing_global_count in [0_u32, 1, 7] {
             for snapshot in [false, true] {
                 let runtime =
@@ -908,7 +984,7 @@ mod tests {
                 };
                 assert_eq!(
                     finalized.globals.section.len(),
-                    existing_global_count + 21 + snapshot_global_count,
+                    existing_global_count + base_global_count + snapshot_global_count,
                     "ordinary roots and opt-in typed inventory/witnesses share the actual section"
                 );
             }

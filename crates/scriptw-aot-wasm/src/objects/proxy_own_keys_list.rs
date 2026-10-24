@@ -397,13 +397,24 @@ impl FunctionBuilder<'_> {
             self.emit_object_header_projection(target, function),
             function,
         );
-        let storage = schema.reserve_gc_local(function).initialize(
+        let base = schema.reserve_gc_local(function).initialize(
             schema
                 .field(OrdinaryObjectSchema::PROPERTIES)
                 .read(&header, schema, function)
                 .reference(),
             function,
         );
+        base.is_subtype::<crate::gc_types::CompactDataStorage>(schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        let compact = schema.reserve_gc_local(function).initialize(
+            base.load(schema, function)
+                .cast_subtype::<crate::gc_types::CompactDataStorage>(schema, function),
+            function,
+        );
+        self.emit_compact_own_keys(&compact, output, function)?;
+        compact.clear(function);
+        function.instruction(&Instruction::Else);
+        let storage = self.emit_dictionary_property_storage(&header, function);
         let properties = schema.reserve_gc_local(function).initialize(
             schema
                 .field(OrdinaryPropertyStorageSchema::ENTRIES)
@@ -723,7 +734,85 @@ impl FunctionBuilder<'_> {
         indexed.clear(function);
         properties.clear(function);
         storage.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        base.clear(function);
         header.clear(function);
+        Ok(())
+    }
+
+    fn emit_compact_own_keys(
+        &mut self,
+        storage: &GcLocal<crate::gc_types::CompactDataStorage>,
+        output: &GcLocal<PropertyKeyTable>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        use crate::gc_types::*;
+        let schema = self.runtime_schema();
+        let keys = self.emit_compact_shape_keys(storage, function);
+        let count = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        schema
+            .array_type::<CompactShapeKeys>()
+            .length(&keys, schema, function);
+        count.store(function);
+        let value = schema.reserve_value_local(function);
+        value.set_undefined(function);
+        let undefined = schema
+            .reserve_gc_local(function)
+            .initialize(schema.stored_undefined(function), function);
+        let candidates = schema.reserve_gc_local(function).initialize(
+            schema.array_type::<ValueArray>().filled(
+                GcOperand::reference(&undefined, schema),
+                count,
+                function,
+            ),
+            function,
+        );
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        let repeat = self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        count.load(function);
+        function.instruction(&Instruction::I32GeU);
+        self.emit_branch_if_to_target(exit, function);
+        let name = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<CompactShapeKeys>()
+                .read(&keys, index, schema, function)
+                .reference(),
+            function,
+        );
+        value.set_reference(&name, schema, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&value, function),
+            function,
+        );
+        schema.array_type::<ValueArray>().write(
+            &candidates,
+            index,
+            GcOperand::reference(&stored, schema),
+            schema,
+            function,
+        );
+        stored.clear(function);
+        name.clear(function);
+        self.emit_own_keys_increment(index, function);
+        self.emit_branch_to_target(repeat, function);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.emit_own_keys_order_candidates(&candidates, count, output, function)?;
+        candidates.clear(function);
+        undefined.clear(function);
+        value.clear(function);
+        keys.clear(function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(count, function);
         Ok(())
     }
 

@@ -340,7 +340,7 @@ fn for_init_preserves_caller_flow(init: &ForInitIr) -> bool {
 
 fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
     match &expr.expr {
-        ExprIr::EnvironmentIdentifier(_) => false,
+        ExprIr::EnvironmentIdentifier(_) | ExprIr::ForeignCall(_) => false,
         ExprIr::Undefined
         | ExprIr::ArrayHole
         | ExprIr::Null

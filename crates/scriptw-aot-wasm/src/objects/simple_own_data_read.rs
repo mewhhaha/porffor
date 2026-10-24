@@ -78,49 +78,14 @@ impl FunctionBuilder<'_> {
             target.cast_reference::<OrdinaryObject>(schema, function),
             function,
         );
-        let descriptor = self.emit_ordinary_own_descriptor_reference(&object, key, function)?;
-        descriptor.load(schema, function).is_null(function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        let present = schema.reserve_gc_local(function).initialize(
-            descriptor.load(schema, function).require_non_null(function),
-            function,
-        );
-        let flags = schema.reserve_i64_local(function);
-        schema
-            .struct_type::<PropertyDescriptor>()
-            .field(PropertyDescriptorSchema::FLAGS)
-            .read(&present, schema, function)
-            .store_i64(flags, function);
-        flags.load(function);
-        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        let stored = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<PropertyDescriptor>()
-                .field(PropertyDescriptorSchema::VALUE)
-                .read(&present, schema, function)
-                .reference(),
-            function,
-        );
         let value = schema.reserve_value_local(function);
-        schema
-            .struct_type::<StoredValue>()
-            .read_into(&stored, &value, schema, function);
+        self.emit_ordinary_own_data_value(&object, key, &value, handled, function)?;
+        handled.load(function);
+        self.open_frame(ControlFrameKind::If, function);
         result.set_normal(&value, function);
-        function.instruction(&Instruction::I32Const(1));
-        handled.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         value.clear(function);
-        stored.clear(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        schema.release_i64_local(flags, function);
-        present.clear(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        descriptor.clear(function);
         object.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);

@@ -1085,6 +1085,7 @@ fn lower_script_program_with_allocations(
             eprintln!("scriptw lower trace: script-lower: {:?}", t1.elapsed());
         }
         program.script = Some(ScriptIr {
+            foreign_modules: analysis.module_execution.foreign_modules.clone(),
             language_features: crate::LanguageFeaturePolicy::default(),
             template_source: analysis.template_source,
             eval_environment: analysis.owner_eval_environment(SCRIPT_OWNER_ID),

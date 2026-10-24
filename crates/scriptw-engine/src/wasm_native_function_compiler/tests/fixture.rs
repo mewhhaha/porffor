@@ -11,6 +11,8 @@ pub(super) fn store() -> WasmtimeStore<WasmHostState> {
     let mut store = WasmtimeStore::new(
         &engine,
         WasmHostState {
+            user_data: None,
+            embedding: None,
             weak: wasm_gc_weak_host::WeakGcState::default(),
             monotonic_clock_origin: realm.host_clock().monotonic_instant(),
             realm,

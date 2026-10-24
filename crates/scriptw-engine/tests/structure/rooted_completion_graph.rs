@@ -96,6 +96,108 @@ object;
 }
 
 #[test]
+fn array_snapshots_preserve_dense_holes_and_sparse_transition_descriptors() {
+    for transition in [false, true] {
+        let source = format!(
+            r#"
+var array=[0,undefined,-0,3,4],token={{}};
+delete array[0];array[4]=array;
+Object.defineProperty(array,'2',{{writable:false,configurable:false}});
+Object.defineProperty(array,'7',{{get:function(){{throw 'snapshot invoked accessor';}},enumerable:true,configurable:true}});
+{transition}
+gc();array;
+"#,
+            transition = if transition {
+                "array[4294967294]=token;"
+            } else {
+                ""
+            }
+        );
+        let outcome = observe(&source, SnapshotLimits::default());
+        let SnapshotOutcome::Captured { graph } = outcome.completion.outcome else {
+            panic!("array graph was rejected: {:?}", outcome.completion.outcome);
+        };
+        assert_eq!(graph.root(), &SnapshotValue::Object { id: 0 });
+        let root = &graph.nodes()[0];
+        let names = root
+            .properties
+            .iter()
+            .map(|property| match &property.key {
+                SnapshotKey::String { units } => String::from_utf16(units.units()).unwrap(),
+                SnapshotKey::Symbol { .. } => panic!("array control has no symbol keys"),
+            })
+            .collect::<Vec<_>>();
+        let expected = if transition {
+            vec!["1", "2", "3", "4", "7", "4294967294", "length"]
+        } else {
+            vec!["1", "2", "3", "4", "7", "length"]
+        };
+        assert_eq!(names, expected);
+        assert!(matches!(
+            property(root, "1"),
+            SnapshotDescriptor::Data {
+                value: SnapshotValue::Undefined {},
+                ..
+            }
+        ));
+        assert!(matches!(property(root, "2"), SnapshotDescriptor::Data {
+            value: SnapshotValue::Number { bits }, writable: false, configurable: false, ..
+        } if *bits == (-0f64).to_bits()));
+        assert!(matches!(
+            property(root, "4"),
+            SnapshotDescriptor::Data {
+                value: SnapshotValue::Object { id: 0 },
+                ..
+            }
+        ));
+        assert!(matches!(
+            property(root, "7"),
+            SnapshotDescriptor::Accessor {
+                get: SnapshotValue::Object { .. },
+                set: SnapshotValue::Undefined {},
+                enumerable: true,
+                configurable: true
+            }
+        ));
+    }
+}
+
+#[test]
+fn empty_dense_arrays_release_backing_before_bounded_graph_observation() {
+    for removal in [
+        "array.length=0;",
+        "for(var i=0;i<1024;i++){delete array[i];}",
+    ] {
+        // Remove the prototype graph so the budget measures this array. A
+        // retained 1,024-slot backing alone would exceed the 512-work budget.
+        let source = format!(
+            "var array=[];Object.setPrototypeOf(array,null);for(var i=0;i<1024;i++){{array[i]=i;}}{removal}gc();array;"
+        );
+        let limits = SnapshotLimits::new(8, 8, 2, 8, 64, 16, 512, 8).unwrap();
+        let outcome = observe(&source, limits);
+        let SnapshotOutcome::Captured { graph } = outcome.completion.outcome else {
+            panic!(
+                "empty array retained backing: {:?}",
+                outcome.completion.outcome
+            );
+        };
+        let root = &graph.nodes()[0];
+        assert_eq!(root.prototype, SnapshotValue::Null {});
+        assert_eq!(root.properties.len(), 1);
+        let expected_length = if removal == "array.length=0;" {
+            0f64
+        } else {
+            1024f64
+        };
+        assert!(
+            matches!(property(root, "length"), SnapshotDescriptor::Data {
+            value: SnapshotValue::Number { bits }, ..
+        } if *bits == expected_length.to_bits())
+        );
+    }
+}
+
+#[test]
 fn original_throw_is_rooted_through_jobs_without_running_getters_or_symbol_hooks() {
     let outcome = observe(
         r#"
@@ -277,4 +379,63 @@ fn unsupported_exotic_and_copy_budget_are_execution_observations() {
     assert!(
         matches!(graph.root(), SnapshotValue::String { units } if units.units() == [0xd800, 97, 98, 99])
     );
+}
+
+#[test]
+fn compact_plain_literal_snapshot_reads_live_soa_values_without_descriptor_materialization() {
+    let outcome = observe(
+        r#"
+var symbol=Symbol('kept');
+function make(){return {'2':2,self:null,big:17n,symbol:symbol,minus:-0,missing:undefined};}
+function read(record){return record.self;}
+var result=make();read(result);result.self=result;
+var descriptor=Object.getOwnPropertyDescriptor(result,'big');
+if(descriptor.value!==17n || !descriptor.writable)throw 'descriptor snapshot';
+gc();result;
+"#,
+        SnapshotLimits::default(),
+    );
+    let SnapshotOutcome::Captured { graph } = outcome.completion.outcome else {
+        panic!(
+            "compact graph was rejected: {:?}",
+            outcome.completion.outcome
+        );
+    };
+    assert_eq!(graph.root(), &SnapshotValue::Object { id: 0 });
+    let root = &graph.nodes()[0];
+    let names = root
+        .properties
+        .iter()
+        .map(|property| match &property.key {
+            SnapshotKey::String { units } => String::from_utf16(units.units()).unwrap(),
+            SnapshotKey::Symbol { .. } => panic!("all literal keys are static strings"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["2", "self", "big", "symbol", "minus", "missing"]);
+    assert!(matches!(
+        property(root, "self"),
+        SnapshotDescriptor::Data {
+            value: SnapshotValue::Object { id: 0 },
+            writable: true,
+            enumerable: true,
+            configurable: true
+        }
+    ));
+    assert!(
+        matches!(property(root,"minus"), SnapshotDescriptor::Data { value:SnapshotValue::Number { bits }, .. } if *bits == (-0f64).to_bits())
+    );
+    assert!(matches!(
+        property(root, "missing"),
+        SnapshotDescriptor::Data {
+            value: SnapshotValue::Undefined {},
+            ..
+        }
+    ));
+    assert!(matches!(
+        property(root, "symbol"),
+        SnapshotDescriptor::Data {
+            value: SnapshotValue::Symbol { .. },
+            ..
+        }
+    ));
 }

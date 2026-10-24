@@ -58,3 +58,18 @@ fn requested_threads_are_bounded_by_capacity_and_work() {
     assert!(bounded_jobs(request, 8) <= std::thread::available_parallelism().unwrap().get().min(8));
     assert_eq!(bounded_jobs(NonZeroUsize::MIN, 8), 1);
 }
+
+#[test]
+fn compiler_owned_failure_diagnostic_keeps_function_body_and_actual_validator_error() {
+    assert!(explain_wasm_validation(&module(false)).is_ok());
+    let error = explain_wasm_validation(&module(true)).unwrap_err();
+    assert!(error.contains("Wasm function 7 (body bytes"), "{error}");
+    assert!(
+        error.contains("type mismatch") && error.contains("offset"),
+        "{error}"
+    );
+    assert!(
+        explain_wasm_validation(&[0, 97]).is_err(),
+        "truncated module must remain a parser error"
+    );
+}

@@ -119,6 +119,38 @@ class KernelBudgetTests(unittest.TestCase):
 
 
 class CloudBudgetTests(unittest.TestCase):
+    def setUp(self):
+        # These tests supply their own inherited environment. The real outer
+        # limiter remains active, including its kernel memory/CPU bounds.
+        environment = patch.dict(launcher.os.environ, {}, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def test_host_root_without_controller_files_keeps_the_inherited_scope_limits(self):
+        files = {
+            "/proc/self/cgroup": "0::/scope\n",
+            "/sys/fs/cgroup/scope/memory.max": "4294967296",
+            "/sys/fs/cgroup/scope/cpu.max": "100000 100000",
+        }
+        def read(path):
+            try:
+                return files[str(path)]
+            except KeyError:
+                raise FileNotFoundError(str(path)) from None
+        affinity = [{0, 1, 2}]
+        with patch.object(launcher.Path, "read_text", read), \
+                patch.object(launcher.os, "sched_getaffinity", lambda pid: affinity[0]), \
+                patch.object(launcher.os, "sched_setaffinity", lambda pid, cpus: affinity.__setitem__(0, cpus)):
+            self.assertEqual(launcher.require_cloud_budget(), 4294967296)
+            self.assertEqual(affinity[0], {0})
+            self.assertEqual(launcher.cloud_native_affinity(), 1)
+            files["/sys/fs/cgroup/scope/memory.max"] = "max"
+            with self.assertRaisesRegex(ValueError, "finite inherited"):
+                launcher.require_cloud_budget()
+            del files["/sys/fs/cgroup/scope/memory.max"]
+            with self.assertRaises(FileNotFoundError):
+                launcher.require_cloud_budget()
+
     def cloud(self, membership="/", limits=None, cpu_limits=None, allowed_cpus=None):
         files = {"/proc/self/cgroup": f"0::{membership}\n"}
         for group, limit in (limits or {"/": "34359738368"}).items():

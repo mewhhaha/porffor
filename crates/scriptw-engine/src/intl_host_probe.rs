@@ -63,6 +63,8 @@ impl IntlHostProbe {
         let mut store = WasmtimeStore::new(
             &wasm_engine,
             WasmHostState {
+                user_data: None,
+                embedding: None,
                 weak: wasm_gc_weak_host::WeakGcState::default(),
                 native_source_compiler: None,
                 native_template_instances: Default::default(),

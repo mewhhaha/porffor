@@ -17,6 +17,7 @@ fn native_template_cache_requires_actual_engine_and_keeps_original_aggregate_lim
     let mut cache = MemoryWasmModuleCache::new(limits);
     let key = WasmModuleMemoryCacheKey {
         native_compilation_mode: WasmNativeCompilationMode::Fast,
+        runtime_image_policy: crate::WasmRuntimeImagePolicy::EmbeddedBuild,
         wasm_sha256: [7; 32],
     };
     cache.retain_compiled_for_engine(key, a.clone());

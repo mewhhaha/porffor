@@ -4,6 +4,7 @@ use std::path::Path;
 const ENGINE_SOURCE: &str = include_str!("../../src/lib.rs");
 const ENGINE_TEST_SOURCE: &str = include_str!("../../src/tests/control_flow.rs");
 const GRAPH_SOURCE: &str = include_str!("../../src/graph_observation.rs");
+const EMBEDDING_SOURCE: &str = include_str!("../../src/embedding.rs");
 const NATIVE_DIRECT_EVAL_TEST_SOURCE: &str =
     include_str!("../../src/native_direct_eval_compiler_tests.rs");
 const NATIVE_DIRECT_EVAL_OWNERSHIP_TEST_SOURCE: &str =
@@ -149,10 +150,25 @@ fn wasm_execution_mode_is_the_exact_private_no_capability_domain() {
         assert_eq!(normalized(function).matches(route.as_str()).count(), 1);
         native_test_mode_uses += 1;
     }
-    // The three named cfg(test) consumers add no production execution mode.
+    // The embedding entry fixes structured capture without exposing a mode
+    // parameter. Admit this one named consumer, keeping the domain private.
+    let embedding_state = bounded(
+        EMBEDDING_SOURCE,
+        "pub fn new_state<T: Any + Send>(",
+        "\n    fn check(",
+    );
+    assert_eq!(EMBEDDING_SOURCE.matches("WasmExecutionMode").count(), 1);
+    assert_eq!(embedding_state.matches("WasmExecutionMode").count(), 1);
+    assert!(normalized(embedding_state)
+        .contains("output_events:WasmOutputEvents::for_mode(&WasmExecutionMode::Structured),"));
+    let (embedding_parameters, _) = embedding_state
+        .split_once('{')
+        .expect("embedding state constructor body");
+    assert!(!embedding_parameters.contains("WasmExecutionMode"));
+    // The three cfg(test) consumers and fixed embedding entry add no mode.
     assert_eq!(
         count_in_rust_sources(&source_root, "WasmExecutionMode"),
-        25 + native_test_mode_uses
+        25 + native_test_mode_uses + 1
     );
     for forbidden in [
         "pub enum WasmExecutionMode",

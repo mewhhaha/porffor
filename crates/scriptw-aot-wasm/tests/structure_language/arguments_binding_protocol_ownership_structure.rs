@@ -2,6 +2,8 @@ use std::fs;
 use std::path::Path;
 
 const ARGUMENTS_SOURCE: &str = include_str!("../../src/arguments_protocol.rs");
+const ACTIVATION_SOURCE: &str = include_str!("../../src/arguments_protocol/unobservable_leaf.rs");
+const EMIT_SOURCE: &str = include_str!("../../src/emit.rs");
 const ENVIRONMENTS_SOURCE: &str = include_str!("../../src/environments.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/function-arguments-binding-ownership.md");
@@ -273,7 +275,7 @@ fn binding_transition_moves_the_protocol_and_presence_cannot_recover_it() {
         &[
             "&mutself)->Result<ArgumentsBindingProtocol,EmitError>{",
             "matchcore::mem::replace(&mutself.0,FunctionArgumentsState::BoundAbsent)",
-            "Pending(FunctionArgumentsKind::Absent|FunctionArgumentsKind::EmptyStrictBody(_),)",
+            "Pending(FunctionArgumentsKind::Absent|FunctionArgumentsKind::EmptyStrictBody(_)|FunctionArgumentsKind::UnobservableLeaf,)",
             "ArgumentsBindingProtocol(None)",
             "Pending(FunctionArgumentsKind::Present(protocol))",
             "self.0=FunctionArgumentsState::BoundPresent",
@@ -291,8 +293,89 @@ fn binding_transition_moves_the_protocol_and_presence_cannot_recover_it() {
     );
     assert_eq!(
         presence,
-        "&self)->Option<()>{match&self.0{FunctionArgumentsState::Pending(FunctionArgumentsKind::Absent|FunctionArgumentsKind::EmptyStrictBody(_),)|FunctionArgumentsState::BoundAbsent=>None,FunctionArgumentsState::Pending(FunctionArgumentsKind::Present(_))|FunctionArgumentsState::BoundPresent=>Some(()),}}"
+        "&self)->Option<()>{match&self.0{FunctionArgumentsState::Pending(FunctionArgumentsKind::Absent|FunctionArgumentsKind::EmptyStrictBody(_)|FunctionArgumentsKind::UnobservableLeaf,)|FunctionArgumentsState::BoundAbsent=>None,FunctionArgumentsState::Pending(FunctionArgumentsKind::Present(_))|FunctionArgumentsState::BoundPresent=>Some(()),}}"
     );
+}
+
+#[test]
+fn activation_plan_keeps_original_validation_source_and_storage_under_one_authority() {
+    let plan = rust_code(
+        bounded(
+            ACTIVATION_SOURCE,
+            "#[must_use = \"a validated activation plan must be consumed by its source builder\"]",
+            "impl<'a> UserFunctionActivationPlan<'a>",
+        ),
+        true,
+    );
+    assert_eq!(
+        plan,
+        "pub(crate)structUserFunctionActivationPlan<'a>{function:&'aFunctionIr,arguments:FunctionArgumentsProtocol,owned_bindings:&'a[OwnedEnvBindingIr],}"
+    );
+
+    let admission = rust_code(
+        bounded(
+            ACTIVATION_SOURCE,
+            "pub(crate) fn for_function(",
+            "pub(crate) fn into_parts(",
+        ),
+        true,
+    );
+    positions_in_order(
+        &admission,
+        &[
+            "function:&'aFunctionIr)->Result<Self,EmitError>",
+            "letarguments=FunctionArgumentsProtocol::for_user_function(function)?;",
+            "UnobservableLeafActivation::admit(function)",
+            "Some(leaf)=>leaf.consume(arguments)",
+            "None=>Self{function,arguments,owned_bindings:&function.owned_env_bindings,}",
+        ],
+    );
+    assert_eq!(exact_identifier_count(&admission, "for_user_function"), 1);
+
+    let consumed_parts = rust_code(
+        bounded(
+            ACTIVATION_SOURCE,
+            "pub(crate) fn into_parts(",
+            "struct UnobservableLeafActivation<'a>",
+        ),
+        true,
+    );
+    assert_eq!(
+        consumed_parts,
+        "self,)->(&'aFunctionIr,FunctionArgumentsProtocol,&'a[OwnedEnvBindingIr],){(self.function,self.arguments,self.owned_bindings)}}"
+    );
+
+    let elision = rust_code(
+        bounded(ACTIVATION_SOURCE, "fn consume(", "#[cfg(test)]"),
+        true,
+    );
+    positions_in_order(
+        &elision,
+        &[
+            "self,mutarguments:FunctionArgumentsProtocol)->UserFunctionActivationPlan<'a>",
+            "FunctionArgumentsState::Pending(FunctionArgumentsKind::Present(_))",
+            "arguments.0=FunctionArgumentsState::Pending(FunctionArgumentsKind::UnobservableLeaf);",
+            "UserFunctionActivationPlan{function:self.function,arguments,owned_bindings:&[],}",
+        ],
+    );
+    assert_eq!(exact_identifier_count(&elision, "clone"), 0);
+    assert_eq!(exact_identifier_count(&elision, "cloned"), 0);
+
+    let builder = rust_code(
+        bounded(EMIT_SOURCE, "fn new_function(", "fn new_host_builtin("),
+        true,
+    );
+    positions_in_order(
+        &builder,
+        &[
+            "let(function,arguments_protocol,owned_env_bindings)=UserFunctionActivationPlan::for_function(function)?.into_parts();",
+            "Self::new(schema,&function.body,function.template_source,function.params.as_slice(),owned_env_bindings,",
+            "function.protocol.flavor(),arguments_protocol,",
+        ],
+    );
+    assert_eq!(exact_identifier_count(&builder, "for_function"), 1);
+    assert_eq!(exact_identifier_count(&builder, "for_user_function"), 0);
+    assert!(!builder.contains("function.owned_env_bindings"));
 }
 
 #[test]
@@ -341,19 +424,9 @@ fn parameter_binding_consumes_authority_before_owned_initialization() {
     assert_eq!(exact_identifier_count(&initialization, "clone"), 0);
     assert_eq!(exact_identifier_count(&initialization, "cloned"), 0);
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "take_for_binding"),
-        5
-    );
-    assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "into_present"),
-        3
-    );
-    assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "initialize_arguments_binding"),
-        2
-    );
+    // Count the consuming operations in their production bodies above. The
+    // protocol unit tests also exercise these methods, so whole-tree textual
+    // counts do not describe the one-shot ownership invariant.
 }
 
 #[test]

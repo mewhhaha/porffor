@@ -11,7 +11,7 @@ use std::{fs, path::PathBuf};
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.len() != 6 {
-        return Err("usage: native-policy-probe FIXTURES SAMPLES WARMUPS CASE fast|size-optimized ARTIFACT_DIR".into());
+        return Err("usage: native-policy-probe FIXTURES SAMPLES WARMUPS CASE fast|size-optimized|speed ARTIFACT_DIR".into());
     }
     let samples: usize = args[1].parse().map_err(|_| "invalid samples")?;
     let warmups: usize = args[2].parse().map_err(|_| "invalid warmups")?;
@@ -21,6 +21,7 @@ fn run() -> Result<(), String> {
     let requested = match args[4].as_str() {
         "fast" => WasmProfileNativeMode::Fast,
         "size-optimized" => WasmProfileNativeMode::SizeOptimized,
+        "speed" => WasmProfileNativeMode::Speed,
         _ => return Err("unknown native mode".into()),
     };
     scriptw_engine::configure_compilation_jobs(1)?;

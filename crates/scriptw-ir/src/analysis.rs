@@ -1654,11 +1654,16 @@ impl<'a> AnalysisBuilder<'a> {
             function.parameters.as_ref(),
             interner,
         );
-        let simple_parameter_names = if function.protocol.flavor() == FunctionFlavor::Ordinary {
-            collect_simple_parameter_names(interner, function.parameters)
-        } else {
-            Vec::new()
-        };
+        // Only mapped arguments require every simple parameter to own a cell.
+        // Strict parameters are retained later when capture, eval visibility,
+        // a separate body environment or resumable execution actually needs
+        // them, before physical environments and capture hops are finalized.
+        let simple_parameter_names =
+            if !function.strict && function.protocol.flavor() == FunctionFlavor::Ordinary {
+                collect_simple_parameter_names(interner, function.parameters)
+            } else {
+                Vec::new()
+            };
         let lexical_super_owner_role = function.protocol.lexical_super_owner_role();
         let parameter_environment_bindings = self.collect_parameter_environment_bindings(
             interner,

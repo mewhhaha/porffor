@@ -8,12 +8,21 @@ binding lifecycle is closed:
 ```text
 Pending(Absent)  -> BoundAbsent
 Pending(Present) -> BoundPresent
+Pending(UnobservableLeaf) -> BoundAbsent
 ```
 
 Parameter binding consumes the pending state exactly once. A present state
 moves its mapped or unmapped construction protocol into one
 `ArgumentsBindingProtocol`; consuming that authority is the only route to
 arguments-object initialization.
+
+User functions first consume a `UserFunctionActivationPlan`. It validates the
+original mapped-arguments slots before considering leaf elision, then supplies
+the exact source, arguments protocol and owned-binding selection together.
+An admitted synchronous leaf replaces present materialization with
+`UnobservableLeaf` and drops mapping-only storage in that same plan. Its
+nonempty source body still follows normal compilation; the separate empty
+strict-body authority is unchanged.
 
 Local-count planning and root-variable reuse need only know whether the
 function has its own arguments object. Their reusable `present()` projection
@@ -59,6 +68,11 @@ transition, the presence-only projection and the consuming initialization
 route. Arguments-protocol module tests cover absent, mapped and unmapped
 classification, validated mapped slots, last-duplicate selection, malformed
 storage rejection and repeated-binding rejection.
+
+The guard also pins the activation plan's validation-before-elision ordering
+and its consuming builder seam. Production-body checks establish the binding
+route without treating additional unit-test calls as new materialization
+authority.
 
 This is a source-equivalent compiler ownership closure. It does not add an
 arguments-object behavior, complete parameter/body environment separation or

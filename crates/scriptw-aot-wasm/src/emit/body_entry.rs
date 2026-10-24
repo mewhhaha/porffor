@@ -43,9 +43,18 @@ impl<'a> FunctionBuilder<'a> {
             RuntimeHelperId::ValueToString => self.outline_value_to_string = false,
             RuntimeHelperId::ValueToNumber => self.outline_value_to_number = false,
             RuntimeHelperId::ValueToNumeric => self.outline_value_to_numeric = false,
+            // These storage kernels have no inline facade to disable. The
+            // cached-read parameter owner binds its caller's ProgramInstance
+            // and Environment before its body; allocation takes the source
+            // prototype explicitly, and descriptor/storage kernels are pure.
+            RuntimeHelperId::OrdinaryPropertyStorageEnsure
+            | RuntimeHelperId::OrdinaryOwnDescriptor
+            | RuntimeHelperId::CompactLiteralAllocate
+            | RuntimeHelperId::CachedPropertyRead => {}
             // These bodies call their physical typed kernel directly. Their
             // public facades retain registered call boundaries for recursion.
             RuntimeHelperId::TransientByteAlloc
+            | RuntimeHelperId::ArrayIndexedPublishDefaultData
             | RuntimeHelperId::ArrayIndexedPublish
             | RuntimeHelperId::ArrayIndexedDelete
             | RuntimeHelperId::ObjectRead

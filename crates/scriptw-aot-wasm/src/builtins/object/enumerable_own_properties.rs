@@ -1,10 +1,6 @@
 //! EnumerableOwnProperties builds only unpublished defining-Realm Arrays.
 use super::*;
-use crate::gc_types::{
-    ArrayObject, ArrayObjectSchema, GcLocal, GcOperand, I32Local, PropertyDescriptor, StoredValue,
-    ValueLocals,
-};
-use crate::heap::StoredPropertyAttributes;
+use crate::gc_types::{ArrayObject, ArrayObjectSchema, GcLocal, GcOperand, I32Local, ValueLocals};
 
 #[derive(Clone, Copy)]
 enum EnumerableOwnProperties {
@@ -37,54 +33,17 @@ impl NativeObjectResultArray {
         function.instruction(&Instruction::Unreachable);
         builder.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        let stored = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<StoredValue>()
-                .from_value(value, function),
-            function,
-        );
-        let undefined = schema.reserve_value_local(function);
-        undefined.set_undefined(function);
-        let absent_accessor = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<StoredValue>()
-                .from_value(&undefined, function),
-            function,
-        );
-        let descriptor = schema.reserve_gc_local(function).initialize(
-            schema.struct_type::<PropertyDescriptor>().construct(
-                (
-                    GcOperand::descriptor_word(
-                        StoredPropertyAttributes::Data {
-                            writable: true,
-                            enumerable: true,
-                            configurable: true,
-                        }
-                        .descriptor_word(),
-                    ),
-                    GcOperand::reference(&stored, schema),
-                    GcOperand::reference(&absent_accessor, schema),
-                    GcOperand::reference(&absent_accessor, schema),
-                ),
-                function,
-            ),
-            function,
-        );
         let index = schema.reserve_i64_local(function);
         self.next.load(function);
         function.instruction(&Instruction::I64ExtendI32U);
         index.store(function);
-        builder.emit_array_indexed_publish_descriptor(&self.array, index, &descriptor, function)?;
+        builder.emit_array_indexed_publish_default_data(&self.array, index, value, function)?;
         schema.release_i64_local(index, function);
-        // The complete data descriptor is installed before advancing length.
+        // The complete data value is installed before advancing length.
         self.next.load(function);
         function.instruction(&Instruction::I32Const(1));
         function.instruction(&Instruction::I32Add);
         self.next.store(function);
-        descriptor.clear(function);
-        absent_accessor.clear(function);
-        undefined.clear(function);
-        stored.clear(function);
         Ok(())
     }
 

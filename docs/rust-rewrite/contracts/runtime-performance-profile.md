@@ -1,5 +1,82 @@
 # Product runtime performance observations
 
+## Explicit compiler and GC capacity cohorts
+
+`Engine::profile_wasm_execution_with_options` accepts closed, immutable
+`WasmRuntimeProfileOptions`: Fast/SizeOptimized/Speed program compilation,
+16/32/64/128 MiB initial GC capacity, and SinglePass/Backtracking program
+register allocation. These are diagnostic configurations. Ordinary execution
+retains automatic native-mode selection, a 16 MiB initial heap and SinglePass.
+All cohorts retain the required copying collector, GC/reference/exception
+features, Store limits, deadlines and a fresh Store/Realm for every invocation.
+
+The runtime-baseline example accepts trailing `--native-mode
+fast|size-optimized|speed`, `--gc-initial-mib 16|32|64|128` and `--regalloc
+single-pass|backtracking` options (each flag and value are separate arguments).
+Any explicit policy flag activates a separate diagnostic cohort; omitted fields
+then use fast/16/single-pass. Ordinary invocations keep their v2 schema.
+Explicit invocations emit `scriptw-wasmtime-policy-baseline-v1`, their complete
+`requested_native_policy`, and each observation's `actual_native_policy`.
+The benchmark runner admits these only with `--skip-startup`; policy settings
+cannot be compared to ordinary scores or to a different policy through the
+ordinary baseline comparison.
+
+Two diagnostic Engine configurations may remain hot. The existing module-image
+LRU checks actual Engine ownership as well as Wasm/native-mode identity, so an
+evicted and recreated configuration cannot reuse another Engine's Module.
+The independent v5 runtime manifest explicitly admits Speed destinations.
+Ordinary embedded R retains its SpeedAndSize/Backtracking build producer.
+
+Pinned Wasmtime includes initial GC capacity in native-image compatibility.
+Every explicit policy cohort, including the 16 MiB control, therefore uses
+the same matching optimized-R producer and serialized-image cache through the
+checked native module/function disk caches. Runtime-module and host-template
+keys distinguish this explicit image authority from ordinary embedded-image
+admission. This preserves runtime optimization while changing the heap parameter
+and prevents a retained ordinary R from bypassing the diagnostic treatment. Only privately serialized producer bytes
+enter this diagnostic image cache. It retains at most two images and 256 MiB in
+total; oversized images execute transiently and are not retained. Actual
+destination-Engine native-version, feature and tunable admission remains
+mandatory. The first warmup includes matching-R production; each observation
+records `matched_runtime_image_cache` as NotAccessed/Hit/Miss/Oversized.
+Explicit-cohort RSS includes the additional matching serialized image and
+producer/allocator high-water effects. It is diagnostic packaging RSS, not
+ordinary product RSS or live JavaScript heap usage.
+
+The ordinary and explicit producers also select different native CPU features.
+The [Cargo runtime producer](../../../crates/scriptw-engine/src/embedded_runtime/build.rs)
+explicitly calls `Config::target` with the build target triple. Pinned
+[Wasmtime47 target handling](../../../vendor/wasmtime-47.0.0/src/config.rs)
+disables host CPU feature inference when a target is supplied, including when
+that target equals the host triple. The explicit
+[matching-image producer](../../../crates/scriptw-engine/src/embedded_runtime/matched_capacity.rs)
+uses the product configuration without supplying a target, so its Cranelift
+builder infers the current host's CPU features. Matching the optimization level
+and allocator therefore does not make ordinary and explicit R identical.
+
+All explicit variants on the same measured host share that inferred target and
+the same serialized-image treatment, including the 16 MiB control. Comparisons
+within that matrix can isolate the selected P compiler or initial-capacity
+variable when all other controls match. An ordinary-versus-explicit comparison
+changes R's native target and image storage too; it cannot isolate a P-mode,
+allocator or capacity effect. Such a comparison remains a labelled diagnostic,
+even when the requested policy says Fast/16 MiB/SinglePass.
+
+Store-independent host function registration uses at most two linker templates,
+keyed by host Wasm/native-mode identity and checked against the actual Engine.
+Templates retain immutable callbacks and canonical types, without Modules,
+artifact bytes, Stores, Realms, memory imports or runtime instances. Each run
+clones its template before defining fresh private/shared memory and linking its
+own R instance. `host_import_cache` reports the actual Hit/Miss result.
+
+Runtime timings additionally expose artifact/Intl `admission` and
+`host_import_registration`. Host import registration is a subspan of
+`store_and_linker`, so additive attribution must not count it twice. These
+diagnostics and cache paths require the focused native and semantic checkpoints;
+their presence alone makes no speedup or new full-suite conformance claim.
+
+## Historical fixed-corpus observations
+
 The fixed twenty-case conformance corpus explicitly compiles with the Test262
 host surface, matching the original ignored CLI chunk gate. It executes real
 emitted Wasm through the product runtime. Policy v3 records this host authority

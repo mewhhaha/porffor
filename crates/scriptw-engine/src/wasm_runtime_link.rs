@@ -269,6 +269,8 @@ pub(super) struct WasmModules {
     pub(super) program: WasmtimeModule,
     pub(super) runtime: Option<WasmtimeModule>,
     pub(super) memory_cache_outcome: WasmModuleMemoryCacheOutcome,
+    pub(super) matched_runtime_image_cache: WasmRuntimeMatchedImageCacheOutcome,
+    pub(super) loading: WasmRuntimeModuleLoading,
 }
 
 impl WasmModules {
@@ -287,6 +289,7 @@ pub(super) fn compile_modules(
     memory_cache_policy: WasmModuleMemoryCachePolicy,
     bypass_retention: bool,
     mode: WasmNativeCompilationMode,
+    runtime_image_policy: WasmRuntimeImagePolicy,
 ) -> Result<WasmModules, EngineError> {
     if let Some(runtime) = program.runtime {
         let profile = scriptw_aot_wasm::RuntimeSourceCompilationProfile::from_module(program.bytes)
@@ -302,44 +305,76 @@ pub(super) fn compile_modules(
         }
     }
     let trace = std::env::var_os("SCRIPTW_WASM_TRACE").is_some();
-    let module_for_execution =
-        |label: &str, source: WasmModuleSource<'_>| -> Result<_, EngineError> {
-            let bytes = source.bytes();
-            let started = std::time::Instant::now();
-            if trace {
-                eprintln!(
-                    "scriptw wasm trace: {label}-module loading: {} bytes",
-                    bytes.len()
-                );
-            }
-            let policy = if bypass_retention {
-                WasmModuleMemoryCachePolicy::BypassRetention
-            } else {
-                memory_cache_policy
-            };
-            let result = if let WasmModuleSource::Runtime(runtime) = source {
-                wasm_module_for_execution_with_factory(source, policy, mode, || {
-                    if let Some(module) = embedded_runtime::load_native(engine, runtime, mode) {
-                        return Ok(module);
-                    }
-                    compile_wasm_module(engine, bytes)
-                })?
-            } else {
-                wasm_module_for_execution(engine, bytes, policy, mode)?
-            };
-            if trace {
-                eprintln!(
-                    "scriptw wasm trace: {label}-module loaded: {:?}",
-                    started.elapsed()
-                );
-            }
-            Ok(result)
+    let mut matched_runtime_image_cache = WasmRuntimeMatchedImageCacheOutcome::NotAccessed;
+    let mut loading = WasmRuntimeModuleLoading::default();
+    let mut module_for_execution = |label: &str,
+                                    source: WasmModuleSource<'_>|
+     -> Result<_, EngineError> {
+        let bytes = source.bytes();
+        let started = std::time::Instant::now();
+        if trace {
+            eprintln!(
+                "scriptw wasm trace: {label}-module loading: {} bytes",
+                bytes.len()
+            );
+        }
+        let policy = if bypass_retention {
+            WasmModuleMemoryCachePolicy::BypassRetention
+        } else {
+            memory_cache_policy
         };
+        let result = match source {
+            WasmModuleSource::Runtime(runtime) | WasmModuleSource::DiagnosticRuntime(runtime) => {
+                wasm_module_for_execution_with_factory(
+                    engine,
+                    source,
+                    policy,
+                    mode,
+                    || match source.runtime_image_policy() {
+                        WasmRuntimeImagePolicy::MatchedDiagnostic => {
+                            let (module, outcome) =
+                                embedded_runtime::load_capacity_matched_native(engine, runtime)?;
+                            matched_runtime_image_cache = outcome;
+                            Ok(module)
+                        }
+                        WasmRuntimeImagePolicy::EmbeddedBuild => {
+                            let timings =
+                                loading.embedded_image.get_or_insert_with(Default::default);
+                            if let Some(module) =
+                                embedded_runtime::load_native(engine, runtime, mode, timings)
+                            {
+                                return Ok(module);
+                            }
+                            compile_wasm_module(engine, bytes)
+                        }
+                    },
+                )?
+            }
+            WasmModuleSource::Program(_) => wasm_module_for_execution(engine, bytes, policy, mode)?,
+        };
+        if trace {
+            eprintln!(
+                "scriptw wasm trace: {label}-module loaded: {:?}",
+                started.elapsed()
+            );
+        }
+        match source {
+            WasmModuleSource::Runtime(_) | WasmModuleSource::DiagnosticRuntime(_) => {
+                loading.runtime = started.elapsed();
+                loading.runtime_cache = Some(result.1.into());
+            }
+            WasmModuleSource::Program(_) => loading.program = started.elapsed(),
+        }
+        Ok(result)
+    };
     let runtime = program
         .runtime
         .map(|runtime| {
-            module_for_execution("runtime", WasmModuleSource::Runtime(runtime))
-                .map(|(module, _)| module)
+            module_for_execution(
+                "runtime",
+                WasmModuleSource::runtime(runtime, runtime_image_policy),
+            )
+            .map(|(module, _)| module)
         })
         .transpose()?;
     let (module, memory_cache_outcome) =
@@ -348,6 +383,8 @@ pub(super) fn compile_modules(
         program: module,
         runtime,
         memory_cache_outcome,
+        matched_runtime_image_cache,
+        loading,
     };
     perf_map::record(&modules, program);
     Ok(modules)

@@ -29,6 +29,14 @@ fn program_cache_decoder_reattaches_only_the_recorded_runtime() {
             wasm_module_memory_cache_key(WasmModuleSource::Program(runtime.bytes()), mode),
             "retained runtime digests must preserve the actual-byte cache identity"
         );
+        let diagnostic =
+            wasm_module_memory_cache_key(WasmModuleSource::DiagnosticRuntime(&runtime), mode);
+        let ordinary = wasm_module_memory_cache_key(WasmModuleSource::Runtime(&runtime), mode);
+        assert_eq!(diagnostic.wasm_sha256, ordinary.wasm_sha256);
+        assert_ne!(
+            diagnostic, ordinary,
+            "image-treatment authority must not alias ordinary retained R"
+        );
     }
     let program_for_profile = |profile| {
         let mut module = b"\0asm\x01\0\0\0".to_vec();
@@ -124,16 +132,27 @@ fn linked_runtime_native_modules_honor_both_bypass_retention_paths() {
         let runtime = &artifact.runtime.as_ref().expect("fixture must link R").0;
         let program = WasmProgramRef::new(&artifact.bytes, Some(runtime));
         let mode = plan_native_compilation(program).mode;
-        let native = match mode {
-            WasmNativeCompilationMode::Fast => shared_wasm_engine()?,
-            WasmNativeCompilationMode::SizeOptimized => shared_size_optimized_wasm_engine()?,
-        };
+        let native = shared_native_mode_wasm_engine(mode)?;
         for (policy, agent) in [
             (WasmModuleMemoryCachePolicy::BypassRetention, false),
             (WasmModuleMemoryCachePolicy::Retain, true),
         ] {
-            let first = compile_modules(&native, program, policy, agent, mode)?;
-            let second = compile_modules(&native, program, policy, agent, mode)?;
+            let first = compile_modules(
+                &native,
+                program,
+                policy,
+                agent,
+                mode,
+                WasmRuntimeImagePolicy::EmbeddedBuild,
+            )?;
+            let second = compile_modules(
+                &native,
+                program,
+                policy,
+                agent,
+                mode,
+                WasmRuntimeImagePolicy::EmbeddedBuild,
+            )?;
             assert!(matches!(
                 first.memory_cache_outcome,
                 WasmModuleMemoryCacheOutcome::Bypassed
@@ -168,16 +187,14 @@ fn runtime_only_retention_reuses_runtime_and_bypasses_program_modules() {
         let runtime = &artifact.runtime.as_ref().expect("fixture must link R").0;
         let program = WasmProgramRef::new(&artifact.bytes, Some(runtime));
         let mode = plan_native_compilation(program).mode;
-        let native = match mode {
-            WasmNativeCompilationMode::Fast => shared_wasm_engine()?,
-            WasmNativeCompilationMode::SizeOptimized => shared_size_optimized_wasm_engine()?,
-        };
+        let native = shared_native_mode_wasm_engine(mode)?;
         let first = compile_modules(
             &native,
             program,
             WasmModuleMemoryCachePolicy::RetainRuntime,
             false,
             mode,
+            WasmRuntimeImagePolicy::EmbeddedBuild,
         )?;
         // Oversized runtime images execute without admission. Observe the
         // actual bounded cache instead of assuming every valid budget fits R.
@@ -192,6 +209,7 @@ fn runtime_only_retention_reuses_runtime_and_bypasses_program_modules() {
             WasmModuleMemoryCachePolicy::RetainRuntime,
             false,
             mode,
+            WasmRuntimeImagePolicy::EmbeddedBuild,
         )?;
         if let Some(retained) = retained {
             assert_eq!(
@@ -241,16 +259,14 @@ fn agent_override_bypasses_runtime_only_retention() {
         let runtime = &artifact.runtime.as_ref().expect("fixture must link R").0;
         let program = WasmProgramRef::new(&artifact.bytes, Some(runtime));
         let mode = plan_native_compilation(program).mode;
-        let native = match mode {
-            WasmNativeCompilationMode::Fast => shared_wasm_engine()?,
-            WasmNativeCompilationMode::SizeOptimized => shared_size_optimized_wasm_engine()?,
-        };
+        let native = shared_native_mode_wasm_engine(mode)?;
         let first = compile_modules(
             &native,
             program,
             WasmModuleMemoryCachePolicy::RetainRuntime,
             true,
             mode,
+            WasmRuntimeImagePolicy::EmbeddedBuild,
         )?;
         let second = compile_modules(
             &native,
@@ -258,6 +274,7 @@ fn agent_override_bypasses_runtime_only_retention() {
             WasmModuleMemoryCachePolicy::RetainRuntime,
             true,
             mode,
+            WasmRuntimeImagePolicy::EmbeddedBuild,
         )?;
         assert_ne!(
             first.runtime.as_ref().unwrap().image_range().start,

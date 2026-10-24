@@ -7,6 +7,10 @@ import statistics
 
 from benchmark_metrics import digest, load_report
 
+# Registration is measured inside Store/linker setup. Retain its useful raw
+# attribution without subtracting that time twice from the enclosing total.
+NESTED_PHASES = {'host_import_registration': 'store_and_linker'}
+
 
 def study(report_paths):
     reports = []
@@ -21,11 +25,13 @@ def study(report_paths):
                       for name in observations[0]['phases_ns']}
             execution = statistics.median(row['execution_ns'] for row in observations)
             unassigned = statistics.median(row['phases_ns']['total'] - row['execution_ns'] - sum(
-                value for name, value in row['phases_ns'].items() if name != 'total') for row in observations)
+                value for name, value in row['phases_ns'].items()
+                if name != 'total' and name not in NESTED_PHASES) for row in observations)
             plan = plans[case['file']]
             parameters = plan.get('parameters', {})
             entry = dict(file=case['file'], parameters=parameters, execution_ns=execution,
                          phases_ns=phases, unassigned_total_ns=unassigned,
+                         nested_phases={name: parent for name, parent in NESTED_PHASES.items() if name in phases},
                          execution_fraction_of_total=execution / phases['total'] if phases['total'] else None,
                          source_compilation_profile=case.get('source_compilation_profile', 'unrecorded'),
                          linked_runtime=case.get('linked_runtime'), compilation_ns=case['compilation_ns'],

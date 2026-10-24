@@ -76,6 +76,39 @@ pub enum CompilerSourceRevision {
     UnversionedArchive,
 }
 
+/// Build metadata has its own validated authority. Source-only admission can
+/// consume this fact without pretending it proves the loaded executable bytes.
+struct ValidatedBuildIdentity {
+    source_fingerprint: CompilerDigest,
+    source_revision: CompilerSourceRevision,
+}
+
+fn build_identity() -> Result<&'static ValidatedBuildIdentity, String> {
+    static BUILD: OnceLock<Result<ValidatedBuildIdentity, String>> = OnceLock::new();
+    BUILD
+        .get_or_init(|| {
+            let source_fingerprint = CompilerDigest::parse(env!("SCRIPTW_COMPILER_FINGERPRINT"))?;
+            let revision = env!("SCRIPTW_COMPILER_SOURCE_REVISION");
+            let source_revision = match revision.strip_prefix("git:") {
+                Some(commit) => CompilerSourceRevision::GitCommit(CompilerCommitId::parse(commit)?),
+                None if revision == "unversioned-archive" => {
+                    CompilerSourceRevision::UnversionedArchive
+                }
+                None => return Err("invalid embedded compiler source revision".into()),
+            };
+            Ok(ValidatedBuildIdentity {
+                source_fingerprint,
+                source_revision,
+            })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+pub(crate) fn build_source_fingerprint() -> Result<CompilerDigest, String> {
+    Ok(build_identity()?.source_fingerprint)
+}
+
 /// Only checked source/executable parts can cross an execution-evidence boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilerIdentity {
@@ -123,24 +156,26 @@ impl CompilerIdentity {
     }
 
     fn capture() -> Result<Self, String> {
-        let source_fingerprint = CompilerDigest::parse(env!("SCRIPTW_COMPILER_FINGERPRINT"))?;
-        let revision = env!("SCRIPTW_COMPILER_SOURCE_REVISION");
-        let source_revision = match revision.strip_prefix("git:") {
-            Some(commit) => CompilerSourceRevision::GitCommit(CompilerCommitId::parse(commit)?),
-            None if revision == "unversioned-archive" => CompilerSourceRevision::UnversionedArchive,
-            None => return Err("invalid embedded compiler source revision".into()),
-        };
+        let build = build_identity()?;
         let executable_sha256 = loaded_executable_digest()
             .map_err(|error| format!("cannot bind the running compiler executable: {error}"))?;
         Ok(Self::from_parts(
-            source_fingerprint,
-            source_revision,
+            build.source_fingerprint,
+            build.source_revision.clone(),
             executable_sha256,
         ))
     }
 }
 
 fn loaded_executable_digest() -> io::Result<CompilerDigest> {
+    with_stable_loaded_executable(|image| executable_digest(image))
+}
+
+/// Both cache-image algorithms and full SHA evidence hash the same opened
+/// loaded-image authority, with identical before/after metadata admission.
+pub(crate) fn with_stable_loaded_executable<T>(
+    hash: impl FnOnce(&mut File) -> io::Result<T>,
+) -> io::Result<T> {
     // Linux's loaded image survives renaming/replacement of its public path.
     // Opening current_exe's pathname could hash a different replacement image.
     #[cfg(target_os = "linux")]
@@ -148,7 +183,10 @@ fn loaded_executable_digest() -> io::Result<CompilerDigest> {
     #[cfg(not(target_os = "linux"))]
     let mut image = File::open(std::env::current_exe()?)?;
     let before = image.metadata()?;
-    let digest = executable_digest(&mut image)?;
+    if before.len() == 0 {
+        return Err(io::Error::other("loaded compiler executable is empty"));
+    }
+    let digest = hash(&mut image)?;
     let after = image.metadata()?;
     if before.len() != after.len() || before.modified()? != after.modified()? {
         return Err(io::Error::other(

@@ -86,10 +86,14 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
         "Self::Internal(entry)|Self::PreparedScript(_,entry)=>{entry.signature().parameter_count()}"
     ));
     assert!(declaration.contains("Self::RuntimeOperation(helper)=>helper.parameter_types().len()"));
-    assert!(declaration
-        .contains("Self::Internal(entry)|Self::PreparedScript(_,entry)=>Some(entry.body())"));
-    assert!(declaration
-        .contains("Self::Main(_,_)|Self::RuntimeOperation(_)|Self::ProgramInitialize=>None"));
+    assert!(
+        declaration
+            .contains("Self::Internal(entry)|Self::PreparedScript(_,entry)=>Some(entry.body())")
+    );
+    assert!(
+        declaration
+            .contains("Self::Main(_,_)|Self::RuntimeOperation(_)|Self::ProgramInitialize=>None")
+    );
     assert!(!declaration.contains("#["));
     let normalized_source = normalized_code(SOURCE_FAMILY);
     for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
@@ -99,21 +103,23 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
     assert!(!SOURCE.contains("!= FunctionModuleState::"));
     assert!(!SOURCE.contains("matches!(module_state"));
 
+    // Source-site ownership adds an exhaustive observation: one Main arm and
+    // source/non-source arms for the other ordinary body kinds.
     assert_eq!(
         SOURCE_FAMILY.matches("FunctionModuleState::Main").count(),
-        10
+        11
     );
     assert_eq!(
         SOURCE_FAMILY
             .matches("FunctionModuleState::PreparedScript")
             .count(),
-        12
+        14
     );
     assert_eq!(
         SOURCE_FAMILY
             .matches("FunctionModuleState::Internal")
             .count(),
-        11
+        13
     );
 }
 
@@ -226,12 +232,15 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
         "        let parameter_types = match &module_state {",
         "        let return_abi = module_state.return_abi();",
     );
-    assert_eq!(normalized_code(parameter_policy), concat!(
-        "FunctionModuleState::Main(_,_)=>schema.signature(StaticSignature::Main),",
-        "FunctionModuleState::ProgramInitialize=>{schema.signature(StaticSignature::ProgramInitialize)}",
-        "FunctionModuleState::PreparedScript(_,entry)|FunctionModuleState::Internal(entry)=>schema.signature(entry.signature()),",
-        "FunctionModuleState::RuntimeOperation(helper)=>helper.definition(schema.layouts()),}.parameters().to_vec();"
-    ));
+    assert_eq!(
+        normalized_code(parameter_policy),
+        concat!(
+            "FunctionModuleState::Main(_,_)=>schema.signature(StaticSignature::Main),",
+            "FunctionModuleState::ProgramInitialize=>{schema.signature(StaticSignature::ProgramInitialize)}",
+            "FunctionModuleState::PreparedScript(_,entry)|FunctionModuleState::Internal(entry)=>schema.signature(entry.signature()),",
+            "FunctionModuleState::RuntimeOperation(helper)=>helper.definition(schema.layouts()),}.parameters().to_vec();"
+        )
+    );
     let construction_policy = bounded(
         shared_constructor,
         "        let hoisted_vars = match &module_state {",
@@ -272,8 +281,10 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
     ] {
         assert!(clear.contains(retained_root));
     }
-    assert!(normalized_code(clear)
-        .contains("self.current_private_environment.set_null(self.schema,function)"));
+    assert!(
+        normalized_code(clear)
+            .contains("self.current_private_environment.set_null(self.schema,function)")
+    );
     assert_eq!(
         COMPILATION
             .matches("self.clear_body_entry_roots(&mut function);")
@@ -374,8 +385,10 @@ fn only_the_main_export_selects_the_host_rejection_policy() {
 
 #[test]
 fn program_initialize_has_a_distinct_nonnull_result_and_never_enters_javascript() {
-    assert!(normalized_code(SIGNATURES)
-        .contains("ProgramInitialize=>([],[Gc(GcLayout::ProgramInstance,NonNullable)])"));
+    assert!(
+        normalized_code(SIGNATURES)
+            .contains("ProgramInitialize=>([],[Gc(GcLayout::ProgramInstance,NonNullable)])")
+    );
     let constructor = bounded(
         SOURCE,
         "    pub(super) fn new_program_initialize(",

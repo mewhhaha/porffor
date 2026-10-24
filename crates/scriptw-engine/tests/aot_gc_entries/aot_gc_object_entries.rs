@@ -31,6 +31,84 @@ fn assert_object(source: &str) {
 }
 
 #[test]
+fn plain_data_literals_keep_own_descriptors_order_and_roots_without_public_hooks() {
+    assert_object(
+        r#"
+var token={},symbol=Symbol('value'),setterCalls=0,trace='',prototype=Object.prototype;
+var old=Object.getOwnPropertyDescriptor(prototype,'plainValue'),define=Reflect.defineProperty;
+try {
+  Object.defineProperty(prototype,'plainValue',{set:function(){setterCalls++;},configurable:true});
+  Reflect.defineProperty=function(){throw new Error('literal used public define hook');};
+  function item(name,value){trace+=name;gc();return value;}
+  function make(){let __proto__=token;return {plainValue:item('a',token),big:item('b',7n),symbol:item('c',symbol),'2':'two','01':'named',__proto__};}
+  var first=make(),second=make(),descriptor=Object.getOwnPropertyDescriptor(first,'plainValue');
+  assert(trace==='abcabc' && setterCalls===0,'source ordered values and own definition');
+  assert(first!==second && first.plainValue===token && first.big===7n && first.symbol===symbol,'fresh objects and whole rooted values');
+  assert(descriptor.value===token && descriptor.writable && descriptor.enumerable && descriptor.configurable,'complete standard data attributes');
+  assert(Object.getOwnPropertyNames(first).join(',')==='2,plainValue,big,symbol,01,__proto__','integer order and ordinary insertion order');
+  assert(Object.hasOwn(first,'__proto__') && first.__proto__===token && Object.getPrototypeOf(first)===prototype,'shorthand proto is an own data property');
+  first.big=8n;assert(second.big===7n,'fresh stored descriptors remain independent');
+} finally {
+  Reflect.defineProperty=define;
+  if(old===undefined){delete prototype.plainValue;}else{Object.defineProperty(prototype,'plainValue',old);}
+}
+"#,
+    );
+}
+
+#[test]
+fn plain_data_literal_value_throw_stops_before_later_values_and_publication() {
+    assert_object(
+        r#"
+var sentinel={},trace='',result='unpublished',caught;
+function value(name,item){trace+=name;gc();return item;}
+function fail(){trace+='throw';gc();throw sentinel;}
+try {result={first:value('first',sentinel),second:fail(),last:value('last',7n)};}
+catch(error){caught=error;}
+assert(caught===sentinel && trace==='firstthrow' && result==='unpublished','abrupt value skips later evaluation and output publication');
+function strictMake(){'use strict';return {value:sentinel,next:(gc(),7n)};}
+var object=strictMake();gc();assert(object.value===sentinel && object.next===7n,'strict literal keeps roots');
+"#,
+    );
+}
+
+#[test]
+fn plain_data_literals_use_source_realm_prototype_after_global_constructor_replacement() {
+    assert_object(
+        r#"
+var original=Object,prototype=Object.prototype,foreign=__scriptwCreateRealm().global,token={};
+function make(){return {value:token};}
+try {
+  Object=foreign.Object;
+  var first=make.call(foreign),second=make();gc();
+  assert(original.getPrototypeOf(first)===prototype && original.getPrototypeOf(second)===prototype,'source Realm prototype ignores replaced Object and foreign receiver');
+  assert(original.getPrototypeOf(first)!==foreign.Object.prototype && first.value===token && first!==second,'foreign work preserves source owner and freshness');
+} finally {Object=original;}
+"#,
+    );
+}
+
+#[test]
+fn special_literal_definitions_preserve_computed_spread_method_and_duplicate_semantics() {
+    assert_object(
+        r#"
+var token={},trace='',reads=0;
+function value(name,item){trace+=name;return item;}
+var duplicate={first:value('a',1),first:value('b',token)};
+assert(trace==='ab' && duplicate.first===token && Object.keys(duplicate).join(',')==='first','duplicate definitions preserve order and last value');
+trace='';
+var key={toString:function(){trace+='key';return 'computed';}},source={get spread(){reads++;return token;}};
+var computed={first:value('first',1),[key]:value('value',token),...source};
+assert(trace==='firstkeyvalue' && reads===1 && computed.computed===token && computed.spread===token,'computed coercion and spread getter run once');
+var getter=function(){return token;},proto={inherited:token};
+var special={first:1,__proto__:proto,get last(){return token;},set last(value){this.first=value;},method(){return super.inherited;}};
+special.last=7n;
+assert(Object.getPrototypeOf(special)===proto && special.last===token && special.first===7n && special.method()===token,'prototype, accessor pair and home object remain generic');
+"#,
+    );
+}
+
+#[test]
 fn property_index_keeps_collision_chains_and_string_symbol_equality() {
     assert_object(
         r#"

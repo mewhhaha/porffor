@@ -1090,17 +1090,15 @@ fn run_wasm_raw(source: &str) -> (i64, WasmRuntimeValueTag, i32, Option<Box<[u16
     let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
     let program = artifact.program();
     let mode = wasm_runtime_link::plan_native_compilation(program).mode;
-    let wasm_engine = match mode {
-        WasmNativeCompilationMode::Fast => shared_wasm_engine(),
-        WasmNativeCompilationMode::SizeOptimized => shared_size_optimized_wasm_engine(),
-    }
-    .expect("wasmtime engine should initialize");
+    let wasm_engine =
+        shared_native_mode_wasm_engine(mode).expect("wasmtime engine should initialize");
     let modules = wasm_runtime_link::compile_modules(
         &wasm_engine,
         program,
         WasmModuleMemoryCachePolicy::BypassRetention,
         true,
         mode,
+        WasmRuntimeImagePolicy::EmbeddedBuild,
     )
     .expect("modules should validate for the supported Wasmtime target");
     let shared_memory_backing = modules
@@ -1124,6 +1122,8 @@ fn run_wasm_raw(source: &str) -> (i64, WasmRuntimeValueTag, i32, Option<Box<[u16
     let mut store = WasmtimeStore::new(
         &wasm_engine,
         WasmHostState {
+            user_data: None,
+            embedding: None,
             weak: wasm_gc_weak_host::WeakGcState::default(),
             native_source_compiler: None,
             native_template_instances: Default::default(),
@@ -1563,6 +1563,8 @@ mod control_flow;
 mod execution;
 #[path = "tests/functions.rs"]
 mod functions;
+#[path = "tests/foreign_capabilities.rs"]
+mod foreign_capabilities;
 #[path = "tests/intl.rs"]
 mod intl;
 #[path = "tests/modules.rs"]

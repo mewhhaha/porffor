@@ -29,12 +29,16 @@ mod allocation;
 mod arguments_properties;
 mod array_own_data_read;
 mod array_own_indexed_data;
+mod compact_data;
 mod define_property;
+mod dense_array_index;
 mod descriptor_object;
 mod has_property;
 mod header_projection;
 mod module_namespace;
 mod object_literal_property;
+mod packed_array_index;
+mod plain_data_literal;
 mod runtime_helpers;
 mod simple_own_data_read;
 mod sparse_array_index;
@@ -46,6 +50,7 @@ pub(crate) use descriptor_object::{
 use module_namespace::NamespaceBindingRead;
 pub(crate) use module_namespace::NamespaceOwnKeys;
 mod private_elements;
+mod property_read_plan;
 mod property_storage;
 mod proxy_own_keys_list;
 mod regexp_literal;
@@ -370,10 +375,15 @@ impl<'a> FunctionBuilder<'a> {
         key: &PropertyKeyLocals,
         function: &mut Function,
     ) -> Result<GcLocal<PropertyDescriptor, Nullable>, EmitError> {
-        let entry = self.emit_ordinary_property_entry(object, key, function)?;
-        let result = self.emit_ordinary_entry_descriptor_reference(&entry, function);
-        entry.clear(function);
-        Ok(result)
+        let schema = self.runtime_schema();
+        let reference = schema.helper_reference_on_stack(schema.call_helper(
+            crate::runtime_helpers::OrdinaryOwnDescriptorArguments::new(object, key),
+            self.runtime_helper_base()?,
+            function,
+        ));
+        Ok(schema
+            .reserve_gc_local(function)
+            .initialize(reference, function))
     }
 
     fn emit_ordinary_entry_descriptor_reference(
@@ -762,6 +772,36 @@ impl<'a> FunctionBuilder<'a> {
         setter: &ValueLocals,
         function: &mut Function,
     ) -> GcLocal<PropertyDescriptor> {
+        // Data descriptors cannot expose getter/setter fields. Their absent
+        // values need no per-property immutable snapshots; later redefinition
+        // replaces fields on the fresh descriptor, leaving this root unchanged.
+        if matches!(&attributes, StoredPropertyAttributes::Data { .. }) {
+            let schema = self.runtime_schema();
+            let stored = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(value, function),
+                function,
+            );
+            let absent = schema
+                .reserve_gc_local(function)
+                .initialize(schema.stored_undefined(function), function);
+            let descriptor = schema.reserve_gc_local(function).initialize(
+                schema.struct_type::<PropertyDescriptor>().construct(
+                    (
+                        GcOperand::descriptor_word(attributes.descriptor_word()),
+                        GcOperand::reference(&stored, schema),
+                        GcOperand::reference(&absent, schema),
+                        GcOperand::reference(&absent, schema),
+                    ),
+                    function,
+                ),
+                function,
+            );
+            absent.clear(function);
+            stored.clear(function);
+            return descriptor;
+        }
         self.emit_alloc_property_descriptor_with_word(
             GcOperand::descriptor_word(attributes.descriptor_word()),
             value,
@@ -900,6 +940,9 @@ impl<'a> FunctionBuilder<'a> {
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.try_compile_plain_data_literal(properties, output, function)? {
+            return Ok(());
+        }
         let schema = self.runtime_schema();
         let prototype = schema.reserve_value_local(function);
         self.emit_source_literal_prototype_to_value(
@@ -962,7 +1005,7 @@ impl<'a> FunctionBuilder<'a> {
     /// ToPropertyKey follows that check. The raw receiver remains unchanged.
     pub(crate) fn compile_property_read_from_locals(
         &mut self,
-        _target: &TypedExpr,
+        target: &TypedExpr,
         key: &PropertyKeyIr,
         receiver: &ValueLocals,
         output: &ValueLocals,
@@ -970,21 +1013,25 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
         let key_value = schema.reserve_value_local(function);
-        let pending = schema.reserve_completion(function);
         self.compile_property_key_operand(key, &key_value, function)?;
-        schema
-            .call_helper(
-                crate::runtime_helpers::DynamicPropertyReadArguments::new(
-                    receiver,
-                    receiver,
-                    &key_value,
-                    self.current_environment(),
-                    self.current_program(),
-                ),
-                self.runtime_helper_base()?,
-                function,
-            )
-            .store(&pending, function);
+        let pending = schema.reserve_completion(function);
+        if !self.emit_planned_property_read(
+            target, key, receiver, receiver, &key_value, &pending, function,
+        )? {
+            schema
+                .call_helper(
+                    crate::runtime_helpers::DynamicPropertyReadArguments::new(
+                        receiver,
+                        receiver,
+                        &key_value,
+                        self.current_environment(),
+                        self.current_program(),
+                    ),
+                    self.runtime_helper_base()?,
+                    function,
+                )
+                .store(&pending, function);
+        }
         pending.kind().load(function);
         function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
         function.instruction(&Instruction::I32Eq);
@@ -1403,54 +1450,14 @@ impl<'a> FunctionBuilder<'a> {
         present.store(function);
         result.set_undefined(function);
         self.emit_is_heap_object_like_tag_i32(object.tag(), function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let header_slot = schema.reserve_gc_local(function);
-        let header = header_slot.initialize(
+        self.open_frame(ControlFrameKind::If, function);
+        let header = schema.reserve_gc_local(function).initialize(
             self.emit_object_header_projection(object, function),
             function,
         );
-        let descriptor = self.emit_ordinary_own_descriptor_reference(&header, key, function)?;
-        descriptor.load(schema, function);
-        function.instruction(&Instruction::RefIsNull);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I32Const(1));
-        present.store(function);
-        let descriptor_slot = schema.reserve_gc_local(function);
-        let descriptor_record = descriptor_slot.initialize(
-            descriptor.load(schema, function).require_non_null(function),
-            function,
-        );
-        let flags = schema.reserve_i64_local(function);
-        schema
-            .struct_type::<PropertyDescriptor>()
-            .field(PropertyDescriptorSchema::FLAGS)
-            .read(&descriptor_record, schema, function)
-            .store_i64(flags, function);
-        flags.load(function);
-        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let value_slot = schema.reserve_gc_local(function);
-        let value = value_slot.initialize(
-            schema
-                .struct_type::<PropertyDescriptor>()
-                .field(PropertyDescriptorSchema::VALUE)
-                .read(&descriptor_record, schema, function)
-                .reference(),
-            function,
-        );
-        schema
-            .struct_type::<StoredValue>()
-            .read_into(&value, result, schema, function);
-        value.clear(function);
-        function.instruction(&Instruction::End);
-        schema.release_i64_local(flags, function);
-        descriptor_record.clear(function);
-        function.instruction(&Instruction::End);
-        descriptor.clear(function);
+        self.emit_ordinary_own_data_value(&header, key, result, present, function)?;
         header.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
     }
@@ -2280,6 +2287,29 @@ impl<'a> FunctionBuilder<'a> {
         let schema = self.runtime_schema();
         let boolean = schema.reserve_i32_local(function);
         let exit = self.open_frame(ControlFrameKind::Block, function);
+        // Both probes accept only an existing writable own data property on
+        // the actual receiver. New properties, inherited setters, descriptors
+        // and exotic receivers retain the general Set algorithm below.
+        let compact =
+            self.emit_compact_existing_data_write(target, receiver, key, value, function)?;
+        compact.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        boolean.set_constant(1, function);
+        self.emit_object_boolean_result(boolean, result, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(compact, function);
+        let packed =
+            self.emit_packed_array_existing_data_write(target, receiver, key, value, function)?;
+        packed.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        boolean.set_constant(1, function);
+        self.emit_object_boolean_result(boolean, result, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(packed, function);
         function.instruction(&Instruction::I32Const(0));
         boolean.store(function);
         target.reference().load(function);
@@ -2997,6 +3027,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        // Packed Number entries are always configurable. Avoid asking for a
+        // mutable descriptor (and promoting the backing) merely to delete one.
+        let packed = self.emit_packed_array_delete_property(object, key, function)?;
+        packed.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        boolean.set_constant(1, function);
+        self.emit_object_boolean_result(boolean, result, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(packed, function);
         let descriptor = self.emit_direct_own_descriptor_fact(object, key, function)?;
         descriptor.load(schema, function);
         function.instruction(&Instruction::RefIsNull);
@@ -3089,13 +3130,7 @@ impl<'a> FunctionBuilder<'a> {
             candidate.load(schema, function).require_non_null(function),
             function,
         );
-        let storage = schema.reserve_gc_local(function).initialize(
-            schema
-                .field(OrdinaryObjectSchema::PROPERTIES)
-                .read(&header, schema, function)
-                .reference(),
-            function,
-        );
+        let storage = self.emit_dictionary_property_storage(&header, function);
         let table = schema.reserve_gc_local(function).initialize(
             schema
                 .field(OrdinaryPropertyStorageSchema::ENTRIES)

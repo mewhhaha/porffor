@@ -13,6 +13,11 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         return;
     }
     match &expr.expr {
+        ExprIr::ForeignCall(call) => {
+            for operand in call.operands() {
+                expr_contains_this_before_super(operand, state);
+            }
+        }
         ExprIr::EnvironmentIdentifier(identifier) => {
             for operand in identifier.operation.operands() {
                 expr_contains_this_before_super(operand, state);

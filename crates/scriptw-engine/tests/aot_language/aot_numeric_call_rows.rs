@@ -55,6 +55,84 @@ fn calls(name: &str, first: usize, last: usize) -> String {
 }
 
 #[test]
+fn scalar_number_regions_keep_coercion_order_and_abrupt_boundaries() {
+    assert_result(
+        r#"
+var log = [], sentinel = {}, caught;
+function value(name, number) {
+  return {valueOf() { log.push(name); return number; }};
+}
+function calculate(a, b, c) { return ((+a + 1) * (+b - 2)) / (+c + 3); }
+if (calculate(value('a', 4), value('b', 8), value('c', 2)) !== 6 ||
+    log.join('|') !== 'a|b|c') throw 'scalar coercion order';
+log = [];
+try {
+  calculate(value('left', 4), {valueOf() { log.push('throw'); throw sentinel; }}, value('skipped', 2));
+} catch (error) { caught = error; }
+if (caught !== sentinel || log.join('|') !== 'left|throw') throw 'scalar abrupt';
+log = [];
+var left = {valueOf() { log.push('old conversion'); return 1; }};
+function right() {
+  log.push('evaluate right');
+  left.valueOf = function() { log.push('convert left'); return 8; };
+  return {valueOf() { log.push('convert right'); return 3; }};
+}
+var answer = (left - right()) * 2;
+answer === 10 && log.join('|') === 'evaluate right|convert left|convert right';
+"#,
+        ObservedJsValue::Boolean(true),
+    );
+}
+
+#[test]
+fn scalar_number_regions_keep_ieee_edges_and_bigint_dispatch() {
+    assert_result(
+        r#"
+function arithmetic(a, b, c) { return (+a + +b) * -(+c); }
+function difference(a, b, c) { return (+a + +b) - +c; }
+function remainder(a, b) { return -(+a) % +b; }
+function compare(a, b) { return ((+a + 1) * 2) < ((+b - 1) * 3); }
+Object.is(arithmetic(0, -0, 1), -0) &&
+Object.is(arithmetic(0, -0, -1), 0) &&
+Number.isNaN(arithmetic(Infinity, 0, 0)) &&
+difference(9007199254740992, 1, 9007199254740992) === 0 &&
+Object.is(remainder(5, 5), -0) &&
+compare(2, 4) && !compare(NaN, 4) && !compare(2, NaN) &&
+((2n + 3n) * -(4n - 1n)) === -15n;
+"#,
+        ObservedJsValue::Boolean(true),
+    );
+}
+
+#[test]
+fn fixed_argument_snapshots_keep_gc_roots_identity_aliasing_and_abrupt_order() {
+    assert_result(
+        r#"
+var first = {value: 1}, old = first, sentinel = {}, called = 0, caught, log = [];
+function capture(a, b, c, d, e) {
+  called++;
+  gc();
+  return [a, b, c, d, e, arguments];
+}
+var held = capture(first, (first = {value: 2}, gc(), first), -0, 2n, Symbol('key'));
+if (held[0] !== old || held[0].value !== 1 || held[1] !== first ||
+    held[1].value !== 2 || !Object.is(held[2], -0) || held[3] !== 2n ||
+    typeof held[4] !== 'symbol' || held[5][0] !== old) throw 'snapshot values';
+function later() { log.push('throw'); gc(); throw sentinel; }
+try { capture((log.push('first'), {}), later(), (log.push('skipped'), {})); }
+catch (error) { caught = error; }
+if (caught !== sentinel || called !== 1 || log.join('|') !== 'first|throw') throw 'snapshot abrupt';
+function mapped(a, b) { a = 9; arguments[1] = 8; return arguments[0] === 9 && b === 8; }
+function fresh() { return arguments; }
+function rest(a, ...values) { gc(); return a === old && values[0] === first && values[1] === 'tail'; }
+mapped(1, 2) && rest(old, first, 'tail') && fresh() !== fresh() &&
+fresh(old)[0] === old && fresh(first)[0] === first;
+"#,
+        ObservedJsValue::Boolean(true),
+    );
+}
+
+#[test]
 fn repeated_numeric_calls_keep_live_callee_captured_locals_and_hoisted_declarations() {
     let rows = calls("step", 1, 1024);
     assert_result(

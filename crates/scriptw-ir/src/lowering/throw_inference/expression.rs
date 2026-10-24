@@ -6,6 +6,7 @@ impl<'a> ScriptLowerer<'a> {
     /// strict Reference write contributes its TypeError too.
     pub(super) fn infer_expr_operand_throw_info(&self, expr: &TypedExpr) -> Option<ValueInfo> {
         match &expr.expr {
+            ExprIr::ForeignCall(_) => Some(unknown_runtime_value_info()),
             // `import()` rejects rather than throws, and reading `import.meta`
             // or a namespace object cannot throw.
             ExprIr::ModuleEntryEvaluation(entry) => self.infer_expr_throw_info(entry.evaluation()),

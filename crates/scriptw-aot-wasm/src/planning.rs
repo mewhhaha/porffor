@@ -2718,6 +2718,7 @@ fn array_accumulation_has_spread(accumulation: &ArrayAccumulationIr) -> bool {
 
 fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
     match &expr.expr {
+        ExprIr::ForeignCall(call) => call.operands().iter().any(expr_exposes_global_object),
         ExprIr::ModuleEntryEvaluation(entry) => expr_exposes_global_object(entry.evaluation()),
         ExprIr::EnvironmentIdentifier(_) => true,
         // Module top-level `this` is `undefined`, and neither a namespace
@@ -3515,6 +3516,11 @@ fn collect_destructuring_target_global_names(
 
 fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<String>) {
     match &expr.expr {
+        ExprIr::ForeignCall(call) => {
+            for operand in call.operands() {
+                collect_expr_global_property_names(operand, names);
+            }
+        }
         ExprIr::ModuleEntryEvaluation(entry) => {
             collect_expr_global_property_names(entry.evaluation(), names)
         }
@@ -4756,6 +4762,10 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         return true;
     }
     match &expr.expr {
+        ExprIr::ForeignCall(call) => call
+            .operands()
+            .iter()
+            .any(|operand| expr_references_function(operand, target)),
         ExprIr::EnvironmentIdentifier(identifier) => {
             StandardBuiltinId::from_function_id(target)
                 .is_some_and(|builtin| builtin.global_name() == Some(identifier.name.as_str()))
@@ -5411,6 +5421,7 @@ impl ModuleUnitGuard {
 }
 
 pub(crate) struct FunctionMetaRegistry {
+    foreign_imports: crate::foreign::ForeignImportPlan,
     module_graph: Option<ModuleGraphPlan>,
     prepared_dynamic_functions: Vec<scriptw_ir::PreparedDynamicFunction>,
     prepared_scripts: Vec<PreparedScript>,
@@ -5422,6 +5433,14 @@ pub(crate) struct FunctionMetaRegistry {
 }
 
 impl FunctionMetaRegistry {
+    pub(crate) fn with_foreign_imports(mut self, plan: crate::foreign::ForeignImportPlan) -> Self {
+        self.foreign_imports = plan;
+        self
+    }
+
+    pub(crate) fn foreign_imports(&self) -> &crate::foreign::ForeignImportPlan {
+        &self.foreign_imports
+    }
     pub(crate) fn gc_host_imports(&self) -> &crate::gc_types::GcHostImports {
         &self.host_import_function_indices.gc_imports
     }
@@ -5457,6 +5476,7 @@ impl FunctionMetaRegistry {
         module_graph: Option<ModuleGraphPlan>,
     ) -> Self {
         Self {
+            foreign_imports: crate::foreign::ForeignImportPlan::default(),
             module_graph,
             prepared_dynamic_functions,
             prepared_scripts,

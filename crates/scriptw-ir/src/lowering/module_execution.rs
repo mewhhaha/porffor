@@ -94,6 +94,44 @@ impl ScriptLowerer<'_> {
         expression: &Expression,
     ) -> Option<TypedExpr> {
         let pointer = std::ptr::from_ref(expression) as usize;
+        if let Some(function) = self
+            .analysis
+            .module_execution
+            .foreign_calls
+            .get(&pointer)
+            .copied()
+        {
+            let Expression::ArrayLiteral(arguments) = expression else {
+                panic!("foreign operation is owned by its trusted argument scaffold");
+            };
+            let result = self
+                .analysis
+                .module_execution
+                .foreign_modules
+                .function(function)
+                .expect("linked foreign declaration")
+                .result();
+            let operands = arguments
+                .as_ref()
+                .iter()
+                .map(|argument| {
+                    self.lower_expression(argument.as_ref().expect("foreign parameter has no hole"))
+                })
+                .collect();
+            let call = crate::foreign::ForeignCallIr::new(
+                &self.analysis.module_execution.foreign_modules,
+                function,
+                operands,
+            );
+            self.invalidate_unknown_user_code_effects();
+            return Some(TypedExpr::from_info(
+                ValueInfo::new(match result {
+                    crate::foreign::ForeignResultType::Number => ValueKind::Number,
+                    crate::foreign::ForeignResultType::Void => ValueKind::Undefined,
+                }),
+                ExprIr::ForeignCall(Box::new(call)),
+            ));
+        }
         let operations = &self.analysis.module_execution;
         if let Some(builtin) = operations.intrinsics.get(&pointer) {
             return Some(TypedExpr::from_info(

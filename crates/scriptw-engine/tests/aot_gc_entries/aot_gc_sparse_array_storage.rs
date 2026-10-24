@@ -104,6 +104,63 @@ var match=/a(.)/.exec('ab');assert(match[0]==='ab' && match[1]==='b','RegExp nat
 }
 
 #[test]
+fn dense_growth_holes_replacement_and_refill_keep_exact_occupancy() {
+    assert_sparse(
+        r#"
+var token={},a=[];
+for(var i=0;i<129;i++){a[i]=i;}
+for(var i=0;i<129;i+=2){delete a[i];}
+for(var i=1;i<129;i+=2){a[i]=token;}
+assert(Object.keys(a).length===64 && a.length===129,'replace and delete exact occupancy');
+for(var i=0;i<64;i++){assert(Object.keys(a)[i]===''+(2*i+1) && a[2*i+1]===token,'ordered dense holes');}
+delete a[500];delete a[2];
+a[0]=7n;a[128]=token;gc();
+assert(Object.keys(a).length===66 && a[0]===7n && a[128]===token,'refill and absent deletes');
+a.length=0;a.length=129;
+assert(Object.keys(a).length===0 && !(0 in a) && !(128 in a),'length reset leaves every slot absent');
+a[128]=token;gc();
+assert(Object.keys(a).join(',')==='128' && a[128]===token,'reuse or sparse conversion keeps one live descriptor');
+"#,
+    );
+}
+
+#[test]
+fn dense_to_sparse_conversion_preserves_whole_descriptors_gc_and_shrink_failure() {
+    assert_sparse(
+        r#"
+var token={},a=[token,1,2,3],reads=0,writes=0,receiver;
+var getter=function(){reads++;return this.mark;};
+var setter=function(value){writes++;receiver=this;};
+Object.defineProperty(a,'3',{value:7n,writable:false,enumerable:false,configurable:false});
+Object.defineProperty(a,'7',{get:getter,set:setter,enumerable:true,configurable:true});
+delete a[1];a[4294967294]=token;gc();
+var d=Object.getOwnPropertyDescriptor(a,'7'),fixed=Object.getOwnPropertyDescriptor(a,'3');
+assert(reads===0 && writes===0 && d.get===getter && d.set===setter && d.enumerable && d.configurable,'transition copies accessor without calling it');
+assert(fixed.value===7n && !fixed.writable && !fixed.enumerable && !fixed.configurable && a[0]===token && a[4294967294]===token,'transition preserves data and roots');
+assert(Object.getOwnPropertyNames(a).join(',')==='0,2,3,7,4294967294,length','ascending mixed indices after transition');
+var other={mark:token};assert(Reflect.get(a,'7',other)===token,'accessor keeps receiver');Reflect.set(a,'7',9,other);
+assert(reads===1 && writes===1 && receiver===other,'getter and setter remain complete');
+var accepted=Reflect.defineProperty(a,'length',{value:0,writable:false});gc();
+assert(!accepted && a.length===4 && a[3]===7n && !(7 in a) && !(4294967294 in a),'descending shrink stops at nonconfigurable descriptor');
+assert(reads===1 && writes===1 && !Object.getOwnPropertyDescriptor(a,'length').writable,'shrink never invokes accessors');
+"#,
+    );
+}
+
+#[test]
+fn sparse_transition_uses_occupied_indices_instead_of_array_length() {
+    assert_sparse(
+        r#"
+var token={},a=new Array(4294967295);a[0]=token;a[12]=7n;
+assert(Object.keys(a).join(',')==='0,12' && a[0]===token && a[12]===7n,'distant insertion retains dense prefix');
+a[1048576]=token;a[4294967294]=8n;delete a[12];a[12]=token;gc();
+assert(a.length===4294967295 && Object.keys(a).join(',')==='0,12,1048576,4294967294','logical length never expands backing');
+a.length=13;gc();assert(a[0]===token && a[12]===token && Object.keys(a).join(',')==='0,12','transition values survive sparse shrink');
+"#,
+    );
+}
+
+#[test]
 fn fresh_literals_keep_holes_definition_order_and_source_realm_without_public_hooks() {
     assert_sparse(
         r#"

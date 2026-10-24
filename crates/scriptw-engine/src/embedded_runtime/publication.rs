@@ -1,4 +1,4 @@
-//! Publish each complete Cargo-owned runtime bundle with its own v4 manifest.
+//! Publish each complete Cargo-owned runtime bundle with its own v5 manifest.
 
 #[path = "output.rs"]
 mod output;

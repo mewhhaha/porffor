@@ -96,13 +96,6 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<GcStackReference<OrdinaryObject>, EmitError> {
         let schema = self.runtime_schema();
-        let prototype_slot = schema.reserve_gc_local(function);
-        let prototype_record = prototype_slot.initialize(
-            schema
-                .struct_type::<StoredValue>()
-                .from_value(prototype, function),
-            function,
-        );
         let zero = schema.reserve_i32_local(function);
         function.instruction(&Instruction::I32Const(0));
         zero.store(function);
@@ -123,13 +116,46 @@ impl FunctionBuilder<'_> {
             ),
             function,
         );
-        let private_elements_slot = schema.reserve_gc_local(function);
-        let private_elements =
-            private_elements_slot.initialize(schema.empty_private_elements(function), function);
+        let storage = schema
+            .reserve_gc_local(function)
+            .initialize(properties.load(schema, function).upcast(), function);
+        let object = self.emit_alloc_object_header_with_storage(
+            prototype,
+            immutable_prototype,
+            &storage,
+            function,
+        );
+        storage.clear(function);
+        properties.clear(function);
+        index.clear(function);
+        entries.clear(function);
+        schema.release_i32_local(zero, function);
+        Ok(object)
+    }
+
+    /// Both physical ordinary-storage states construct the same object header.
+    pub(super) fn emit_alloc_object_header_with_storage(
+        &self,
+        prototype: &ValueLocals,
+        immutable_prototype: I32Local,
+        storage: &GcLocal<crate::gc_types::ObjectPropertyStorage>,
+        function: &mut Function,
+    ) -> GcStackReference<OrdinaryObject> {
+        let schema = self.runtime_schema();
+        let prototype_slot = schema.reserve_gc_local(function);
+        let prototype_record = prototype_slot.initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(prototype, function),
+            function,
+        );
+        let private_elements = schema
+            .reserve_gc_local(function)
+            .initialize(schema.empty_private_elements(function), function);
         let object = schema.struct_type::<OrdinaryObject>().construct(
             (
                 GcOperand::reference(&prototype_record, schema),
-                GcOperand::reference(&properties, schema),
+                GcOperand::reference(storage, schema),
                 GcOperand::reference(&private_elements, schema),
                 GcOperand::boolean(true),
                 GcOperand::boolean_local(immutable_prototype),
@@ -138,11 +164,7 @@ impl FunctionBuilder<'_> {
             function,
         );
         private_elements.clear(function);
-        properties.clear(function);
-        index.clear(function);
-        entries.clear(function);
-        schema.release_i32_local(zero, function);
         prototype_record.clear(function);
-        Ok(object)
+        object
     }
 }

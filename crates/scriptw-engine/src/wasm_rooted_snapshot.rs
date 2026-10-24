@@ -558,32 +558,156 @@ impl<S: AsContextMut<Data = WasmHostState>> SnapshotBackend for NativeSnapshot<'
             let buckets = self.array(buckets, L::ArrayBuckets)?;
             let bucket_count = buckets.len(&*self.store).map_err(invariant)?;
             budget.work(bucket_count as usize)?;
-            for bucket in 0..bucket_count {
-                let raw = buckets.get(&mut *self.store, bucket).map_err(invariant)?;
-                let mut entry = eq_reference(self.store, raw)?;
-                while let Some(current) = entry {
-                    budget.work(1)?;
-                    if ordered.len() >= count as usize {
-                        return Err(invariant("Array index count/chain mismatch"));
+            let dense = self.required_reference(storage, F::ArrayDense)?;
+            let dense = self.array(dense, L::ArrayDense)?;
+            let dense_capacity = dense.len(&*self.store).map_err(invariant)?;
+            let numbers = self.required_reference(storage, F::ArrayNumbers)?;
+            let numbers = self.array(numbers, L::ArrayNumbers)?;
+            let number_capacity = numbers.len(&*self.store).map_err(invariant)?;
+            let presence = self.required_reference(storage, F::ArrayNumberPresent)?;
+            let presence = self.array(presence, L::ArrayNumberPresence)?;
+            let presence_words = presence.len(&*self.store).map_err(invariant)?;
+            let mode = match self.field(storage, F::ArrayMode)? {
+                WasmtimeVal::I32(code) => scriptw_aot_wasm::snapshot_array_storage_mode(code)
+                    .ok_or_else(|| invariant("unknown Array storage mode"))?,
+                _ => return Err(invariant("Array storage mode is not I32")),
+            };
+            use scriptw_aot_wasm::ArrayIndexedStorageMode;
+            match mode {
+                ArrayIndexedStorageMode::PackedNumbers => {
+                    if bucket_count != 0
+                        || dense_capacity != 0
+                        || number_capacity > (1 << 20)
+                        || (number_capacity != 0 && !number_capacity.is_power_of_two())
+                        || presence_words != number_capacity.div_ceil(64)
+                        || count as u64 > u64::from(number_capacity)
+                    {
+                        return Err(invariant("invalid packed Number Array capacity/count"));
                     }
-                    let index = self.integer(current, F::ArrayIndex)?;
-                    if index < 0 || index >= length || index >= u32::MAX as i64 {
-                        return Err(invariant("invalid occupied Array index"));
+                    budget.work(count as usize + presence_words as usize)?;
+                    for word in 0..presence_words {
+                        let WasmtimeVal::I64(raw) =
+                            presence.get(&mut *self.store, word).map_err(invariant)?
+                        else {
+                            return Err(invariant("Array presence word is not I64"));
+                        };
+                        let mut bits = raw as u64;
+                        if word + 1 == presence_words
+                            && number_capacity % 64 != 0
+                            && bits >> (number_capacity % 64) != 0
+                        {
+                            return Err(invariant("Array presence has bits beyond capacity"));
+                        }
+                        while bits != 0 {
+                            let index = word * 64 + bits.trailing_zeros();
+                            bits &= bits - 1;
+                            if i64::from(index) >= length || ordered.len() >= count as usize {
+                                return Err(invariant("invalid occupied packed Array index/count"));
+                            }
+                            let WasmtimeVal::I64(scalar) =
+                                numbers.get(&mut *self.store, index).map_err(invariant)?
+                            else {
+                                return Err(invariant("Array Number bits are not I64"));
+                            };
+                            let key = budget.collect_utf16(
+                                index
+                                    .to_string()
+                                    .encode_utf16()
+                                    .collect::<Vec<_>>()
+                                    .into_iter(),
+                            )?;
+                            ordered.push((
+                                0,
+                                index,
+                                ordered.len(),
+                                SnapshotRawProperty {
+                                    key: SnapshotRawKey::String(key),
+                                    descriptor: SnapshotRawDescriptor::Data {
+                                        value: NativeValue {
+                                            tag: WasmRuntimeValueTag::Number as i32,
+                                            scalar,
+                                            reference: None,
+                                        },
+                                        writable: true,
+                                        enumerable: true,
+                                        configurable: true,
+                                    },
+                                },
+                            ));
+                        }
                     }
-                    let descriptor = self.required_reference(current, F::ArrayDescriptor)?;
-                    let key = budget.collect_utf16(
-                        (index as u32)
-                            .to_string()
-                            .encode_utf16()
-                            .collect::<Vec<_>>()
-                            .into_iter(),
-                    )?;
-                    let property = SnapshotRawProperty {
-                        key: SnapshotRawKey::String(key),
-                        descriptor: self.descriptor(descriptor)?,
-                    };
-                    ordered.push((0, index as u32, ordered.len(), property));
-                    entry = self.reference(current, F::ArrayNext)?;
+                }
+                ArrayIndexedStorageMode::DenseDescriptors => {
+                    if bucket_count != 0 || number_capacity != 0 || presence_words != 0 {
+                        return Err(invariant("inactive Array backing is not empty"));
+                    }
+                    if dense_capacity > (1 << 20)
+                        || (dense_capacity != 0 && !dense_capacity.is_power_of_two())
+                        || count as u64 > u64::from(dense_capacity)
+                    {
+                        return Err(invariant("invalid dense Array capacity/count"));
+                    }
+                    budget.work(dense_capacity as usize)?;
+                    for index in 0..dense_capacity {
+                        let raw = dense.get(&mut *self.store, index).map_err(invariant)?;
+                        let Some(descriptor) = eq_reference(self.store, raw)? else {
+                            continue;
+                        };
+                        if i64::from(index) >= length || ordered.len() >= count as usize {
+                            return Err(invariant("invalid occupied dense Array index/count"));
+                        }
+                        let key = budget.collect_utf16(
+                            index
+                                .to_string()
+                                .encode_utf16()
+                                .collect::<Vec<_>>()
+                                .into_iter(),
+                        )?;
+                        let property = SnapshotRawProperty {
+                            key: SnapshotRawKey::String(key),
+                            descriptor: self.descriptor(descriptor)?,
+                        };
+                        ordered.push((0, index, ordered.len(), property));
+                    }
+                }
+                ArrayIndexedStorageMode::SparseDescriptors => {
+                    if dense_capacity != 0
+                        || number_capacity != 0
+                        || presence_words != 0
+                        || (bucket_count == 0 && count != 0)
+                        || (bucket_count != 0 && !bucket_count.is_power_of_two())
+                    {
+                        return Err(invariant("invalid sparse Array storage mode"));
+                    }
+                    for bucket in 0..bucket_count {
+                        let raw = buckets.get(&mut *self.store, bucket).map_err(invariant)?;
+                        let mut entry = eq_reference(self.store, raw)?;
+                        while let Some(current) = entry {
+                            budget.work(1)?;
+                            if ordered.len() >= count as usize {
+                                return Err(invariant("Array index count/chain mismatch"));
+                            }
+                            let index = self.integer(current, F::ArrayIndex)?;
+                            if index < 0 || index >= length || index >= u32::MAX as i64 {
+                                return Err(invariant("invalid occupied Array index"));
+                            }
+                            let descriptor =
+                                self.required_reference(current, F::ArrayDescriptor)?;
+                            let key = budget.collect_utf16(
+                                (index as u32)
+                                    .to_string()
+                                    .encode_utf16()
+                                    .collect::<Vec<_>>()
+                                    .into_iter(),
+                            )?;
+                            let property = SnapshotRawProperty {
+                                key: SnapshotRawKey::String(key),
+                                descriptor: self.descriptor(descriptor)?,
+                            };
+                            ordered.push((0, index as u32, ordered.len(), property));
+                            entry = self.reference(current, F::ArrayNext)?;
+                        }
+                    }
                 }
             }
             if ordered.len() != count as usize {
@@ -615,68 +739,137 @@ impl<S: AsContextMut<Data = WasmHostState>> SnapshotBackend for NativeSnapshot<'
             ));
         }
         let storage = self.required_reference(header, F::ObjectProperties)?;
-        let length = match self.field(storage, F::PropertiesLength)? {
-            WasmtimeVal::I32(extent) => extent as u32,
-            _ => return Err(invariant("invalid ordinary property extent")),
-        };
-        let properties = self.required_reference(storage, F::PropertiesEntries)?;
-        let properties = self.array(properties, L::Properties)?;
-        if length > properties.len(&*self.store).map_err(invariant)? {
-            return Err(invariant("ordinary property extent exceeds capacity"));
-        }
-        budget.work(length as usize)?;
-        for ordinal in 0..length {
-            let raw = properties
-                .get(&mut *self.store, ordinal)
-                .map_err(invariant)?;
-            let Some(entry) = eq_reference(self.store, raw)? else {
-                continue;
-            };
-            if ordered.len() >= remaining {
-                return Err(cap(SnapshotBudgetDimension::Properties));
+        if self.has_layout(storage, L::CompactStorage)? {
+            if array.is_some() {
+                return Err(invariant("compact literal storage on Array header"));
             }
-            let key = self.stored_field(entry, F::PropertyKey)?;
-            let (group, index, key) = match WasmRuntimeValueTag::from_tag(key.tag) {
-                Some(WasmRuntimeValueTag::String) => {
-                    let key = self.string(
-                        key.reference
-                            .ok_or_else(|| invariant("missing property key"))?,
-                        budget,
-                    )?;
-                    let index = array_index(key.units());
-                    if array.is_some()
-                        && (index.is_some() || key.units() == [108, 101, 110, 103, 116, 104])
-                    {
-                        return Err(invariant(
-                            "Array virtual property duplicated in ordinary table",
-                        ));
+            let shape = self.required_reference(storage, F::CompactShape)?;
+            let keys = self.required_reference(shape, F::CompactKeys)?;
+            let tags = self.required_reference(storage, F::CompactTags)?;
+            let scalars = self.required_reference(storage, F::CompactScalars)?;
+            let references = self.required_reference(storage, F::CompactReferences)?;
+            let keys = self.array(keys, L::CompactKeys)?;
+            let tags = self.array(tags, L::CompactTags)?;
+            let scalars = self.array(scalars, L::CompactScalars)?;
+            let references = self.array(references, L::CompactReferences)?;
+            let length = keys.len(&*self.store).map_err(invariant)?;
+            if length > 16
+                || tags.len(&*self.store).map_err(invariant)? != length
+                || scalars.len(&*self.store).map_err(invariant)? != length
+                || references.len(&*self.store).map_err(invariant)? != length
+            {
+                return Err(invariant("invalid compact property extent"));
+            }
+            budget.work(length as usize)?;
+            for ordinal in 0..length {
+                if ordered.len() >= remaining {
+                    return Err(cap(SnapshotBudgetDimension::Properties));
+                }
+                let raw = keys.get(&mut *self.store, ordinal).map_err(invariant)?;
+                let key =
+                    eq_reference(self.store, raw)?.ok_or_else(|| invariant("null compact key"))?;
+                self.require(key, L::String)?;
+                let key = self.string(key, budget)?;
+                let index = array_index(key.units());
+                let WasmtimeVal::I32(tag) =
+                    tags.get(&mut *self.store, ordinal).map_err(invariant)?
+                else {
+                    return Err(invariant("invalid compact value tag"));
+                };
+                let WasmtimeVal::I64(scalar) =
+                    scalars.get(&mut *self.store, ordinal).map_err(invariant)?
+                else {
+                    return Err(invariant("invalid compact value scalar"));
+                };
+                let raw = references
+                    .get(&mut *self.store, ordinal)
+                    .map_err(invariant)?;
+                let reference = eq_reference(self.store, raw)?;
+                scriptw_aot_wasm::GcHostValue::check(tag, scalar, reference.is_some())
+                    .map_err(invariant)?;
+                ordered.push((
+                    if index.is_some() { 0 } else { 1 },
+                    index.unwrap_or(0),
+                    ordinal as usize,
+                    SnapshotRawProperty {
+                        key: SnapshotRawKey::String(key),
+                        descriptor: SnapshotRawDescriptor::Data {
+                            value: NativeValue {
+                                tag,
+                                scalar,
+                                reference,
+                            },
+                            writable: true,
+                            enumerable: true,
+                            configurable: true,
+                        },
+                    },
+                ));
+            }
+        } else {
+            let length = match self.field(storage, F::PropertiesLength)? {
+                WasmtimeVal::I32(extent) => extent as u32,
+                _ => return Err(invariant("invalid ordinary property extent")),
+            };
+            let properties = self.required_reference(storage, F::PropertiesEntries)?;
+            let properties = self.array(properties, L::Properties)?;
+            if length > properties.len(&*self.store).map_err(invariant)? {
+                return Err(invariant("ordinary property extent exceeds capacity"));
+            }
+            budget.work(length as usize)?;
+            for ordinal in 0..length {
+                let raw = properties
+                    .get(&mut *self.store, ordinal)
+                    .map_err(invariant)?;
+                let Some(entry) = eq_reference(self.store, raw)? else {
+                    continue;
+                };
+                if ordered.len() >= remaining {
+                    return Err(cap(SnapshotBudgetDimension::Properties));
+                }
+                let key = self.stored_field(entry, F::PropertyKey)?;
+                let (group, index, key) = match WasmRuntimeValueTag::from_tag(key.tag) {
+                    Some(WasmRuntimeValueTag::String) => {
+                        let key = self.string(
+                            key.reference
+                                .ok_or_else(|| invariant("missing property key"))?,
+                            budget,
+                        )?;
+                        let index = array_index(key.units());
+                        if array.is_some()
+                            && (index.is_some() || key.units() == [108, 101, 110, 103, 116, 104])
+                        {
+                            return Err(invariant(
+                                "Array virtual property duplicated in ordinary table",
+                            ));
+                        }
+                        (
+                            if index.is_some() { 0 } else { 1 },
+                            index.unwrap_or(0),
+                            SnapshotRawKey::String(key),
+                        )
                     }
-                    (
-                        if index.is_some() { 0 } else { 1 },
-                        index.unwrap_or(0),
-                        SnapshotRawKey::String(key),
-                    )
-                }
-                Some(WasmRuntimeValueTag::Symbol) => {
-                    let key = key
-                        .reference
-                        .ok_or_else(|| invariant("missing Symbol key"))?;
-                    self.require(key, L::Symbol)?;
-                    (2, 0, SnapshotRawKey::Symbol(key))
-                }
-                _ => return Err(invariant("invalid ordinary property key")),
-            };
-            let descriptor = self.required_reference(entry, F::PropertyDescriptor)?;
-            let property = SnapshotRawProperty {
-                key,
-                descriptor: self.descriptor(descriptor)?,
-            };
-            ordered.push((
-                group,
-                index,
-                ordinal as usize + usize::from(array.is_some()),
-                property,
-            ));
+                    Some(WasmRuntimeValueTag::Symbol) => {
+                        let key = key
+                            .reference
+                            .ok_or_else(|| invariant("missing Symbol key"))?;
+                        self.require(key, L::Symbol)?;
+                        (2, 0, SnapshotRawKey::Symbol(key))
+                    }
+                    _ => return Err(invariant("invalid ordinary property key")),
+                };
+                let descriptor = self.required_reference(entry, F::PropertyDescriptor)?;
+                let property = SnapshotRawProperty {
+                    key,
+                    descriptor: self.descriptor(descriptor)?,
+                };
+                ordered.push((
+                    group,
+                    index,
+                    ordinal as usize + usize::from(array.is_some()),
+                    property,
+                ));
+            }
         }
         ordered.sort_by_key(|(group, index, ordinal, _)| (*group, *index, *ordinal));
         let mut properties = SnapshotProperties::default();

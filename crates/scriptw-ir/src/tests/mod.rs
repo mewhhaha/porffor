@@ -6,6 +6,7 @@ use scriptw_front::{parse, ParseOptions};
 // Each source family owns its controls; shared walkers stay test-private.
 include!("support.rs");
 include!("environment_analysis.rs");
+include!("strict_parameter_storage.rs");
 include!("entry_and_modules.rs");
 include!("call_references.rs");
 include!("array_expression.rs");

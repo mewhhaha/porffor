@@ -3,7 +3,7 @@
 ## Decision
 
 Each Wasm function builder carries one closed arguments-object construction
-protocol:
+protocol. The semantic selection is:
 
 ```text
 Absent
@@ -12,8 +12,8 @@ Present(Mapped(plan))
 ```
 
 The protocol is selected once when the builder is created. Arrow functions use
-`Absent` because their `arguments` reference is lexical. Every ordinary
-function uses `Present`: a strict function or a function with a non-simple
+`Absent` because their `arguments` reference is lexical. An ordinary
+function's semantic choice is `Present`: a strict function or a function with a non-simple
 parameter list uses `Unmapped`, while a sloppy function with a simple parameter
 list uses `Mapped(plan)`.
 
@@ -21,6 +21,10 @@ This is the split made by FunctionDeclarationInstantiation. Its choice between
 CreateUnmappedArgumentsObject and CreateMappedArgumentsObject depends on
 `[[ThisMode]]`, strictness and whether the parameter list is simple. It does not
 depend on which backend storage happened to be allocated for a parameter.
+
+A consumed activation plan can then omit materialization when the entire
+invocation has no observer. This decision does not change mapped versus
+unmapped semantics or excuse invalid mapped storage.
 
 ## The invalid fallback
 
@@ -77,6 +81,44 @@ binding, and that slot must have exactly one owner. A missing, duplicate or
 aliased slot is malformed lowered IR and makes Wasm emission fail. Storage
 validation never reclassifies the function as unmapped.
 
+## Synchronous leaf activations
+
+`UserFunctionActivationPlan` first constructs the semantic protocol and
+validates the original mapped slots. A private, source-bound
+`UnobservableLeafActivation` proof then admits only a synchronous ordinary
+function with inert simple parameters, no captured/eval/private/resumable
+environment, and no owned cells except its formal parameters. Its body may
+contain inert string directives and empty statements, followed by one return.
+The complete return expression must consist of primitive literals, parameter
+copies, fresh static data/array literals, or the admitted non-coercing operations.
+Number arithmetic requires both the existing Number kinds and recursively
+admitted operands; a Number result alone cannot hide an object conversion.
+Other expression kinds conservatively retain the ordinary activation.
+
+Calls, property access, computed keys, spread, methods/closures, dynamic binding
+lookup, `arguments`, coercion of unknown values, default/rest/destructuring
+parameters and suspension cannot acquire this proof. A sloppy function's
+legacy `.arguments` may be observed by a callback, getter or `valueOf`, even
+when its own source never reads `arguments`. Such functions keep the real
+object and its mapped cells. This also preserves the published object when an
+observer freezes the active function's legacy property.
+
+Consuming the proof selects the exact source, omitted arguments binding and
+empty mapping-only storage slice together. Parameter values then use normal
+local binding allocation. The source body still executes through normal Realm
+selection, checked source-depth entry, source identity, legacy capture/restore,
+completion and constructor normalization. It does not take the separate empty
+strict-body compilation path. The pre-existing proof for an actually empty,
+strict body retains that separate entry and epilogue.
+
+Strict simple parameters no longer force environment cells just to seed
+arguments mapping: strict arguments are unmapped. Capture discovery, eval
+visibility, separate body/parameter environments and resumable ownership still
+retain every cell they require. That selection happens before physical
+environment chains and capture hops are finalized. Sloppy simple parameters
+keep their original mapped-slot validation; only the consumed leaf proof can
+elide their mapping-only storage later.
+
 ## Consumption
 
 Parameter binding, local-count planning and root-var reuse consume `Absent`
@@ -131,24 +173,35 @@ The static-block FunctionDeclarationInstantiation requirement follows
    is an emission error, not a semantic fallback.
 7. Adding another present object kind requires updating every exhaustive
    construction consumer or the backend fails to compile.
+8. Arguments elision and mapping-only storage elision share one consumed,
+   source-bound activation plan; a nonempty return body retains its execution.
+9. A source callback or unknown object conversion cannot acquire leaf authority.
 
 ## Verification boundary
 
 Backend module tests cover absence for arrows, unmapped strict/default/rest/
 destructured functions, the empty mapped plan, valid unique and duplicate-name
 maps, and emission rejection for a lowered function whose required parameter
-slot is removed. Existing engine and CLI regressions already cover both
-directions of mapped aliasing, last-duplicate behavior, mapped descriptors and
-mapped versus unmapped `callee`; this seam adds no duplicate JavaScript fixture.
+slot is removed. Leaf controls inspect actual encoded P bodies for omitted
+ArgumentsObject/Environment/BindingCell allocations and metadata calls, retained
+source-depth guards, and the corresponding retained allocations at observer
+boundaries. IR controls check strict parameter retention for capture, eval and
+resumption and hops through a storage-free intermediate activation.
 
-Cargo and Test262 verification remain deferred to the centralized batch while
-their build/runtime leases are active. The change is intended to preserve all
-valid emitted behavior; it closes a compiler-internal failure mode and does not
-claim a newly passing runtime case.
+Focused engine controls cover fresh return identities and roots, duplicate
+parameters, callback/getter/coercion reflection, active-property freezing,
+captured arguments and parameters, eval and non-simple parameter fallback,
+strict transitive/resumable storage, constructor returns and cross-Realm
+new-target prototype selection. Existing mapped descriptor and unmapped
+`callee` regressions remain required.
+
+Cargo and runtime verification of this leaf batch remain deferred to the
+centralized bounded verification checkpoint. These controls are not a claim
+that the new batch has already passed or that a benchmark speedup was measured.
 
 ## Nonclaims
 
-This protocol does not complete parameter/body environment separation, add a
-new arguments-object representation, change descriptor layout, or broaden the
-supported function surface. It makes the existing construction decision and
-its storage dependency explicit. T09 remains in progress.
+This protocol does not add lazy arguments, specialize unknown parameters with
+numeric guards, replace the arguments representation, change descriptor layout,
+or broaden the supported language surface. Bodies requiring reentry keep their
+ordinary construction path. T09 remains in progress.

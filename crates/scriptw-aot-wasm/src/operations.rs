@@ -17,6 +17,7 @@ mod number_remainder;
 mod number_to_string;
 mod property_key_hash;
 mod relational_comparison;
+mod scalar_number;
 mod string_trim;
 pub(crate) use string_trim::EcmaTrimMode;
 mod to_object;
@@ -622,9 +623,31 @@ impl<'a> FunctionBuilder<'a> {
                     SpecOperationIr::Get | SpecOperationIr::GetV | SpecOperationIr::GetMethod => {
                         // GetV boxes only the lookup target. Getter this is the
                         // original value, including a primitive receiver.
-                        self.emit_dynamic_property_read_with_key_locals(
-                            &lookup, &inputs[0], &key, &pending, function,
-                        )?;
+                        // Unknown static source reads lower to canonical GetV,
+                        // so admit the same cache after the existing operand,
+                        // ToObject and ToPropertyKey steps have completed.
+                        let cached = if operation == SpecOperationIr::GetV {
+                            if let ExprIr::String(name) = &operands[1].expr {
+                                self.emit_planned_property_read(
+                                    &operands[0],
+                                    &PropertyKeyIr::StaticString(name.clone()),
+                                    &lookup,
+                                    &inputs[0],
+                                    key.value(),
+                                    &pending,
+                                    function,
+                                )?
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        if !cached {
+                            self.emit_dynamic_property_read_with_key_locals(
+                                &lookup, &inputs[0], &key, &pending, function,
+                            )?;
+                        }
                         self.emit_spec_operation_abrupt_exit(&pending, property_exit, function);
                         if operation == SpecOperationIr::GetMethod {
                             self.compile_nullish_tagged_i32(pending.value().tag(), function)?;
@@ -1462,15 +1485,8 @@ impl<'a> FunctionBuilder<'a> {
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let schema = self.runtime_schema();
-        let left = schema.reserve_value_local(function);
-        let right = schema.reserve_value_local(function);
-        self.compile_expr_to_value(lhs, &left, function)?;
-        self.compile_expr_to_value(rhs, &right, function)?;
-        self.emit_number_arithmetic(op, left.scalar(), right.scalar(), output.scalar(), function)?;
+        self.compile_number_arithmetic_payload(op, lhs, rhs, output.scalar(), function)?;
         output.set_number(output.scalar(), function);
-        right.clear(function);
-        left.clear(function);
         Ok(())
     }
 
@@ -1840,18 +1856,18 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        let value = schema.reserve_value_local(function);
-        self.compile_expr_to_value(expr, &value, function)?;
         if expr.kind == ValueKind::Number {
-            value.scalar().load(function);
+            self.compile_number_payload(expr, output.scalar(), function)?;
+            output.scalar().load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::F64Neg);
             function.instruction(&Instruction::I64ReinterpretF64);
             output.scalar().store(function);
             output.set_number(output.scalar(), function);
-            value.clear(function);
             return Ok(());
         }
+        let value = schema.reserve_value_local(function);
+        self.compile_expr_to_value(expr, &value, function)?;
         let pending = schema.reserve_completion(function);
         self.emit_value_to_numeric_locals(&value, &pending, function)?;
         self.finish_to_primitive_operation(

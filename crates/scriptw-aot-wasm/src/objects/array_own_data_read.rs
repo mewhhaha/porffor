@@ -68,9 +68,15 @@ impl FunctionBuilder<'_> {
         index.load(function);
         function.instruction(&Instruction::I64ExtendI32U);
         index64.store(function);
-        let element = self.emit_array_indexed_descriptor(&array, index64, function);
-        descriptor.replace(element.load(schema, function), function);
-        element.clear(function);
+        let found = schema.reserve_i32_local(function);
+        self.emit_array_own_indexed_value(&array, index64, &value, found, function);
+        found.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        result.set_normal(&value, function);
+        handled.set_constant(1, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(found, function);
         schema.release_i64_local(index64, function);
         function.instruction(&Instruction::Else);
         let header = schema.reserve_gc_local(function).initialize(

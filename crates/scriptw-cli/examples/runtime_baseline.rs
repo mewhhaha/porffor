@@ -1,6 +1,8 @@
 //! Opt-in same-source Wasmtime measurements for scripts/benchmark-v8.py.
 #[path = "runtime_baseline/phase_observer.rs"]
 mod phase_observer;
+#[path = "runtime_baseline/policy_options.rs"]
+mod policy_options;
 use scriptw_engine::{
     CompileOptions, CompilerIdentity, CompilerSourceRevision, Engine, ExecutionBackend,
     HostOutputEvent, ObservedCompletion, RealmBuilder, WasmProcessMemoryObservation,
@@ -12,13 +14,14 @@ use std::{fs, path::PathBuf};
 
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    let observe_phases = args.len() == 6 && args[5] == "--row-phases";
-    if args.len() != 5 && !observe_phases {
+    if args.len() < 5 {
         return Err(
-            "usage: runtime-baseline FIXTURES SAMPLES WARMUPS CASE ARTIFACT_DIR [--row-phases]"
+            "usage: runtime-baseline FIXTURES SAMPLES WARMUPS CASE ARTIFACT_DIR [--row-phases] [--native-mode fast|size-optimized|speed] [--gc-initial-mib 16|32|64|128] [--regalloc single-pass|backtracking]"
                 .into(),
         );
     }
+    let options = policy_options::parse(&args[5..])?;
+    let observe_phases = options.row_phases;
     let root = PathBuf::from(&args[0]);
     let samples: usize = args[1].parse().map_err(|_| "invalid sample count")?;
     let warmups: usize = args[2].parse().map_err(|_| "invalid warmup count")?;
@@ -77,9 +80,24 @@ fn run() -> Result<(), String> {
             if let Some(observer) = &observer {
                 observer.begin(index >= warmups)?;
             }
-            let p = engine
-                .profile_wasm_execution(&compilation.artifact, Some(60_000), false)
-                .map_err(|e| format!("{name}: {e}"))?;
+            let p = match options.policy {
+                Some(policy) => engine.profile_wasm_execution_with_options(
+                    &compilation.artifact,
+                    Some(60_000),
+                    false,
+                    policy,
+                ),
+                None => engine.profile_wasm_execution(&compilation.artifact, Some(60_000), false),
+            }
+            .map_err(|e| format!("{name}: {e}"))?;
+            if options
+                .policy
+                .is_some_and(|requested| p.options != requested)
+            {
+                return Err(format!(
+                    "{name}: executing Engine differs from requested native/GC policy"
+                ));
+            }
             let mut output = String::new();
             for event in &p.outcome.output_events {
                 match event {
@@ -114,9 +132,11 @@ fn run() -> Result<(), String> {
             };
             let mut observation = json!({"warmup": index < warmups,
                 "execution_ns": p.timings.execution_and_completion.as_nanos(),
-                "phases_ns": {"engine": p.timings.engine.as_nanos(),
+                "phases_ns": {"admission": p.timings.admission.as_nanos(),
+                    "engine": p.timings.engine.as_nanos(),
                     "module": p.timings.module.as_nanos(),
                     "store_and_linker": p.timings.store_and_linker.as_nanos(),
+                    "host_import_registration": p.timings.host_import_registration.as_nanos(),
                     "instantiate": p.timings.instantiate.as_nanos(),
                     "export_lookup": p.timings.export_lookup.as_nanos(),
                     "total": p.timings.total.as_nanos()},
@@ -129,8 +149,13 @@ fn run() -> Result<(), String> {
                         "collection_count": format!("{:?}", p.collection_count),
                         "gc_pause_time": format!("{:?}", p.gc_pause_time),
                         "peak_gc_heap_bytes": format!("{:?}", p.peak_gc_heap_bytes)}},
-                "module_cache": format!("{:?}", p.module_cache), "stdout": output,
+                "module_cache": format!("{:?}", p.module_cache),
+                "host_import_cache": format!("{:?}", p.host_import_cache), "stdout": output,
+                "matched_runtime_image_cache": format!("{:?}", p.matched_runtime_image_cache),
                 "runtime_policy": p.runtime_policy});
+            if options.policy.is_some() {
+                observation["actual_native_policy"] = policy_options::policy_json(p.options);
+            }
             if let Some(observer) = &observer {
                 observation["row_phases"] = observer.finish()?;
             }
@@ -162,10 +187,18 @@ fn run() -> Result<(), String> {
     };
     println!(
         "{}",
-        serde_json::to_string(&json!({"schema": if observe_phases { "scriptw-wasmtime-row-phases-v1" } else { "scriptw-wasmtime-baseline-v2" },
+        serde_json::to_string(
+            &json!({"schema": match (observe_phases, options.policy.is_some()) {
+            (false, false) => "scriptw-wasmtime-baseline-v2",
+            (true, false) => "scriptw-wasmtime-row-phases-v1",
+            (false, true) => "scriptw-wasmtime-policy-baseline-v1",
+            (true, true) => "scriptw-wasmtime-policy-row-phases-v1",
+        },
+        "requested_native_policy": options.policy.map(policy_options::policy_json),
         "source_commit": revision, "source_fingerprint": identity.source_fingerprint().to_string(),
         "executable_sha256": identity.executable_sha256().to_string(),
-        "samples": samples, "warmups": warmups, "cases": results}))
+        "samples": samples, "warmups": warmups, "cases": results})
+        )
         .map_err(|e| e.to_string())?
     );
     Ok(())

@@ -12,6 +12,33 @@ import performance_corpus as corpus
 
 
 class CorpusTests(unittest.TestCase):
+    def test_same_realm_tuning_and_holdout_checksums_match_v8(self):
+        node = shutil.which('node')
+        self.assertIsNotNone(node, 'normal V8 is required for batched corpus validation')
+        entries = [entry for batches in (1, 9, 32) for entry in corpus.same_realm_workloads(batches)]
+        self.assertEqual({entry['partition'] for entry in entries}, {'tuning', 'holdout'})
+        self.assertEqual(len({entry['file'] for entry in entries}), len(entries))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'batches.cjs'
+            path.write_text("const vm=require('node:vm');const cases=" + json.dumps(entries) + ";\n"
+                "for(const e of cases){let out='';vm.runInNewContext(e.source,{print:x=>out+=String(x)+'\\n'});"
+                "if(out!==e.stdout)throw new Error(e.file+': '+JSON.stringify(out)+' != '+JSON.stringify(e.stdout));}\n")
+            result = subprocess.run([node, path], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_same_realm_batch_bounds_and_phase_separation(self):
+        for batches in (0, -1, 257, True, 1.5):
+            with self.subTest(batches=batches), self.assertRaises(ValueError):
+                corpus.same_realm_workloads(batches)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'corpus'
+            with self.assertRaisesRegex(ValueError, 'separate corpora'):
+                corpus.write_corpus(path, (8,), (2,), (1,), row_phases=True, sustained_batches=8)
+            self.assertFalse(path.exists())
+            plan = corpus.write_corpus(path, (8,), (2,), (1,), sustained_batches=8)
+            self.assertEqual(len(plan['execution']), 10)
+            self.assertTrue(all(entry['parameters']['batches'] == 8 for entry in plan['execution']))
+
     def test_row_phase_checksums_and_identity_guard_match_v8(self):
         node = shutil.which('node')
         self.assertIsNotNone(node, 'normal V8 is required for phase corpus validation')

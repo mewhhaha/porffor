@@ -1,18 +1,18 @@
 use scriptw_aot_wasm::{
-    WasmModuleEvaluationStatus, WasmRuntimeValueTag, MODULE_EVALUATION_STATUS_EXPORT,
+    MODULE_EVALUATION_STATUS_EXPORT, WasmModuleEvaluationStatus, WasmRuntimeValueTag,
 };
-use scriptw_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, ParsedSource, SourceUnit};
+use scriptw_front::{ParseDiagnostic, ParseGoal, ParseOptions, ParsedSource, SourceUnit, parse};
 use scriptw_intl::{
-    CanonicalizeLocale, EmbeddedIntlProvider, IntlDataIdentity, IntlHostOp, IntlKernel, LocaleId,
-    LocaleTransformError, LocaleTransformRequest, MaximizeLocale, MinimizeLocale,
-    INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
+    CanonicalizeLocale, EmbeddedIntlProvider, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
+    IntlDataIdentity, IntlHostOp, IntlKernel, LocaleId, LocaleTransformError,
+    LocaleTransformRequest, MaximizeLocale, MinimizeLocale,
 };
 use scriptw_ir::{
-    script_has_dynamic_import, CompletionKindIr, DynamicSourceRuntimeOperation, IrDiagnostic,
-    ProgramIr, RuntimeSemanticGap, RuntimeSemanticRejection, ValueKind,
+    CompletionKindIr, DynamicSourceRuntimeOperation, IrDiagnostic, ProgramIr, RuntimeSemanticGap,
+    RuntimeSemanticRejection, ValueKind, script_has_dynamic_import,
 };
-pub use scriptw_runtime::rooted_snapshot::{SnapshotCompletion, SnapshotLimits, SnapshotOutcome};
 use scriptw_runtime::AgentHostOperation;
+pub use scriptw_runtime::rooted_snapshot::{SnapshotCompletion, SnapshotLimits, SnapshotOutcome};
 use sha2::{Digest, Sha256};
 use wasmparser::{Parser as WasmParser, Payload as WasmPayload};
 use wasmtime::{
@@ -31,6 +31,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 mod agent_failure_tests;
 mod cache;
 mod compilation_profile;
+mod compiler_cache_identity;
 mod compiler_identity;
 mod compiler_inspection;
 pub use compilation_profile::{
@@ -38,24 +39,40 @@ pub use compilation_profile::{
 };
 pub use compiler_inspection::{CompilerInspectionFailure, CompilerInspectionStage};
 mod runtime_profile;
+pub use compiler_cache_identity::{
+    CompilerCacheIdentity, CompilerCacheImageHashAlgorithm, compiler_cache_identity,
+};
 pub use compiler_identity::{
     CompilerCommitId, CompilerDigest, CompilerIdentity, CompilerSourceRevision,
 };
-pub use runtime_profile::{
-    wasm_runtime_profile_policy, WasmProcessMemoryObservation, WasmProcessMemorySample,
-    WasmProcessMemoryScope, WasmProcessMemoryUnavailable, WasmProfileNativeMode,
-    WasmRuntimeHeapObservation, WasmRuntimeMetricUnavailable, WasmRuntimeModuleCacheOutcome,
-    WasmRuntimeProfile, WasmRuntimeTimings,
+pub use memory_module_cache::{
+    WasmRuntimeModuleCacheObservation, wasm_runtime_module_cache_observation,
 };
+pub use runtime_profile::{
+    WasmProcessMemoryObservation, WasmProcessMemorySample, WasmProcessMemoryScope,
+    WasmProcessMemoryUnavailable, WasmProfileGcInitialCapacity, WasmProfileInlining,
+    WasmProfileInliningLimits, WasmProfileNativeMode, WasmProfileRegisterAllocation,
+    WasmProgramNativeCompilationProfile, WasmRuntimeEmbeddedImageTimings,
+    WasmRuntimeHeapObservation, WasmRuntimeHostImportCacheOutcome,
+    WasmRuntimeMatchedImageCacheOutcome, WasmRuntimeMetricUnavailable,
+    WasmRuntimeModuleCacheOutcome, WasmRuntimeModuleLoading, WasmRuntimeProfile,
+    WasmRuntimeProfileOptions, WasmRuntimeTimings, wasm_runtime_profile_policy,
+};
+mod embedding;
 mod execution_failure;
+pub use embedding::{
+    EmbeddedInstance, EmbeddedRuntime, WasmStoreState, configure_wasm_runtime, throw_foreign_error,
+};
 mod global_script_prelude;
 mod graph_observation;
+mod host_imports;
+mod portable_bundle;
 mod prepared_source_catalog;
 pub use graph_observation::GraphRunOutcome;
 mod wasm_rooted_snapshot;
 mod wasm_runtime_link;
 pub use execution_failure::WasmExecutionFailureKind;
-use execution_failure::{finish_wasm_execution, EngineExecutionFailure};
+use execution_failure::{EngineExecutionFailure, finish_wasm_execution};
 pub use wasm_runtime_link::LinkedRuntime;
 use wasm_runtime_link::WasmProgramRef;
 mod intl_collator_host;
@@ -92,7 +109,7 @@ mod wasm_gc_byte_array_host;
 #[cfg(test)]
 use wasmtime_config::WASM_MAX_STACK_SIZE;
 use wasmtime_config::{
-    WasmNativeCompilationMode, ENGINE_WORKER_STACK_SIZE, WASM_STORE_MEMORY_CAP_BYTES,
+    ENGINE_WORKER_STACK_SIZE, WASM_STORE_MEMORY_CAP_BYTES, WasmNativeCompilationMode,
 };
 #[cfg(test)]
 #[path = "../tests/unit/native_compilation_dispatch.rs"]
@@ -121,23 +138,25 @@ mod wasm_gc_weak_host;
 use wasm_gc_completion::GcMainCompletion;
 use wasmtime::AsContext;
 
-pub use cache::{cache_status, prune_caches, CacheDirectoryStatus, CachePruneReport, CacheStatus};
+pub use cache::{CacheDirectoryStatus, CachePruneReport, CacheStatus, cache_status, prune_caches};
 pub use module_loader::{
-    load_module_graph, FilesystemModuleLoader, HostModuleLoader, LoadedModule, LoadedModuleKind,
-    ModuleEntry, ModuleKey, ModuleLoadError, ModuleRequestKeyIr,
+    FilesystemModuleLoader, HostModuleLoader, LoadedModule, LoadedModuleKind, ModuleEntry,
+    ModuleKey, ModuleLoadError, ModuleRequestKeyIr, load_module_graph,
 };
 pub use scriptw_aot_wasm::PromiseRejectionPolicy;
 pub use scriptw_intl::{
     CustomIntlProfile, CustomListProfile, CustomProfileId, IntlCompilationProfile,
     IntlDataSelection, SelectedIntlDataBundle,
 };
+pub use scriptw_ir::foreign;
+pub use scriptw_ir::foreign::ForeignModuleRegistry;
 pub use scriptw_ir::{
     ConformanceOwner, HostSurfacePolicy, LanguageFeaturePolicy, PrivateElementExtensibility,
 };
 pub use scriptw_ir::{RuntimeUnavailableCapability, WasmWeakReachabilityCapability};
 pub use scriptw_runtime::OracleExceptionPhase;
 pub use wasmtime_policy::WasmGcCapability;
-use wasmtime_policy::{WasmtimeRuntimePolicy, PRODUCT_WASMTIME_POLICY};
+use wasmtime_policy::{PRODUCT_WASMTIME_POLICY, WasmtimeRuntimePolicy};
 
 const WASM_THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
 const WASM_THROW_ERROR_MESSAGE_EXPORT: &str = "throw_error_message";
@@ -541,24 +560,19 @@ impl ProgramWasmArtifact {
 }
 
 fn compiler_identity_cache_fingerprint(identity: &CompilerIdentity) -> [u8; 32] {
-    let mut hash = Sha256::new();
-    hash.update(b"scriptw-program-cache-compiler-v4");
-    hash.update(identity.source_fingerprint().as_bytes());
-    hash.update(identity.executable_sha256().as_bytes());
-    hash.finalize().into()
+    compiler_cache_identity::cache_fingerprint(
+        CompilerCacheImageHashAlgorithm::Sha256,
+        identity.source_fingerprint(),
+        identity.executable_sha256().as_bytes(),
+    )
 }
 
 fn compiler_fingerprint() -> Option<&'static [u8; 32]> {
-    static FINGERPRINT: OnceLock<Option<[u8; 32]>> = OnceLock::new();
-    FINGERPRINT
-        .get_or_init(|| {
-            // Share the loaded-image hash used by execution evidence. Failure
-            // disables compiler-bound caches rather than inventing an image.
-            CompilerIdentity::current()
-                .ok()
-                .map(compiler_identity_cache_fingerprint)
-        })
-        .as_ref()
+    // The selected algorithm admits actual loaded-image bytes. Full execution
+    // evidence remains independently SHA-256; errors disable compiler caches.
+    compiler_cache_identity()
+        .ok()
+        .map(CompilerCacheIdentity::fingerprint)
 }
 
 const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"scriptw-program-wasm-cache-key-v20";
@@ -610,6 +624,9 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash.update(PROGRAM_WASM_CACHE_KEY_DOMAIN);
+    if !options.foreign_modules.is_empty() {
+        hash_program_cache_field(&mut hash, b"explicit-foreign-ABI-v1");
+    }
     hash.update(compiler_fingerprint);
     hash_program_cache_field(&mut hash, std::env::consts::ARCH.as_bytes());
     hash.update([match goal {
@@ -725,6 +742,13 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
             hash.update(graph.fingerprint());
         }
     }
+    if !options.foreign_modules.is_empty() {
+        // Declarations authorize a compiler extension, never ambient discovery.
+        // Preserve the existing empty-registry key and separate every complete
+        // normalized ABI schema (including the expected-error policy).
+        hash_program_cache_field(&mut hash, b"scriptw-foreign-declarations-v1");
+        hash_program_cache_field(&mut hash, &options.foreign_modules.to_normalized_json());
+    }
     hash_program_cache_field(&mut hash, source.as_bytes());
     match graph_digest {
         Some(digest) => {
@@ -756,6 +780,10 @@ fn module_graph_digest(sources: &scriptw_ir::ModuleGraphSources) -> [u8; 32] {
         hash.update(module.source_text().as_bytes());
         hash.update(module.meta_url().len().to_le_bytes());
         hash.update(module.meta_url().as_bytes());
+        if let Some(foreign) = module.foreign_modules() {
+            hash_program_cache_field(&mut hash, b"foreign-module-record-v1");
+            hash_program_cache_field(&mut hash, &foreign.to_normalized_json());
+        }
     }
     hash.update(sources.resolutions.len().to_le_bytes());
     for (referrer, request, target) in &sources.resolutions {
@@ -821,16 +849,24 @@ fn configured_module_loader(
     options: &CompileOptions,
     policy: AmbientModuleLoaderPolicy,
 ) -> Result<Box<dyn HostModuleLoader + 'static>, EngineError> {
-    match policy {
-        AmbientModuleLoaderPolicy::Filesystem => Ok(Box::new(
+    let fallback: Box<dyn HostModuleLoader> = match policy {
+        AmbientModuleLoaderPolicy::Filesystem => Box::new(
             FilesystemModuleLoader::new(
                 options.module_root.as_deref(),
                 options.filename.as_deref(),
             )
             .map_err(|error| EngineError::new(error.to_string()))?,
-        )),
-        AmbientModuleLoaderPolicy::RejectAll => Ok(Box::new(module_loader::RejectAllModuleLoader)),
-    }
+        ),
+        AmbientModuleLoaderPolicy::RejectAll => Box::new(module_loader::RejectAllModuleLoader),
+    };
+    Ok(if options.foreign_modules.is_empty() {
+        fallback
+    } else {
+        Box::new(module_loader::ForeignModuleLoader::new(
+            options.foreign_modules.clone(),
+            fallback,
+        ))
+    })
 }
 
 /// Loads the module graph rooted at `source`, using the loader policy selected
@@ -1124,7 +1160,17 @@ struct WasmNativeCompilationPlan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WasmModuleMemoryCacheKey {
     native_compilation_mode: WasmNativeCompilationMode,
+    runtime_image_policy: WasmRuntimeImagePolicy,
     wasm_sha256: [u8; 32],
+}
+
+/// Image storage is an explicit experimental variable. Ordinary execution
+/// admits its Cargo-produced image; all forced policy cohorts use the same
+/// matching producer/retention path, including the 16 MiB control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WasmRuntimeImagePolicy {
+    EmbeddedBuild,
+    MatchedDiagnostic,
 }
 
 fn memory_wasm_modules() -> &'static Mutex<MemoryWasmModuleCache> {
@@ -1285,13 +1331,31 @@ fn largest_wasm_code_body_size(bytes: &[u8]) -> Option<usize> {
 enum WasmModuleSource<'a> {
     Program(&'a [u8]),
     Runtime(&'a scriptw_aot_wasm::RuntimeArtifact),
+    DiagnosticRuntime(&'a scriptw_aot_wasm::RuntimeArtifact),
 }
 
 impl<'a> WasmModuleSource<'a> {
     fn bytes(self) -> &'a [u8] {
         match self {
             Self::Program(bytes) => bytes,
-            Self::Runtime(runtime) => runtime.bytes(),
+            Self::Runtime(runtime) | Self::DiagnosticRuntime(runtime) => runtime.bytes(),
+        }
+    }
+
+    fn runtime(
+        runtime: &'a scriptw_aot_wasm::RuntimeArtifact,
+        policy: WasmRuntimeImagePolicy,
+    ) -> Self {
+        match policy {
+            WasmRuntimeImagePolicy::EmbeddedBuild => Self::Runtime(runtime),
+            WasmRuntimeImagePolicy::MatchedDiagnostic => Self::DiagnosticRuntime(runtime),
+        }
+    }
+
+    fn runtime_image_policy(self) -> WasmRuntimeImagePolicy {
+        match self {
+            Self::Program(_) | Self::Runtime(_) => WasmRuntimeImagePolicy::EmbeddedBuild,
+            Self::DiagnosticRuntime(_) => WasmRuntimeImagePolicy::MatchedDiagnostic,
         }
     }
 }
@@ -1302,9 +1366,12 @@ fn wasm_module_memory_cache_key(
 ) -> WasmModuleMemoryCacheKey {
     WasmModuleMemoryCacheKey {
         native_compilation_mode,
+        runtime_image_policy: source.runtime_image_policy(),
         wasm_sha256: match source {
             WasmModuleSource::Program(bytes) => Sha256::digest(bytes).into(),
-            WasmModuleSource::Runtime(runtime) => runtime.wasm_sha256(),
+            WasmModuleSource::Runtime(runtime) | WasmModuleSource::DiagnosticRuntime(runtime) => {
+                runtime.wasm_sha256()
+            }
         },
     }
 }
@@ -1337,6 +1404,7 @@ fn compile_wasm_module(
 }
 
 fn memory_cached_wasm_module(
+    engine: &WasmtimeEngine,
     source: WasmModuleSource<'_>,
     native_compilation_mode: WasmNativeCompilationMode,
     create: impl FnOnce() -> Result<WasmtimeModule, EngineError>,
@@ -1347,7 +1415,7 @@ fn memory_cached_wasm_module(
         let mut modules = modules
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(module) = modules.get(&key) {
+        if let Some(module) = modules.get_for_engine(&key, engine) {
             return Ok((module, WasmModuleMemoryCacheOutcome::Hit));
         }
     }
@@ -1356,7 +1424,7 @@ fn memory_cached_wasm_module(
     let mut modules = modules
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let module = modules.retain_compiled(key, module);
+    let module = modules.retain_compiled_for_engine(key, module);
     Ok((module, WasmModuleMemoryCacheOutcome::Miss))
 }
 
@@ -1367,6 +1435,7 @@ fn wasm_module_for_execution(
     native_compilation_mode: WasmNativeCompilationMode,
 ) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
     wasm_module_for_execution_with_factory(
+        engine,
         WasmModuleSource::Program(bytes),
         memory_cache_policy,
         native_compilation_mode,
@@ -1375,6 +1444,7 @@ fn wasm_module_for_execution(
 }
 
 fn wasm_module_for_execution_with_factory(
+    engine: &WasmtimeEngine,
     source: WasmModuleSource<'_>,
     memory_cache_policy: WasmModuleMemoryCachePolicy,
     native_compilation_mode: WasmNativeCompilationMode,
@@ -1382,8 +1452,9 @@ fn wasm_module_for_execution_with_factory(
 ) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
     match (memory_cache_policy, source) {
         (WasmModuleMemoryCachePolicy::Retain, _)
-        | (WasmModuleMemoryCachePolicy::RetainRuntime, WasmModuleSource::Runtime(_)) => {
-            memory_cached_wasm_module(source, native_compilation_mode, create)
+        | (WasmModuleMemoryCachePolicy::RetainRuntime, WasmModuleSource::Runtime(_))
+        | (WasmModuleMemoryCachePolicy::RetainRuntime, WasmModuleSource::DiagnosticRuntime(_)) => {
+            memory_cached_wasm_module(engine, source, native_compilation_mode, create)
         }
         (WasmModuleMemoryCachePolicy::RetainRuntime, WasmModuleSource::Program(_))
         | (WasmModuleMemoryCachePolicy::BypassRetention, _) => {
@@ -1516,6 +1587,76 @@ fn shared_size_optimized_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
     cached_product_wasmtime_engine(&ENGINE, WasmNativeCompilationMode::SizeOptimized)
 }
 
+fn shared_speed_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
+    static ENGINE: OnceLock<Result<WasmtimeEngine, WasmtimeEngineSetupError>> = OnceLock::new();
+    cached_product_wasmtime_engine(&ENGINE, WasmNativeCompilationMode::Speed)
+}
+
+fn shared_native_mode_wasm_engine(
+    mode: WasmNativeCompilationMode,
+) -> Result<WasmtimeEngine, EngineError> {
+    match mode {
+        WasmNativeCompilationMode::Fast => shared_wasm_engine(),
+        WasmNativeCompilationMode::SizeOptimized => shared_size_optimized_wasm_engine(),
+        WasmNativeCompilationMode::Speed => shared_speed_wasm_engine(),
+    }
+}
+
+/// Two hot diagnostic configurations may retain immutable Engines. Modules still
+/// use the existing bounded image cache, checked against their actual Engine;
+/// an evicted/recreated configuration cannot reuse a foreign Module. No Store,
+/// JavaScript object, linker import or Realm is retained by this owner.
+fn shared_profile_wasm_engine(
+    options: WasmRuntimeProfileOptions,
+) -> Result<WasmtimeEngine, EngineError> {
+    const RETAINED_CONFIGURATIONS: usize = 2;
+    static ENGINES: OnceLock<Mutex<VecDeque<(WasmRuntimeProfileOptions, WasmtimeEngine)>>> =
+        OnceLock::new();
+    let engines = ENGINES.get_or_init(Default::default);
+    {
+        let mut engines = engines
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(position) = engines.iter().position(|(key, _)| *key == options) {
+            let entry = engines.remove(position).expect("profile Engine key exists");
+            let engine = entry.1.clone();
+            engines.push_back(entry);
+            return Ok(engine);
+        }
+    }
+    let mode = options.native_mode().internal();
+    let mut config = product_wasmtime_config(mode).map_err(EngineError::from_wasmtime_setup)?;
+    config.gc_heap_initial_size(options.initial_gc_capacity().bytes() as u64);
+    config.cranelift_regalloc_algorithm(options.register_allocation().algorithm());
+    options.configure_native_inlining(&mut config);
+    let engine = WasmtimeEngine::new(&config).map_err(|err| {
+        EngineError::from_wasmtime_setup(WasmtimeEngineSetupError::new(mode, format!("{err:#}")))
+    })?;
+    PRODUCT_WASMTIME_POLICY
+        .verify_engine(&engine)
+        .map_err(|message| {
+            EngineError::from_wasmtime_setup(WasmtimeEngineSetupError::new(mode, message))
+        })?;
+    let mut engines = engines
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Engine construction runs outside the mutex, like module compilation.
+    let engine = match engines.iter().position(|(key, _)| *key == options) {
+        Some(position) => {
+            engines
+                .remove(position)
+                .expect("profile Engine key exists")
+                .1
+        }
+        None => engine,
+    };
+    if engines.len() == RETAINED_CONFIGURATIONS {
+        engines.pop_front();
+    }
+    engines.push_back((options, engine.clone()));
+    Ok(engine)
+}
+
 fn registered_wasm_epoch_engines() -> &'static Mutex<Vec<wasmtime::EngineWeak>> {
     static ENGINES: OnceLock<Mutex<Vec<wasmtime::EngineWeak>>> = OnceLock::new();
     ENGINES.get_or_init(|| Mutex::new(Vec::new()))
@@ -1546,18 +1687,20 @@ fn ensure_wasm_epoch_ticker(engine: &WasmtimeEngine) {
     STARTED.get_or_init(|| {
         std::thread::Builder::new()
             .name("scriptw-wasm-epoch-ticker".to_string())
-            .spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_millis(WASM_EPOCH_TICK_MS));
-                let mut engines = registered_wasm_epoch_engines()
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                engines.retain(|registered| {
-                    let Some(engine) = registered.upgrade() else {
-                        return false;
-                    };
-                    engine.increment_epoch();
-                    true
-                });
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(WASM_EPOCH_TICK_MS));
+                    let mut engines = registered_wasm_epoch_engines()
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    engines.retain(|registered| {
+                        let Some(engine) = registered.upgrade() else {
+                            return false;
+                        };
+                        engine.increment_epoch();
+                        true
+                    });
+                }
             })
             .expect("scriptw wasm epoch ticker thread should spawn");
     });
@@ -1577,13 +1720,14 @@ pub use scriptw_runtime::{
     EmbeddedModuleKind, EmbeddedModuleReferrer, EmbeddedModuleRequest,
     EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput, EmbeddedModuleSourceValueInput,
     GlobalEnvironmentId, HostClock, HostHooks, HostOutputEvent, HostRandom, HostRandomError,
-    IntrinsicDescriptor, IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind, IntrinsicLink,
+    INTRINSIC_DESCRIPTORS, INTRINSIC_PROPERTY_DESCRIPTORS, IntrinsicDescriptor,
+    IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind, IntrinsicLink,
     IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor, IntrinsicPropertyKey,
     IntrinsicPropertyValue, IntrinsicRole, InvalidObservedBigInt, ModuleLoadingPolicy,
     MonotonicClockDuration, MonotonicClockInstant, NullHostHooks, ObservedBigInt,
     ObservedCompletion, ObservedJsValue, ObservedNumber, RandomUnitInterval, Realm, RealmBuilder,
     RealmGlobal, RealmId, RealmIntrinsics, RealmObjectId, RealmObjectKind, SystemHostClock,
-    SystemHostRandom, UtcEpochMilliseconds, INTRINSIC_DESCRIPTORS, INTRINSIC_PROPERTY_DESCRIPTORS,
+    SystemHostRandom, UtcEpochMilliseconds,
 };
 
 /// The product execution backend selector.
@@ -1640,6 +1784,13 @@ pub struct Artifact {
 }
 
 impl Artifact {
+    /// Validated native import requirements carried by P itself. This works
+    /// after source-free persistence and never consults a host closure registry.
+    pub fn foreign_modules(&self) -> Result<ForeignModuleRegistry, EngineError> {
+        scriptw_aot_wasm::foreign_registry_from_module(&self.bytes)
+            .map_err(|error| EngineError::new(format!("foreign Wasm admission failed: {error}")))
+    }
+
     fn program(&self) -> WasmProgramRef<'_> {
         let program =
             WasmProgramRef::new(&self.bytes, self.runtime.as_ref().map(|runtime| &runtime.0));
@@ -1669,6 +1820,9 @@ pub struct CompileOptions {
     /// prevents both AOT graph discovery and spec-exec dynamic source from
     /// consulting ambient files.
     pub module_loading_policy: ModuleLoadingPolicy,
+    /// Explicit compile-time native module declarations. An empty registry
+    /// exposes no foreign imports; names never discover ambient host functions.
+    pub foreign_modules: ForeignModuleRegistry,
     /// Which closed set of host-backed globals lowering may expose.
     pub host_surface_policy: HostSurfacePolicy,
     /// Proposal semantics selected explicitly; default is pinned ECMA-262.
@@ -1688,6 +1842,7 @@ impl Default for CompileOptions {
             optimize: true,
             module_root: None,
             module_loading_policy: ModuleLoadingPolicy::default(),
+            foreign_modules: ForeignModuleRegistry::default(),
             host_surface_policy: HostSurfacePolicy::default(),
             language_features: LanguageFeaturePolicy::default(),
             promise_rejection_policy: PromiseRejectionPolicy::default(),
@@ -1763,6 +1918,18 @@ fn validate_execution_language_features(
     if backend == ExecutionBackend::SpecExec && policy != LanguageFeaturePolicy::default() {
         return Err(EngineError::new(
             "selected language proposals are unsupported by spec-exec; use Wasm AOT",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_foreign_oracle(
+    registry: &ForeignModuleRegistry,
+    backend: ExecutionBackend,
+) -> Result<(), EngineError> {
+    if backend == ExecutionBackend::SpecExec && !registry.is_empty() {
+        return Err(EngineError::new(
+            "declared foreign functions require emitted Wasm and an embedder-owned Linker; spec-exec does not bind native functions",
         ));
     }
     Ok(())
@@ -2126,22 +2293,7 @@ impl WasmOutputEvents {
     }
 }
 
-struct WasmHostState {
-    weak: wasm_gc_weak_host::WeakGcState,
-    native_source_compiler: Option<Arc<wasm_native_source_compiler::NativeSourceCompilerContext>>,
-    native_template_instances: memory_module_cache::MemoryNativeInstanceCache,
-    realm: Realm,
-    output_events: WasmOutputEvents,
-    intl_kernel: Arc<IntlKernel<EmbeddedIntlProvider>>,
-    can_block: bool,
-    monotonic_clock_origin: MonotonicClockInstant,
-    shared_memory_backing: Option<Arc<WasmSharedMemoryBacking>>,
-    async_waiters: Arc<WasmStoreAsyncWaiters>,
-    agent_group: Option<Arc<WasmAgentGroup>>,
-    agent_commands: Option<Arc<Mutex<std::sync::mpsc::Receiver<WasmAgentCommand>>>>,
-    agent_leaving: Option<Arc<std::sync::atomic::AtomicBool>>,
-    limits: WasmtimeStoreLimits,
-}
+type WasmHostState = WasmStoreState;
 
 fn shared_embedded_intl_kernel() -> Result<Arc<IntlKernel<EmbeddedIntlProvider>>, EngineError> {
     scriptw_intl::shared_embedded_intl_kernel().map_err(|error| EngineError::new(error.to_string()))
@@ -2599,6 +2751,7 @@ impl Engine {
     ) -> Result<RunOutcome, EngineError> {
         validate_execution_intl_profile(&options.intl_profile, run.backend)?;
         validate_execution_language_features(options.language_features, run.backend)?;
+        validate_foreign_oracle(&options.foreign_modules, run.backend)?;
         match run.backend {
             ExecutionBackend::SpecExec => self.run_with_spec_exec(
                 source,
@@ -2652,6 +2805,7 @@ impl Engine {
     ) -> Result<ObservedRunOutcome, EngineError> {
         validate_execution_intl_profile(&options.intl_profile, run.backend)?;
         validate_execution_language_features(options.language_features, run.backend)?;
+        validate_foreign_oracle(&options.foreign_modules, run.backend)?;
         match run.backend {
             ExecutionBackend::SpecExec => self.observe_with_spec_exec(
                 source,
@@ -2969,6 +3123,16 @@ impl Engine {
             wasm_runtime_link::decode_cache_entry(&entry, &options.intl_profile, cache)
         });
         if let Some((bytes, runtime)) = admitted {
+            let required = scriptw_aot_wasm::foreign_registry_from_module(&bytes).ok()?;
+            if required
+                .modules()
+                .iter()
+                .any(|module| options.foreign_modules.module(module.specifier()) != Some(module))
+                || (!required.is_empty()
+                    && required.error_tag() != options.foreign_modules.error_tag())
+            {
+                return None;
+            }
             if std::env::var_os("SCRIPTW_WASM_TRACE").is_some() {
                 eprintln!(
                     "scriptw wasm trace: program-cache hit: {} bytes in {:?}",
@@ -3210,9 +3374,14 @@ impl Engine {
                 if trace {
                     eprintln!("scriptw wasm trace: parse: {:?}", parse_started.elapsed());
                 }
-                let (source, catalog) = admitted
+                let (source, mut catalog) = admitted
                     .into_graph()
                     .map_err(|error| EngineError::new(error.to_string()))?;
+                module_loader::include_foreign_module_registry(
+                    &mut catalog,
+                    &options.foreign_modules,
+                )
+                .map_err(|error| EngineError::new(error.to_string()))?;
                 (
                     source,
                     PreparedModuleCompilation::Embedded {
@@ -3340,6 +3509,9 @@ impl Engine {
     ) -> Result<RunOutcome, EngineError> {
         validate_execution_intl_profile(&unit.intl_profile, run.backend)?;
         validate_execution_language_features(unit.ir.language_features(), run.backend)?;
+        if let Some(script) = &unit.ir.script {
+            validate_foreign_oracle(&script.foreign_modules, run.backend)?;
+        }
         match run.backend {
             ExecutionBackend::SpecExec => self.run_with_spec_exec(
                 source,
@@ -3670,6 +3842,7 @@ impl Engine {
         // same gate covers fresh and cached artifacts. Validate while the
         // artifact is inert, before either Wasmtime compilation or instance
         // construction can run module start code.
+        let admission_started = std::time::Instant::now();
         let intl_kernel = wasm_runtime_link::intl_kernel_for(program)?;
         if !self
             .realm
@@ -3680,10 +3853,16 @@ impl Engine {
                 "configured system time zone does not match the executing Intl provider",
             ));
         }
-        let requested_native_mode = profile.as_ref().and_then(|p| p.requested_native_mode);
+        let admission_elapsed = if profile.is_some() {
+            admission_started.elapsed()
+        } else {
+            Default::default()
+        };
+        trace_phase("artifact + Intl admission", admission_started);
+        let requested_options = profile.as_ref().and_then(|p| p.requested_options);
         let mut native_compilation_plan = wasm_runtime_link::plan_native_compilation(program);
-        if let Some(forced) = requested_native_mode {
-            native_compilation_plan.mode = forced.internal();
+        if let Some(options) = requested_options {
+            native_compilation_plan.mode = options.native_mode().internal();
         }
         if trace_wasm {
             match native_compilation_plan.largest_code_body_bytes {
@@ -3702,11 +3881,10 @@ impl Engine {
         let engine_started = std::time::Instant::now();
         let mut engine = if let Some(agent_execution) = &agent_execution {
             agent_execution.group.engine.clone()
+        } else if let Some(options) = requested_options {
+            shared_profile_wasm_engine(options)?
         } else {
-            match native_compilation_plan.mode {
-                WasmNativeCompilationMode::Fast => shared_wasm_engine()?,
-                WasmNativeCompilationMode::SizeOptimized => shared_size_optimized_wasm_engine()?,
-            }
+            shared_native_mode_wasm_engine(native_compilation_plan.mode)?
         };
         trace_phase("engine", engine_started);
         let engine_elapsed = if profile.is_some() {
@@ -3729,18 +3907,24 @@ impl Engine {
             .map_or(native_compilation_plan.mode, |execution| {
                 execution.group.native_compilation_mode
             });
+        let runtime_image_policy = if requested_options.is_some() {
+            WasmRuntimeImagePolicy::MatchedDiagnostic
+        } else {
+            WasmRuntimeImagePolicy::EmbeddedBuild
+        };
         let compiled_module = wasm_runtime_link::compile_modules(
             &engine,
             program,
             memory_cache_policy,
             agent_execution.is_some(),
             native_mode,
+            runtime_image_policy,
         );
         let modules = match compiled_module {
             Ok(compiled) => compiled,
             Err(error)
                 if native_mode == WasmNativeCompilationMode::Fast
-                    && requested_native_mode.is_none()
+                    && requested_options.is_none()
                     && agent_execution.is_none()
                     && error.to_string().contains(WASM_CODE_TOO_LARGE_MESSAGE) =>
             {
@@ -3761,11 +3945,27 @@ impl Engine {
                     memory_cache_policy,
                     true,
                     native_mode,
+                    WasmRuntimeImagePolicy::EmbeddedBuild,
                 )?
             }
             Err(error) => return Err(error),
         };
+        // Read the final executing Engine, including an ordinary CodeTooLarge
+        // retry's replacement. Requested options never supply observed policy.
+        let actual_profile_options = if profile.is_some() {
+            let observed = WasmRuntimeProfileOptions::observe_engine(&engine)?;
+            if requested_options.is_some_and(|requested| requested != observed) {
+                return Err(EngineError::new(format!(
+                    "runtime profile requested {requested_options:?}, but the executing Engine has {observed:?}"
+                )));
+            }
+            Some(observed)
+        } else {
+            None
+        };
         let memory_cache_outcome = modules.memory_cache_outcome;
+        let matched_runtime_image_cache = modules.matched_runtime_image_cache;
+        let module_loading = modules.loading.clone();
         let module_elapsed = module_started.elapsed();
         if trace_wasm {
             eprintln!(
@@ -3863,6 +4063,8 @@ impl Engine {
         let mut store = WasmtimeStore::new(
             &engine,
             WasmHostState {
+                user_data: None,
+                embedding: None,
                 weak: wasm_gc_weak_host::WeakGcState::default(),
                 native_source_compiler: None,
                 native_template_instances: Default::default(),
@@ -3894,7 +4096,23 @@ impl Engine {
         // already "elapsed"). Instantiation and export lookup are setup, not
         // user-program execution, so keep them outside the execution bound.
         store.set_epoch_deadline(u64::MAX / 2);
-        let mut linker = WasmtimeLinker::new(&engine);
+        let host_imports_started = std::time::Instant::now();
+        let host_source = match program.runtime {
+            Some(runtime) => WasmModuleSource::runtime(runtime, runtime_image_policy),
+            None => WasmModuleSource::Program(program.bytes),
+        };
+        let host_key = wasm_module_memory_cache_key(host_source, native_mode);
+        let (mut linker, host_import_cache) =
+            host_imports::linker(&engine, modules.host(), host_key)?;
+        let host_imports_elapsed = if profile.is_some() {
+            host_imports_started.elapsed()
+        } else {
+            Default::default()
+        };
+        trace_phase(
+            "host import registration (within store + linker)",
+            host_imports_started,
+        );
         if let Some(private_memory_type) = modules.host().imports().find_map(|import| {
             (import.module() == WASM_HOST_IMPORT_NAMESPACE
                 && import.name() == WASM_HOST_IMPORT_PRIVATE_MEMORY)
@@ -3932,160 +4150,6 @@ impl Engine {
                 )
                 .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
         }
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_REJECT_RUNTIME_SEMANTICS,
-                wasm_reject_runtime_semantics,
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_AGENT_CAN_SUSPEND,
-                |caller: WasmtimeCaller<'_, WasmHostState>| -> i32 {
-                    i32::from(caller.data().can_block)
-                },
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        wasm_gc_host::link(&mut linker, modules.host())?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_AGENT_CALL,
-                wasm_agent_host::agent_call,
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_RANDOM_F64,
-                wasm_random_f64,
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_WALL_CLOCK_MILLIS,
-                |caller: WasmtimeCaller<'_, WasmHostState>| -> f64 {
-                    caller
-                        .data()
-                        .realm
-                        .host_clock()
-                        .utc_epoch_milliseconds()
-                        .get() as f64
-                },
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS,
-                |caller: WasmtimeCaller<'_, WasmHostState>| -> i64 {
-                    caller
-                        .data()
-                        .realm
-                        .host_clock()
-                        .monotonic_instant()
-                        .saturating_duration_since(caller.data().monotonic_clock_origin)
-                        .as_i64_saturating()
-                },
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_SLEEP_NANOS,
-                |_caller: WasmtimeCaller<'_, WasmHostState>, nanos: i64| {
-                    let Ok(nanos) = u64::try_from(nanos) else {
-                        return;
-                    };
-                    std::thread::sleep(std::time::Duration::from_nanos(nanos.min(1_000_000)));
-                },
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_PRINT_LINE_UTF8,
-                |mut caller: WasmtimeCaller<'_, WasmHostState>,
-                 ptr: i32,
-                 len: i32|
-                 -> wasmtime::Result<()> {
-                    let memory = caller.get_export("memory").ok_or_else(|| {
-                        wasmtime::Error::msg("wasmtime host import failed: missing exported memory")
-                    })?;
-                    let ptr = usize::try_from(ptr).map_err(|_| {
-                        wasmtime::Error::msg("wasmtime host import failed: negative utf-8 pointer")
-                    })?;
-                    let len = usize::try_from(len).map_err(|_| {
-                        wasmtime::Error::msg("wasmtime host import failed: negative utf-8 length")
-                    })?;
-                    let memory_byte_len = match &memory {
-                        WasmtimeExtern::Memory(memory) => memory.data_size(&caller),
-                        WasmtimeExtern::SharedMemory(memory) => memory.data_size(),
-                        _ => {
-                            return Err(wasmtime::Error::msg(
-                                "wasmtime host import failed: missing exported memory",
-                            ));
-                        }
-                    };
-                    let span = wasm_memory_span(ptr, len, memory_byte_len, "wasm print input")
-                        .map_err(|err| {
-                            wasmtime::Error::msg(format!("wasmtime host import failed: {err}"))
-                        })?;
-                    let mut bytes = vec![0; span.len()];
-                    match memory {
-                        WasmtimeExtern::Memory(memory) => {
-                            memory
-                                .read(&caller, span.start, &mut bytes)
-                                .map_err(|err| {
-                                    wasmtime::Error::msg(format!(
-                                        "wasmtime host import failed: unable to read memory: {err}"
-                                    ))
-                                })?;
-                        }
-                        WasmtimeExtern::SharedMemory(memory) => {
-                            read_wasmtime_shared_memory(&memory, span.start, &mut bytes).map_err(
-                                |err| {
-                                    wasmtime::Error::msg(format!(
-                                        "wasmtime host import failed: unable to read memory: {err}"
-                                    ))
-                                },
-                            )?;
-                        }
-                        _ => unreachable!("memory kind was validated before allocation"),
-                    }
-                    let text = String::from_utf8(bytes).map_err(|err| {
-                        wasmtime::Error::msg(format!(
-                            "wasmtime host import failed: invalid utf-8: {err}"
-                        ))
-                    })?;
-                    caller.data().output_events.record(&text);
-                    caller.data().realm.host_hooks().print_line(&text);
-                    Ok(())
-                },
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_NUMBER_POW,
-                wasm_number_pow,
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        for (name, func) in WASM_MATH_UNARY_IMPORTS {
-            linker
-                .func_wrap(WASM_HOST_IMPORT_NAMESPACE, name, func)
-                .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        }
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_MATH_ATAN2,
-                wasm_math_atan2,
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
         trace_phase("store + linker", store_started);
         let store_elapsed = if profile.is_some() {
             store_started.elapsed()
@@ -4297,22 +4361,30 @@ impl Engine {
         };
         drop(roots);
         if let Some(profile) = profile {
+            let actual_options = actual_profile_options
+                .expect("profile requested its final Engine configuration observation");
             let process_memory = process_memory_sampler
                 .expect("profile requested its invocation sampler")
                 .finish();
             *profile = runtime_profile::RuntimeObservation {
-                requested_native_mode,
-                actual_native_mode: Some(WasmProfileNativeMode::from_internal(native_mode)),
+                requested_options,
+                actual_native_mode: Some(actual_options.native_mode()),
+                actual_options: Some(actual_options),
+                host_import_cache: Some(host_import_cache),
+                matched_runtime_image_cache,
                 timings: WasmRuntimeTimings {
+                    admission: admission_elapsed,
                     engine: engine_elapsed,
                     module: module_elapsed,
                     store_and_linker: store_elapsed,
+                    host_import_registration: host_imports_elapsed,
                     instantiate: instantiate_elapsed,
                     export_lookup: lookup_elapsed,
                     execution_and_completion: execution_elapsed,
                     total: trace_start.elapsed(),
                 },
                 module_cache: memory_cache_outcome.into(),
+                module_loading,
                 heap: WasmRuntimeHeapObservation {
                     capacity_before_execution_bytes: gc_heap_before
                         .expect("profile requested its first snapshot"),

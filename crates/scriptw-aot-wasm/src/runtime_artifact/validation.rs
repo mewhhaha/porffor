@@ -13,6 +13,62 @@ pub(super) enum FunctionBodyValidation {
     ValidatedAtBuild,
 }
 
+/// The same lower-bound feature authority is used for raw admission and its
+/// compiler-owned failure diagnostic; diagnosis never relaxes admission.
+pub(super) fn required_features() -> wasmparser::WasmFeatures {
+    use wasmparser::WasmFeatures as F;
+    F::default()
+        | F::THREADS
+        | F::MULTI_MEMORY
+        | F::REFERENCE_TYPES
+        | F::FUNCTION_REFERENCES
+        | F::GC
+        | F::EXCEPTIONS
+        | F::TAIL_CALL
+}
+
+/// On a failed compiler-owned round-trip only, recover the precise parser/body
+/// error discarded by the recoverable cache's Option boundary. Success here
+/// grants no admission: metadata/layout rejection still remains an error.
+pub(super) fn explain_wasm_validation(bytes: &[u8]) -> Result<(), String> {
+    let features = required_features();
+    let mut parser = wasmparser::Parser::new(0);
+    parser.set_features(features);
+    let mut validator = wasmparser::Validator::new_with_features(features);
+    let mut allocations = FuncValidatorAllocations::default();
+    let mut complete = false;
+    for payload in parser.parse_all(bytes) {
+        let payload = payload.map_err(|error| format!("Wasm parsing: {error}"))?;
+        match validator
+            .payload(&payload)
+            .map_err(|error| format!("Wasm section validation: {error}"))?
+        {
+            wasmparser::ValidPayload::Func(function, body) => {
+                let index = function.index;
+                let range = body.range();
+                let mut function = function.into_validator(allocations);
+                function.validate(&body).map_err(|error| {
+                    format!(
+                        "Wasm function {index} (body bytes {}..{}): {error}",
+                        range.start, range.end,
+                    )
+                })?;
+                allocations = function.into_allocations();
+            }
+            wasmparser::ValidPayload::End(_) => complete = true,
+            wasmparser::ValidPayload::Ok => {}
+            wasmparser::ValidPayload::Parser(_) => {
+                return Err("runtime must be a core Wasm module".to_owned())
+            }
+        }
+    }
+    if complete {
+        Ok(())
+    } else {
+        Err("incomplete Wasm module".to_owned())
+    }
+}
+
 fn bounded_jobs(requested: NonZeroUsize, functions: usize) -> usize {
     requested
         .get()

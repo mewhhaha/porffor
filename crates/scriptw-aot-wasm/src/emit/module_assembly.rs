@@ -321,7 +321,13 @@ fn emit_script_module_with_factory(
         } else {
             ModuleEntryRole::for_module(kind)
         },
-    );
+    )
+    .with_foreign_imports(script.foreign_modules.functions().count(), kind)?;
+    let (module_types, foreign_types) = ModuleTypeRegistry::new(kind)
+        .with_global_prelude(compile_program && script.module_prelude.is_some())
+        .with_foreign_modules(&script.foreign_modules)?;
+    let foreign_imports =
+        crate::foreign::ForeignImportPlan::new(&script.foreign_modules, foreign_types, &layout)?;
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
             &source,
@@ -335,7 +341,8 @@ fn emit_script_module_with_factory(
         script.prepared_dynamic_functions.clone(),
         script.prepared_scripts.clone(),
         crate::planning::ModuleGraphPlan::from_script(script)?,
-    );
+    )
+    .with_foreign_imports(foreign_imports);
     let entry_exports = ProgramExports::new(kind, &layout, factory, &function_metas)?;
     let string_pool = match (kind, validated_runtime) {
         (ModuleKind::Program(runtime), Some(validated))
@@ -368,8 +375,6 @@ fn emit_script_module_with_factory(
         ModuleKind::Program(runtime) => runtime.layout().require_pool(&string_pool)?,
     }
     let provided_hooks = ProvidedHooks::of(&function_metas, &string_pool);
-    let module_types = ModuleTypeRegistry::new(kind)
-        .with_global_prelude(compile_program && script.module_prelude.is_some());
     let module_guard_count = module_unit_guard_count(script);
 
     // Only numeric byte-scratch state and module status are scalar globals
@@ -1067,6 +1072,19 @@ fn emit_script_module_with_factory(
 
     let mut array_indexed_helper_functions = BTreeMap::new();
     if compile_runtime {
+        let mut default_publisher = FunctionBuilder::new_runtime_operation_helper(
+            module_package.schema(),
+            RuntimeHelperId::ArrayIndexedPublishDefaultData,
+            &string_pool,
+            &function_metas,
+            uses_heap,
+            runtime_bootstrap_plan.clone(),
+            runtime_helper_base,
+        );
+        array_indexed_helper_functions.insert(
+            RuntimeHelperId::ArrayIndexedPublishDefaultData,
+            default_publisher.compile_array_indexed_publish_default_data_helper()?,
+        );
         let mut publisher = FunctionBuilder::new_runtime_operation_helper(
             module_package.schema(),
             RuntimeHelperId::ArrayIndexedPublish,
@@ -1313,6 +1331,12 @@ fn emit_script_module_with_factory(
         register_runtime_helper!(
             GlobalVarDeclarationInstall,
             compile_global_var_declaration_install_helper
+        );
+        register_runtime_helper!(
+            OrdinaryPropertyStorageEnsure, compile_ordinary_property_storage_ensure_helper;
+            OrdinaryOwnDescriptor, compile_ordinary_own_descriptor_helper;
+            CompactLiteralAllocate, compile_compact_literal_allocate_helper;
+            CachedPropertyRead, compile_cached_property_read_helper;
         );
         register_runtime_helper!(OrdinaryPropertyFind, compile_ordinary_property_find_helper);
         register_runtime_helper!(
@@ -1660,6 +1684,7 @@ fn emit_script_module_with_factory(
             .layout()
             .emit_runtime_imports(layout.defined_functions().start, &mut imports)?;
     }
+    function_metas.foreign_imports().emit_imports(&mut imports);
 
     let mut memories = None;
     let mut data = None;
@@ -1732,6 +1757,7 @@ fn emit_script_module_with_factory(
         format!(
             "internal functions: {}",
             layout.defined_functions().len()
+                - layout.foreign_import_count() as usize
                 - layout.program_prefix_count()
                 - function_table.runtime_helper_count()
         ),
@@ -1914,6 +1940,12 @@ fn emit_script_module_with_factory(
         name: Cow::Borrowed(crate::RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION),
         data: Cow::Owned(vec![kind.source_compilation_profile().wire()]),
     });
+    if !script.foreign_modules.is_empty() {
+        module.section(&wasm_encoder::CustomSection {
+            name: Cow::Borrowed(crate::FOREIGN_MODULES_CUSTOM_SECTION),
+            data: Cow::Owned(script.foreign_modules.to_normalized_json()),
+        });
+    }
     metadata::append_function_name_and_check_budget(&mut module, &mut debug_dump, &function_table)?;
     if let Some(section) = factory.and_then(|_| function_table.native_program_context_section()) {
         module.section(&section);

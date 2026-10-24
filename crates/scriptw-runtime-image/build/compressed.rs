@@ -1,5 +1,5 @@
 //! Compress only Portable native storage. Raw Wasm packages, native producer
-//! output and v4 manifests retain their exact existing bytes and formats.
+//! output and independent native manifests retain full digest admission.
 #[path = "../src/native_storage.rs"]
 mod native_storage;
 #[path = "../../scriptw-engine/src/embedded_runtime/output.rs"]

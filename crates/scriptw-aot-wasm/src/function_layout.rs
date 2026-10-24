@@ -1,7 +1,7 @@
 //! The one Wasm function index space.
 //!
 //! ```text
-//! [imports][runtime callables][runtime helpers][main?][P initializer?][program callables][program helpers]
+//! [common host imports][runtime callables/helpers][P foreign imports][main?][P initializer?][program callables/helpers]
 //!           ^-- runtime half: identical for every program --^
 //!                                                 ^-- program half starts with its actual entry prefix
 //! ```
@@ -19,6 +19,17 @@ use scriptw_ir::{FunctionIr, ScriptIr};
 
 use crate::runtime_artifact::ModuleKind;
 use crate::runtime_helpers::RuntimeHelperFunctionBase;
+
+/// A declared native import is never a JavaScript callable entry. Only the
+/// complete P index plan can mint it; wrappers spend it as a direct Wasm call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ForeignImportFunctionIndex(u32);
+
+impl ForeignImportFunctionIndex {
+    pub(crate) fn emit_call(self, function: &mut crate::code_sink::Function) {
+        function.instruction(&wasm_encoder::Instruction::Call(self.0));
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ModuleEntryRole {
@@ -78,6 +89,7 @@ pub(crate) struct FunctionIndexLayout {
     standard: u32,
     host: u32,
     runtime_helpers: u32,
+    foreign_imports: u32,
     entry_role: ModuleEntryRole,
     program_initialize: bool,
     program_callables: u32,
@@ -118,6 +130,7 @@ impl FunctionIndexLayout {
             standard: count(standard),
             host: count(host),
             runtime_helpers: count(runtime_helpers),
+            foreign_imports: 0,
             entry_role,
             program_initialize: matches!(kind, ModuleKind::Program(_)),
             program_callables: count(program_callables),
@@ -126,6 +139,33 @@ impl FunctionIndexLayout {
         // Fails here, once, if the whole space does not fit.
         layout.program_helper_end();
         layout
+    }
+
+    /// P's own imports follow the complete, unchanged H/R function prefix.
+    /// R and heap-free standalone modules cannot acquire application imports.
+    pub(crate) fn with_foreign_imports(
+        mut self,
+        imports: usize,
+        kind: ModuleKind<'_>,
+    ) -> Result<Self, crate::EmitError> {
+        if imports != 0 && !matches!(kind, ModuleKind::Program(_)) {
+            return Err(crate::EmitError::unsupported(
+                "foreign functions require a linked program module",
+            ));
+        }
+        let imports = u32::try_from(imports).map_err(|_| {
+            crate::EmitError::unsupported("foreign function count exceeds the Wasm index space")
+        })?;
+        (self.program_helper_end() - self.foreign_imports)
+            .checked_add(imports)
+            .ok_or_else(|| {
+                crate::EmitError::unsupported(
+                    "foreign imports exceed the complete P function index space",
+                )
+            })?;
+        self.foreign_imports = imports;
+        self.program_helper_end();
+        Ok(self)
     }
 
     fn add(base: u32, offset: u32) -> u32 {
@@ -165,9 +205,34 @@ impl FunctionIndexLayout {
         RuntimeHelperFunctionBase::at(self.runtime_helper_first(), self.program_callable_end())
     }
 
-    /// First index of the program half, before its actual entry prefix.
-    pub(crate) fn first_program_index(&self) -> u32 {
+    /// End of the common H/R prefix, identical regardless of P capabilities.
+    fn foreign_import_first(&self) -> u32 {
         Self::add(self.runtime_helper_first(), self.runtime_helpers)
+    }
+
+    pub(crate) fn foreign_import_index(
+        &self,
+        id: scriptw_ir::foreign::ForeignFunctionId,
+    ) -> Result<ForeignImportFunctionIndex, crate::EmitError> {
+        let position = id.index();
+        if position >= self.foreign_imports {
+            return Err(crate::EmitError::unsupported(
+                "foreign call references an undeclared program import",
+            ));
+        }
+        Ok(ForeignImportFunctionIndex(Self::add(
+            self.foreign_import_first(),
+            position,
+        )))
+    }
+
+    pub(crate) const fn foreign_import_count(&self) -> u32 {
+        self.foreign_imports
+    }
+
+    /// First defined P function, after all common and foreign imports.
+    pub(crate) fn first_program_index(&self) -> u32 {
+        Self::add(self.foreign_import_first(), self.foreign_imports)
     }
 
     pub(crate) const fn entry_role(&self) -> ModuleEntryRole {

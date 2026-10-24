@@ -60,7 +60,32 @@ pub(super) struct MemoryWasmModuleCache {
     limits: MemoryModuleCacheLimits,
 }
 
+/// Actual limits and retained compilation-image accounting from the cache's
+/// owner. These are not input-Wasm sizes, GC heap sizes or process RSS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WasmRuntimeModuleCacheObservation {
+    pub entry_limit: usize,
+    pub image_byte_limit: usize,
+    pub retained_entries: usize,
+    pub retained_image_bytes: usize,
+}
+
+pub fn wasm_runtime_module_cache_observation() -> WasmRuntimeModuleCacheObservation {
+    super::memory_wasm_modules()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .observation()
+}
+
 impl MemoryWasmModuleCache {
+    fn observation(&self) -> WasmRuntimeModuleCacheObservation {
+        WasmRuntimeModuleCacheObservation {
+            entry_limit: self.limits.entries.get(),
+            image_byte_limit: self.limits.image_bytes.get(),
+            retained_entries: self.entries.len(),
+            retained_image_bytes: self.retained_image_bytes,
+        }
+    }
     pub(super) fn from_env() -> Self {
         Self::new(MemoryModuleCacheLimits::from_env())
     }
@@ -152,6 +177,7 @@ mod tests {
     fn key(identity: u8) -> WasmModuleMemoryCacheKey {
         WasmModuleMemoryCacheKey {
             native_compilation_mode: WasmNativeCompilationMode::Fast,
+            runtime_image_policy: crate::WasmRuntimeImagePolicy::EmbeddedBuild,
             wasm_sha256: [identity; 32],
         }
     }
@@ -215,6 +241,11 @@ mod tests {
     }
 
     fn assert_state(cache: &MemoryWasmModuleCache, identities: &[u8], retained_bytes: usize) {
+        let observed = cache.observation();
+        assert_eq!(observed.entry_limit, cache.limits.entries.get());
+        assert_eq!(observed.image_byte_limit, cache.limits.image_bytes.get());
+        assert_eq!(observed.retained_entries, identities.len());
+        assert_eq!(observed.retained_image_bytes, retained_bytes);
         let keys: Vec<_> = cache.entries.iter().map(|entry| entry.key).collect();
         assert_eq!(
             keys,

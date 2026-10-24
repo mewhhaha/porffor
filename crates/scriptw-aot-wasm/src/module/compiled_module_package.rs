@@ -23,6 +23,15 @@ impl ModuleTypeRegistry {
         self
     }
 
+    pub(crate) fn with_foreign_modules(
+        mut self,
+        registry: &scriptw_ir::foreign::ForeignModuleRegistry,
+    ) -> Result<(Self, crate::foreign::ForeignImportTypes), EmitError> {
+        let (registered, imports) = self.registered.with_foreign_modules(registry)?;
+        self.registered = registered;
+        Ok((self, imports))
+    }
+
     /// Consumes every scalar/dynamic global and returns the sealed section with
     /// the runtime schema derived from its actual final scalar index.
     ///

@@ -19,10 +19,15 @@ macro_rules! snapshot_layouts {
 snapshot_layouts!(Stored => StoredValue, String => StringValue, CodeUnits => CodeUnitArray,
     BigInt => BigIntValue, Limbs => BigIntLimbArray, Symbol => SymbolValue,
     Object => OrdinaryObject, PropertyStorage => OrdinaryPropertyStorage,
+    CompactStorage => CompactDataStorage, CompactShape => CompactDataShape,
+    CompactKeys => CompactShapeKeys, CompactTags => CompactTagArray,
+    CompactScalars => CompactScalarArray, CompactReferences => CompactReferenceArray,
     Properties => PropertyTable, Property => PropertyEntry,
     Descriptor => PropertyDescriptor, PrivateElements => PrivateElementTable,
     Array => ArrayObject, ArrayStorage => ArrayIndexStorage, ArrayBuckets => ArrayIndexBucketTable,
-    ArrayEntry => ArrayIndexEntry, Function => FunctionObject, Code => ExecutableCode,
+    ArrayEntry => ArrayIndexEntry, ArrayDense => IndexedTable,
+    ArrayNumbers => NumberBitsI64Array, ArrayNumberPresence => NumberPresenceU64Array,
+    Function => FunctionObject, Code => ExecutableCode,
     Context => FunctionContext, Realm => RealmRecord, Intrinsics => IntrinsicTable,
     Realms => SnapshotRealmInventory, WellKnownSymbols => WellKnownSymbolTable,
     Proxy => ProxyObject, BoundFunction => BoundFunction, Boxed => PrimitiveBox,
@@ -49,6 +54,11 @@ snapshot_fields!(StoredTag => Stored, StoredValueSchema::TAG,
     SymbolDescription => Symbol, SymbolValueSchema::DESCRIPTION, SymbolRegistry => Symbol, SymbolValueSchema::REGISTRY_KEY,
     ObjectPrototype => Object, OrdinaryObjectSchema::PROTOTYPE, ObjectProperties => Object, OrdinaryObjectSchema::PROPERTIES,
     ObjectPrivate => Object, OrdinaryObjectSchema::PRIVATE_ELEMENTS, ObjectExtensible => Object, OrdinaryObjectSchema::EXTENSIBLE,
+    CompactShape => CompactStorage, CompactDataStorageSchema::SHAPE,
+    CompactTags => CompactStorage, CompactDataStorageSchema::TAGS,
+    CompactScalars => CompactStorage, CompactDataStorageSchema::SCALARS,
+    CompactReferences => CompactStorage, CompactDataStorageSchema::REFERENCES,
+    CompactKeys => CompactShape, CompactDataShapeSchema::KEYS,
     PropertiesEntries => PropertyStorage, OrdinaryPropertyStorageSchema::ENTRIES,
     PropertiesLength => PropertyStorage, OrdinaryPropertyStorageSchema::LENGTH,
     PropertyKey => Property, PropertyEntrySchema::KEY, PropertyDescriptor => Property, PropertyEntrySchema::DESCRIPTOR,
@@ -57,6 +67,10 @@ snapshot_fields!(StoredTag => Stored, StoredValueSchema::TAG,
     ArrayObject => Array, ArrayObjectSchema::OBJECT, ArrayStorage => Array, ArrayObjectSchema::ELEMENTS,
     ArrayLength => Array, ArrayObjectSchema::LENGTH, ArrayLengthWritable => Array, ArrayObjectSchema::LENGTH_WRITABLE,
     ArrayBuckets => ArrayStorage, ArrayIndexStorageSchema::BUCKETS, ArrayCount => ArrayStorage, ArrayIndexStorageSchema::COUNT,
+    ArrayDense => ArrayStorage, ArrayIndexStorageSchema::DENSE,
+    ArrayMode => ArrayStorage, ArrayIndexStorageSchema::MODE,
+    ArrayNumbers => ArrayStorage, ArrayIndexStorageSchema::NUMBERS,
+    ArrayNumberPresent => ArrayStorage, ArrayIndexStorageSchema::NUMBER_PRESENT,
     ArrayIndex => ArrayEntry, ArrayIndexEntrySchema::INDEX, ArrayDescriptor => ArrayEntry, ArrayIndexEntrySchema::DESCRIPTOR,
     ArrayNext => ArrayEntry, ArrayIndexEntrySchema::NEXT,
     FunctionObject => Function, FunctionObjectSchema::OBJECT, FunctionCode => Function, FunctionObjectSchema::CODE,
@@ -65,6 +79,17 @@ snapshot_fields!(StoredTag => Stored, StoredValueSchema::TAG,
     CodeProtocol => Code, ExecutableCodeSchema::PROTOCOL, ContextRealm => Context, FunctionContextSchema::REALM,
     RealmIntrinsics => Realm, RealmRecordSchema::INTRINSICS,
     InventoryRealm => Realms, SnapshotRealmInventorySchema::REALM, InventoryPrevious => Realms, SnapshotRealmInventorySchema::PREVIOUS);
+
+/// Decode the closed indexed-storage mode at the opt-in host projection.
+pub fn snapshot_array_storage_mode(code: i32) -> Option<ArrayIndexedStorageMode> {
+    [
+        ArrayIndexedStorageMode::DenseDescriptors,
+        ArrayIndexedStorageMode::SparseDescriptors,
+        ArrayIndexedStorageMode::PackedNumbers,
+    ]
+    .into_iter()
+    .find(|mode| mode.encode() == code)
+}
 
 pub fn snapshot_descriptor_flags(word: u64) -> Option<(bool, bool, bool, bool)> {
     use crate::heap::DescriptorMask;

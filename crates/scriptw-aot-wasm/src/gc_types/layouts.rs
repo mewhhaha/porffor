@@ -53,6 +53,15 @@ scalar_storage!(F64Value, StorageType::Val(ValType::F64));
 scalar_storage!(I8Value, StorageType::I8);
 scalar_storage!(I16Value, StorageType::I16);
 
+/// The sole active ordinary-Array backing. Only the indexed mutation owners
+/// publish this mode; logical length never chooses or sizes a representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrayIndexedStorageMode {
+    DenseDescriptors,
+    SparseDescriptors,
+    PackedNumbers,
+}
+
 // Reuse the closed domains already validated by the actual builtin/provider
 // producers. Optional scalar domains describe inactive slots, not nullable
 // Wasm references. Their value encoding belongs to the atomic value ABI.
@@ -65,6 +74,7 @@ macro_rules! closed_scalar_storage {
     )+ };
 }
 closed_scalar_storage!(
+    ArrayIndexedStorageMode,
     bool,
     crate::builtins::AsyncDisposableStackDisposeCompletionKind,
     scriptw_ir::FunctionProtocolIr,
@@ -593,8 +603,8 @@ fn object_header_field<T: GcHeapType>(
 }
 
 macro_rules! gc_layout_registry {
-    ($($kind:ident $owner:ident => $schema:ident {
-        $($field:ident: $value:ty, $mutability:ident, $nullability:ty;)+
+    ($($kind:ident $owner:ident $(: $parent:ident)? => $schema:ident {
+        $($field:ident: $value:ty, $mutability:ident, $nullability:ty;)*
     })+) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub(crate) enum GcLayout { $($owner),+ }
@@ -602,17 +612,21 @@ macro_rules! gc_layout_registry {
             pub(crate) const ALL: &'static [Self] = &[$(Self::$owner),+];
             const fn ordinal(self) -> u32 { self as u32 }
             pub(super) fn object_projection(self) -> Option<ObjectHeaderProjection> {
-                match self { $(Self::$owner => gc_layout_registry!(@object_projection $kind $owner; $($field:$value,$mutability,$nullability;)+)),+ }
+                match self { $(Self::$owner => gc_layout_registry!(@object_projection $kind $owner; $($field:$value,$mutability,$nullability;)*)),+ }
             }
             pub(crate) fn javascript_tag(self) -> Option<crate::WasmRuntimeValueTag> {
-                match self { $(Self::$owner => gc_layout_registry!(@value_tag $kind $owner; $($field:$value,$mutability,$nullability;)+)),+ }
+                match self { $(Self::$owner => gc_layout_registry!(@value_tag $kind $owner; $($field:$value,$mutability,$nullability;)*)),+ }
             }
             pub(super) fn definition(self, layouts: &GcLayoutRegistry) -> SubType {
                 let inner = match self {
                     $(Self::$owner => gc_layout_registry!(@definition $kind $owner
-                        layouts; $($field: $value, $mutability, $nullability;)+)),+
+                        layouts; $($field: $value, $mutability, $nullability;)*)),+
                 };
-                SubType { is_final: true, supertype_idx: None,
+                let is_final = !matches!(self, Self::ObjectPropertyStorage);
+                let supertype_idx = match self {
+                    $(Self::$owner => gc_layout_registry!(@parent layouts; $($parent)?)),+
+                };
+                SubType { is_final, supertype_idx,
                     composite_type: CompositeType { inner, shared: false,
                         descriptor: None, describes: None } }
             }
@@ -622,16 +636,24 @@ macro_rules! gc_layout_registry {
             pub(crate) enum $owner {}
             impl sealed::Sealed for $owner {}
             impl GcHeapType for $owner { const LAYOUT: GcLayout = GcLayout::$owner; }
+            gc_layout_registry!(@subtype $owner; $($parent)?);
             gc_layout_registry!(@schema $kind $owner $schema;
-                $($field: $value, $mutability, $nullability;)+);
-            gc_layout_registry!(@javascript_reference $kind $owner; $($field:$value,$mutability,$nullability;)+);
+                $($field: $value, $mutability, $nullability;)*);
+            gc_layout_registry!(@javascript_reference $kind $owner; $($field:$value,$mutability,$nullability;)*);
         )+
+    };
+    (@parent $layouts:ident;) => { None };
+    (@parent $layouts:ident; $parent:ident) => { Some($layouts.index::<$parent>().raw()) };
+    (@subtype $owner:ident;) => {};
+    (@subtype $owner:ident; $parent:ident) => {
+        impl sealed::Subtype<$parent> for $owner {}
+        impl GcSubtype<$parent> for $owner {}
     };
     (@object_projection struct OrdinaryObject; $($fields:tt)+) => { Some(ObjectHeaderProjection::Own) };
     (@object_projection struct $owner:ident; OBJECT:$value:ty,$mutable:ident,$null:ty; $($rest:tt)*) => {
         Some(ObjectHeaderProjection::Field(object_header_field(GcStructType::<$owner>::OBJECT)))
     };
-    (@object_projection $kind:ident $owner:ident; $($fields:tt)+) => { None };
+    (@object_projection $kind:ident $owner:ident; $($fields:tt)*) => { None };
     (@value_tag struct StringValue; $($fields:tt)+) => { Some(crate::WasmRuntimeValueTag::String) };
     (@value_tag struct BigIntValue; $($fields:tt)+) => { Some(crate::WasmRuntimeValueTag::BigInt) };
     (@value_tag struct SymbolValue; $($fields:tt)+) => { Some(crate::WasmRuntimeValueTag::Symbol) };
@@ -641,7 +663,7 @@ macro_rules! gc_layout_registry {
     (@value_tag struct BoundFunction; $($fields:tt)+) => { Some(crate::WasmRuntimeValueTag::Function) };
     (@value_tag struct ArgumentsObject; $($fields:tt)+) => { Some(crate::WasmRuntimeValueTag::Arguments) };
     (@value_tag struct $owner:ident; OBJECT:$value:ty,$mutable:ident,$null:ty; $($rest:tt)*) => { Some(crate::WasmRuntimeValueTag::Object) };
-    (@value_tag $kind:ident $owner:ident; $($fields:tt)+) => { None };
+    (@value_tag $kind:ident $owner:ident; $($fields:tt)*) => { None };
     (@javascript_reference struct StringValue; $($fields:tt)+) => { impl JavaScriptReference for StringValue { const TAG: crate::WasmRuntimeValueTag = crate::WasmRuntimeValueTag::String; } };
     (@javascript_reference struct BigIntValue; $($fields:tt)+) => { impl JavaScriptReference for BigIntValue { const TAG: crate::WasmRuntimeValueTag = crate::WasmRuntimeValueTag::BigInt; } };
     (@javascript_reference struct SymbolValue; $($fields:tt)+) => { impl JavaScriptReference for SymbolValue { const TAG: crate::WasmRuntimeValueTag = crate::WasmRuntimeValueTag::Symbol; } };
@@ -651,7 +673,13 @@ macro_rules! gc_layout_registry {
     (@javascript_reference struct BoundFunction; $($fields:tt)+) => { impl JavaScriptReference for BoundFunction { const TAG: crate::WasmRuntimeValueTag = crate::WasmRuntimeValueTag::Function; } };
     (@javascript_reference struct ArgumentsObject; $($fields:tt)+) => { impl JavaScriptReference for ArgumentsObject { const TAG: crate::WasmRuntimeValueTag = crate::WasmRuntimeValueTag::Arguments; } };
     (@javascript_reference struct $owner:ident; OBJECT:$value:ty,$mutable:ident,$null:ty; $($rest:tt)*) => { impl JavaScriptReference for $owner { const TAG: crate::WasmRuntimeValueTag = crate::WasmRuntimeValueTag::Object; } };
-    (@javascript_reference $kind:ident $owner:ident; $($fields:tt)+) => {};
+    (@javascript_reference $kind:ident $owner:ident; $($fields:tt)*) => {};
+    (@schema struct ObjectPropertyStorage ObjectPropertyStorageSchema;) => {
+        impl sealed::Struct for ObjectPropertyStorage {}
+        impl GcStructHeapType for ObjectPropertyStorage { const FIELD_COUNT: u32 = 0; }
+        // The non-final base is fieldless and has no allocating constructor.
+        pub(crate) type ObjectPropertyStorageSchema = GcStructType<ObjectPropertyStorage>;
+    };
     (@schema struct $owner:ident $schema:ident; $($fields:tt)+) => {
         impl sealed::Struct for $owner {}
         impl GcStructHeapType for $owner {
@@ -756,11 +784,11 @@ macro_rules! gc_layout_registry {
         gc_layout_registry!(@fields $owner ($ordinal + 1); $($rest)*);
     };
     (@definition struct $owner:ident $layouts:ident;
-        $($field:ident: $value:ty, $mutability:ident, $nullability:ty;)+) => {
+        $($field:ident: $value:ty, $mutability:ident, $nullability:ty;)*) => {
         CompositeInnerType::Struct(StructType { fields: vec![$(
             FieldType { element_type: <$value as GcFieldValue<$owner, $nullability>>
                 ::storage_type($layouts), mutable: <$mutability as GcFieldMutability>::MUTABLE }
-        ),+].into_boxed_slice() })
+        ),*].into_boxed_slice() })
     };
     (@definition array $owner:ident $layouts:ident;
         $field:ident: $value:ty, $mutability:ident, $nullability:ty;) => {
@@ -779,7 +807,7 @@ gc_layout_registry! {
         }
         struct OrdinaryObject => OrdinaryObjectSchema {
             PROTOTYPE: GcRef<StoredValue>, Mutable, NonNullable;
-            PROPERTIES: GcRef<OrdinaryPropertyStorage>, Immutable, NonNullable;
+            PROPERTIES: GcRef<ObjectPropertyStorage>, Mutable, NonNullable;
             PRIVATE_ELEMENTS: GcRef<PrivateElementTable>, Mutable, NonNullable;
             EXTENSIBLE: bool, Mutable, NonNullable;
             IMMUTABLE_PROTOTYPE: bool, Immutable, NonNullable;
@@ -821,7 +849,33 @@ gc_layout_registry! {
         array PropertyTable => PropertyTableSchema { ELEMENT: GcRef<PropertyEntry>, Mutable, Nullable; }
         // Logical insertion extent is independent of spare capacity and holes.
         // Existing descriptors stay in place; deletion never rewinds LENGTH.
-        struct OrdinaryPropertyStorage => OrdinaryPropertyStorageSchema {
+        // One object model: these sealed GC subtypes are alternate storage
+        // states of the same ordinary header. The base cannot be allocated.
+        struct ObjectPropertyStorage => ObjectPropertyStorageSchema {}
+        struct CompactDataStorage: ObjectPropertyStorage => CompactDataStorageSchema {
+            SHAPE: GcRef<CompactDataShape>, Immutable, NonNullable;
+            TAGS: GcRef<CompactTagArray>, Immutable, NonNullable;
+            SCALARS: GcRef<CompactScalarArray>, Immutable, NonNullable;
+            REFERENCES: GcRef<CompactReferenceArray>, Immutable, NonNullable;
+        }
+        // Shape graphs retain only immutable primitive string metadata.
+        struct CompactDataShape => CompactDataShapeSchema {
+            SITE: I64Value, Immutable, NonNullable;
+            KEYS: GcRef<CompactShapeKeys>, Immutable, NonNullable;
+            NEXT: GcRef<CompactDataShape>, Immutable, Nullable;
+        }
+        array CompactShapeKeys => CompactShapeKeysSchema { ELEMENT: GcRef<StringValue>, Immutable, NonNullable; }
+        array CompactTagArray => CompactTagArraySchema { ELEMENT: I8Value, Mutable, NonNullable; }
+        array CompactScalarArray => CompactScalarArraySchema { ELEMENT: I64Value, Mutable, NonNullable; }
+        array CompactReferenceArray => CompactReferenceArraySchema { ELEMENT: AnyGcRef, Mutable, Nullable; }
+        struct OwnDataReadCache => OwnDataReadCacheSchema {
+            SITE: I64Value, Immutable, NonNullable;
+            KEY: GcRef<StringValue>, Immutable, NonNullable;
+            SHAPE: GcRef<CompactDataShape>, Mutable, Nullable;
+            SLOT: I32Value, Mutable, NonNullable;
+            NEXT: GcRef<OwnDataReadCache>, Immutable, Nullable;
+        }
+        struct OrdinaryPropertyStorage: ObjectPropertyStorage => OrdinaryPropertyStorageSchema {
             ENTRIES: GcRef<PropertyTable>, Mutable, NonNullable;
             LENGTH: I32Value, Mutable, NonNullable;
             INDEX: GcRef<OrdinaryPropertyIndex>, Mutable, NonNullable;
@@ -831,11 +885,19 @@ gc_layout_registry! {
         array IndexedTable => IndexedTableSchema { ELEMENT: GcRef<PropertyDescriptor>, Mutable, Nullable; }
         // Arrays retain occupied indices independently of observable length.
         // Only the storage constructor and registered mutation bodies own the
-        // nonzero power-of-two bucket shape and unique-entry count.
+        // closed mode and occupied-entry count. Packed Number values use raw
+        // bits plus a hole-presence bitmap; full descriptors remain available
+        // after one-way transitions. Inactive backings are always empty.
         struct ArrayIndexStorage => ArrayIndexStorageSchema {
             BUCKETS: GcRef<ArrayIndexBucketTable>, Mutable, NonNullable;
             COUNT: I64Value, Mutable, NonNullable;
+            DENSE: GcRef<IndexedTable>, Mutable, NonNullable;
+            MODE: ArrayIndexedStorageMode, Mutable, NonNullable;
+            NUMBERS: GcRef<NumberBitsI64Array>, Mutable, NonNullable;
+            NUMBER_PRESENT: GcRef<NumberPresenceU64Array>, Mutable, NonNullable;
         }
+        array NumberBitsI64Array => NumberBitsI64ArraySchema { ELEMENT: I64Value, Mutable, NonNullable; }
+        array NumberPresenceU64Array => NumberPresenceU64ArraySchema { ELEMENT: I64Value, Mutable, NonNullable; }
         struct ArrayIndexEntry => ArrayIndexEntrySchema {
             INDEX: I64Value, Immutable, NonNullable;
             DESCRIPTOR: GcRef<PropertyDescriptor>, Mutable, NonNullable;
@@ -924,6 +986,8 @@ gc_layout_registry! {
             METADATA: GcRef<ImmutableByteArray>, Immutable, NonNullable;
             LANGUAGE_FEATURE_POLICY: scriptw_ir::LanguageFeaturePolicy, Immutable, NonNullable;
             NATIVE_SOURCE_PAYLOAD: GcRef<NativeSourcePayloadArray>, Immutable, NonNullable;
+            COMPACT_SHAPES: GcRef<CompactDataShape>, Mutable, Nullable;
+            OWN_DATA_READ_CACHES: GcRef<OwnDataReadCache>, Mutable, Nullable;
         }
         // Completed captures are immutable. The actual function/context cycle
         // is closed only after function allocation, so its back edge is mutable.

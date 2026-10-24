@@ -401,6 +401,8 @@ impl FunctionBuilder<'_> {
         let count = schema.reserve_i32_local(function);
         let index = schema.reserve_i32_local(function);
         let bits = schema.reserve_i64_local(function);
+        let array_index = schema.reserve_i64_local(function);
+        let found = schema.reserve_i32_local(function);
         let exit = self.open_frame(ControlFrameKind::Block, function);
         result.initialize(function);
         function.instruction(&Instruction::I32Const(0));
@@ -534,8 +536,30 @@ impl FunctionBuilder<'_> {
         self.emit_branch_to_target(done, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        let stored = self.emit_array_own_indexed_data_reference(input, index, function);
-        stored.load(schema, function).is_null(function);
+        // A packed Number can be copied as a whole Value without manufacturing
+        // a descriptor or a temporary StoredValue. Snapshot boxing happens once
+        // below, after this index's complete Get (including any fallback).
+        found.set_constant(0, function);
+        input.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<ArrayObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, function);
+        let array = schema.reserve_gc_local(function).initialize(
+            input.cast_reference::<ArrayObject>(schema, function),
+            function,
+        );
+        index.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        array_index.store(function);
+        self.emit_array_own_indexed_value(&array, array_index, &element, found, function);
+        array.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        found.load(function);
+        function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
         index.load(function);
         function.instruction(&Instruction::F64ConvertI32U);
@@ -556,27 +580,22 @@ impl FunctionBuilder<'_> {
         )?;
         key.clear(function);
         self.emit_bind_metadata_abrupt_exit(&pending, result, exit, function);
-        stored.replace(
-            schema
-                .struct_type::<StoredValue>()
-                .from_value(pending.value(), function)
-                .nullable(),
-            function,
-        );
+        element.copy_from(pending.value(), function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        let present = schema.reserve_gc_local(function).initialize(
-            stored.load(schema, function).require_non_null(function),
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&element, function),
             function,
         );
         schema.array_type::<ValueArray>().write(
             &list,
             index,
-            GcOperand::reference(&present, schema),
+            GcOperand::reference(&stored, schema),
             schema,
             function,
         );
-        present.clear(function);
         stored.clear(function);
         index.load(function);
         function.instruction(&Instruction::I32Const(1));
@@ -592,6 +611,8 @@ impl FunctionBuilder<'_> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         schema.release_i64_local(bits, function);
+        schema.release_i64_local(array_index, function);
+        schema.release_i32_local(found, function);
         schema.release_i32_local(index, function);
         schema.release_i32_local(count, function);
         element.clear(function);
@@ -768,7 +789,21 @@ impl FunctionBuilder<'_> {
                 )
             })
             .collect();
-        let vector = schema.reserve_gc_local(function).initialize(
+        let vector = self.emit_argument_vector_from_snapshots(&stored, function);
+        for value in stored.into_iter().rev() {
+            value.clear(function);
+        }
+        vector
+    }
+
+    /// Publishes rooted immutable snapshots after argument evaluation finishes.
+    pub(super) fn emit_argument_vector_from_snapshots(
+        &self,
+        stored: &[GcLocal<StoredValue>],
+        function: &mut Function,
+    ) -> GcLocal<ValueArray> {
+        let schema = self.runtime_schema();
+        schema.reserve_gc_local(function).initialize(
             schema.array_type::<ValueArray>().fixed(
                 stored
                     .iter()
@@ -776,10 +811,6 @@ impl FunctionBuilder<'_> {
                 function,
             ),
             function,
-        );
-        for value in stored.into_iter().rev() {
-            value.clear(function);
-        }
-        vector
+        )
     }
 }
