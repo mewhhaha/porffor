@@ -11,26 +11,35 @@ Portable bundles. See the [foreign-module contract and runnable example](docs/ru
 
 ## Benchmarks vs V8
 
-Measured on 2026-10-24 at compiler source `31c5958d2`. Medians of seven samples;
-all workload outputs checked against Node. V8 is faster in these measured cases.
+<!-- scriptw-performance:start -->
+Measured **2026-10-24 07:05 UTC** at compiler `31c5958d2`; 7 samples, 10 execution warmups.
 
-| Measurement | scriptw / Wasmtime | Node / V8 |
-| --- | ---: | ---: |
-| Cold start | 698.400 ms | 17.521 ms |
-| Cached start | 517.923 ms | 17.595 ms |
-| Execute: 10,000 integer steps | 4.799 ms | 2.025 ms |
-| Execute: 500 objects | 5.515 ms | 0.052 ms |
-| Execute: 8,192 retained objects | 422.117 ms | 2.614 ms |
+![Scriptw/V8 elapsed-time ratios; V8 is 1× and lower is better](docs/rust-rewrite/assets/performance-vs-v8.svg)
 
-| Peak process RSS | scriptw / Wasmtime | Node / V8 |
+![Measured Scriptw performance history relative to V8](docs/rust-rewrite/assets/performance-history.svg)
+
+History: **3 measured checkpoints**, **1 comparison cohort**. The trend shows 3 of 3 checkpoints matching the latest setup. A new commit adds no point until it is measured.
+
+[Raw history and evidence](docs/rust-rewrite/performance-history.json) · [Refresh commands and comparison rules](docs/rust-rewrite/contracts/performance-history.md)
+
+| Measurement | Scriptw / Wasmtime | Node / V8 | Time / V8 |
+| --- | ---: | ---: | ---: |
+| Cold start | 698.400 ms | 17.521 ms | 39.86× |
+| Cached start | 517.923 ms | 17.595 ms | 29.44× |
+| Execute: 10,000 integer steps | 4.799 ms | 2.025 ms | 2.37× |
+| Execute: 500 objects | 5.515 ms | 0.052 ms | 106.31× |
+| Execute: 8,192 retained objects | 422.117 ms | 2.614 ms | 161.49× |
+
+| Peak process RSS | Scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
 | Cold start (median) | 388.71 MiB | 49.79 MiB |
 | Cached start (median) | 358.03 MiB | 49.82 MiB |
-| Retained-object run (one process) | 405.25 MiB | 76.68 MiB |
+| Retained-object run (whole child) | 405.25 MiB | 76.68 MiB |
 
-AMD Ryzen 7 7800X3D; kernel-enforced 4 GiB memory limit, zero swap and one CPU.
-Wasmtime 47.0.0; Node 24.12.0 / V8 13.6.233.17-node.37. These local results
-have a different machine identity from the earlier cloud baseline.
+AMD Ryzen 7 7800X3D 8-Core Processor; 1 measured CPU, 4 GiB inherited memory limit, no swap. Wasmtime 47.0.0; Node 24.12.0 / V8 13.6.233.17-node.37.
+
+Ratios divide the two measured medians, using a logarithmic graph scale; lower is better, V8 = 1×. Startup and execution are separate boundaries. These observations establish no statistical significance.
+<!-- scriptw-performance:end -->
 
 Cold and cached starts use fresh processes with empty or populated application
 caches; the shared runtime is precompiled and the OS cache is not flushed.
@@ -41,7 +50,7 @@ includes compilation and warmups. It is not JavaScript heap usage.
 The Rust compiler uses `release`; generated program modules use Fast compilation.
 NativeHost and Portable have separate matching optimized runtime images.
 Portable native-image storage is compressed, and decoded load buffers are
-transient. The measured CLI is 264.30 MiB with line-table debug information.
+transient. The `31c5958d2` checkpoint CLI is 264.30 MiB with line-table debug information.
 These small workloads are a local baseline; short timing differences overlap
 across paired controls.
 [Methodology, raw evidence and reproduction](docs/rust-rewrite/v8-baseline.md).

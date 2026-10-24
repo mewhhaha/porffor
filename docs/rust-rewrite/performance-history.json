@@ -1,0 +1,20 @@
+{
+  "schema": "scriptw-readme-performance-history-v1",
+  "entries": [
+    {
+      "archive": "performance-history/6777b1830d595cc91b8fd351253bda2245ba89bd0f412861493878a35409ee35.tar.gz",
+      "archive_sha256": "9d6b648009cfc5b411b8c26393481e023b93076d4f3058729e2b604422760154",
+      "report_sha256": "6777b1830d595cc91b8fd351253bda2245ba89bd0f412861493878a35409ee35"
+    },
+    {
+      "archive": "performance-history/4c733031580fedac8f4ef5ba01ccf67c118130cfbd9d648eb92e1238fe47df2f.tar.gz",
+      "archive_sha256": "22006483d52b960df3c996b9bfdeca3b2b9b3f54afa46ecbc235468d78dc8c23",
+      "report_sha256": "4c733031580fedac8f4ef5ba01ccf67c118130cfbd9d648eb92e1238fe47df2f"
+    },
+    {
+      "archive": "performance-history/329c0c5a6d1d78fdc02ae1d36938e27959bddd448f77a8ef7c6eef003186f1ef.tar.gz",
+      "archive_sha256": "08628cfef39daacf8746729c5033fa009845e34695730a2786896d87b9f9602b",
+      "report_sha256": "329c0c5a6d1d78fdc02ae1d36938e27959bddd448f77a8ef7c6eef003186f1ef"
+    }
+  ]
+}
