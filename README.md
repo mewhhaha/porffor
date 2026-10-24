@@ -12,9 +12,7 @@ Portable bundles. See the [foreign-module contract and runnable example](docs/ru
 ## Benchmarks vs V8
 
 <!-- scriptw-performance:start -->
-![Median elapsed time: paired V8 and Scriptw bars for each workload; lower is better](docs/rust-rewrite/assets/performance-vs-v8.svg)
-
-![Peak process memory: paired V8 and Scriptw bars; lower is better](docs/rust-rewrite/assets/performance-memory.svg)
+![Elapsed time and peak process memory: paired V8 and Scriptw bars; lower is better](docs/rust-rewrite/assets/performance-memory.svg)
 <!-- scriptw-performance:end -->
 
 [Methodology, evidence and reproduction](docs/rust-rewrite/v8-baseline.md).

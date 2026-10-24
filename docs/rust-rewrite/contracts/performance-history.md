@@ -1,6 +1,6 @@
-# README performance graphs and retained measurements
+# README performance graphic and retained measurements
 
-The README graphs show the latest admitted measurement, with separate V8 and
+The README graphic shows the latest admitted measurement, with separate V8 and
 Scriptw bars. Publishing an existing report does not run a benchmark or replace
 its measured compiler identity with the current Git revision. Earlier
 measurements remain in the evidence manifest; the README has no history chart.
@@ -16,12 +16,13 @@ python3 scripts/publish-performance.py record PATH/report.json
 This records the measured checkpoint in
 [`performance-history.json`](../performance-history.json), retains its checked
 evidence, and updates the README's generated performance block plus
-[`performance-vs-v8.svg`](../assets/performance-vs-v8.svg) and
 [`performance-memory.svg`](../assets/performance-memory.svg).
 
-The generated README block contains only these two images. The graphics carry
-the measurement date, compiler commit, sample and warmup counts, hardware and
-runtime identities; detailed methodology and reproduction stay in linked docs.
+The generated README block contains only this combined timing and memory image,
+produced by `render_current`. One title and legend apply to both sections. The
+graphic carries the measurement date, compiler commit, sample and warmup counts,
+hardware and runtime identities; detailed methodology and reproduction stay in
+linked docs.
 
 Regenerate or check the committed outputs without timing any code:
 
@@ -66,14 +67,17 @@ and `31c5958d2`; its latest measurement is `31c5958d2`, not the later FFI commit
 
 ## Comparison boundaries
 
-The timing chart shows paired absolute median elapsed times in milliseconds:
-V8 in orange and Scriptw in blue. Each workload has its own zero-based linear
-scale, so compare the two bars within a row rather than bar lengths across
-workloads. The annotated ratio is Scriptw divided by V8; lower times and ratios
-are better. There is no blended overall score.
+Both sections show V8 in orange and Scriptw in blue, with actual values at each
+bar's end. Lower values are better. There is no ratio column or blended overall
+score.
 
-The memory chart shows paired absolute peak process-RSS values in MiB on one
-shared zero-based linear scale. Cold and cached startup use median peaks;
+The timing section shows paired absolute median elapsed times in milliseconds.
+All five measurements share one zero-based linear time scale: cold start,
+cached start, 10,000 integer steps, 500 objects and 8,192 retained objects.
+
+The memory section shows paired absolute peak process-RSS values in MiB. All
+three rows share one zero-based linear RSS scale, separate from the time scale
+because the units differ. Cold and cached startup use median peaks;
 retained-object execution uses the whole-child peak, including compilation and
 warmups. Process RSS includes host/runtime overhead and is not live JavaScript
 heap usage.
@@ -84,17 +88,16 @@ after equal warmups. Scriptw's execution span includes realm/builtin work and
 completion. These scores are not isolated calls within an existing Realm.
 
 Comparison cohorts group only reports admitted by the existing `compare()`
-compatibility fields: schema, machine, configuration, measurement policy, release profile,
-Node versions, GNU time version/hash, Wasmtime version, complete workload
+compatibility fields: schema, machine, configuration, measurement policy,
+release profile, Node versions, GNU time version/hash, Wasmtime version, complete workload
 metadata, harness hashes and sample count. Compiler source and image identities
 may change. Different hardware, runtime versions, harnesses, corpora or policies
 form separate cohorts. All cohorts and their immutable raw evidence remain in
 the manifest; the README renders only the latest checkpoint.
 
-Ratios are descriptive observations. A smaller ratio can reflect changes in
-either runtime, so retain both absolute scores and raw samples when assessing a
-compiler change. The graphs establish no confidence interval, statistical
-significance, V8 parity or conformance result.
+These are descriptive observations; retain both absolute scores and raw samples
+when assessing a compiler change. The graphic establishes no confidence
+interval, statistical significance, V8 parity or conformance result.
 
 ## Measure a later compiler
 

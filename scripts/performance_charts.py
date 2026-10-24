@@ -78,14 +78,6 @@ def _checked(point):
     return rows
 
 
-def _ratio(value):
-    if value < .01:
-        return f'{value:.3g}×'
-    if value >= 1000:
-        return f'{value:,.1f}'.rstrip('0').rstrip('.') + '×'
-    return f'{value:.2f}'.rstrip('0').rstrip('.') + '×'
-
-
 def _milliseconds(nanoseconds):
     value = nanoseconds / 1_000_000
     return f'{value:.3f}'.rstrip('0').rstrip('.') if nanoseconds >= 1000 else f'{value:.3g}'
@@ -130,65 +122,60 @@ def _resources(machine):
 
 
 def render_current(point):
-    """Compare absolute median times with two zero-based bars per workload."""
+    """Compare all timing and memory measurements in one paired-bar chart."""
     rows = _checked(point)
     measured = _timestamp(point['measured_at']).strftime('%Y-%m-%d %H:%M UTC')
-    description = ('Median elapsed time in milliseconds; lower is better. Each workload has '
-                   'its own zero-based linear scale, shared by its V8 and Scriptw bars. '
-                   'Ratios are Scriptw divided by V8. ' + '; '.join(
-        f'{rows[key]["label"]}: V8 {_milliseconds(rows[key]["v8_ns"])} ms, '
-        f'Scriptw {_milliseconds(rows[key]["scriptw_ns"])} ms, '
-        f'{_ratio(rows[key]["scriptw_ns"] / rows[key]["v8_ns"])}'
-        for key, *_ in METRICS))
-    content = _heading('Elapsed time', 'Median · ms · lower is better · independent linear scale per workload')
-    content += [
-        _text(28, 84, f'{measured} · compiler {point["source_commit"][:9]} · '
-              f'{point["samples"]} samples · {point["warmups"]} execution warmups', size=11, fill=MUTED),
-        _text(28, 117, 'STARTUP', size=11, weight=600, fill=MUTED),
-        _text(1012, 117, 'Scriptw / V8', size=11, fill=MUTED, anchor='end'),
-        _text(28, 277, 'EXECUTION', size=11, weight=600, fill=MUTED),
-        _line(28, 251, 1012, 251),
-    ]
-    for (key, _, _), y in zip(METRICS, (133, 195, 293, 355, 417), strict=True):
-        row = rows[key]
-        content.append(_text(28, y + 24, row['label'], size=14, weight=500))
-        content += _paired_bars(row, y, ('scriptw_ns', 'v8_ns'),
-                                max(row['scriptw_ns'], row['v8_ns']),
-                                lambda value: _milliseconds(value) + ' ms')
-        content.append(_text(1012, y + 25, _ratio(row['scriptw_ns'] / row['v8_ns']),
-                             size=19, weight=600, anchor='end'))
-    content += [
-        _text(28, 483, 'Startup: fresh process · Execution: fresh Store / V8 context', size=11, fill=MUTED),
-        _text(28, 505, _resources(point['machine']), size=11, fill=MUTED),
-        _text(28, 524, f'Wasmtime {point["wasmtime_version"]} · Node {point["node_version"]} / '
-              f'V8 {point["v8_version"]}', size=11, fill=MUTED),
-    ]
-    return _svg('Scriptw versus V8 elapsed time', description, 545, content)
+    timing_fields = ('scriptw_ns', 'v8_ns')
+    memory_fields = ('scriptw_rss_bytes', 'v8_rss_bytes')
+    timing_keys = tuple(key for key, *_ in METRICS)
+    memory_keys = ('cold', 'hot', 'retained')
 
-
-def render_memory(point):
-    """Show startup medians and the whole retained-object child RSS separately."""
-    rows = _checked(point)
-    keys = ('cold', 'hot', 'retained')
-    fields = ('scriptw_rss_bytes', 'v8_rss_bytes')
-    maximum = max(rows[key][field] for key in keys for field in fields)
+    def milliseconds(value):
+        return _milliseconds(value) + ' ms'
 
     def mib(value):
         return f'{value / 2**20:.2f} MiB'
 
-    description = ('Peak process RSS in MiB, including runtime and host overhead; lower is better. '
-                   'Shared zero-based linear scale. Startup values are medians; retained-object '
-                   'values cover the whole child process, including compilation and warmups. '
-                   'This is not JavaScript heap usage. ' + '; '.join(
-        f'{rows[key]["label"]}: V8 {mib(rows[key][fields[1]])}, Scriptw {mib(rows[key][fields[0]])}'
-        for key in keys))
-    content = _heading('Peak process memory', 'RSS · MiB · lower is better · shared linear scale')
-    for key, y, note in (('cold', 92, 'median'), ('hot', 164, 'median'),
-                          ('retained', 236, 'whole child process')):
+    description = ('Elapsed time and peak process memory; lower is better. Each section uses '
+                   'a shared zero-based linear scale: milliseconds for median elapsed times, '
+                   'MiB for peak process RSS. Startup RSS values are medians; retained-object '
+                   'RSS covers the whole child process, including compilation and warmups. '
+                   'RSS includes host/runtime overhead and is not JavaScript heap usage. ')
+    for keys, fields, format_value in ((timing_keys, timing_fields, milliseconds),
+                                       (memory_keys, memory_fields, mib)):
+        description += '; '.join(
+            f'{rows[key]["label"]}: V8 {format_value(rows[key][fields[1]])}, '
+            f'Scriptw {format_value(rows[key][fields[0]])}' for key in keys) + '. '
+    content = _heading('Scriptw vs V8', 'Lower is better · shared linear scale within each section')
+    content += [
+        _text(28, 84, f'{measured} · compiler {point["source_commit"][:9]} · '
+              f'{point["samples"]} samples · {point["warmups"]} execution warmups', size=11, fill=MUTED),
+        _text(28, 118, 'ELAPSED TIME · ms · median', size=11, weight=600, fill=MUTED),
+    ]
+    maximum = max(rows[key][field] for key in timing_keys for field in timing_fields)
+    for index, key in enumerate(timing_keys):
+        y = 137 + index * 62
         row = rows[key]
+        content.append(_text(28, y + 24, row['label'], size=14, weight=500))
+        content += _paired_bars(row, y, timing_fields, maximum, milliseconds)
+    content += [
+        _line(28, 439, 1012, 439),
+        _text(28, 464, 'PEAK PROCESS MEMORY · MiB · RSS', size=11, weight=600, fill=MUTED),
+    ]
+    maximum = max(rows[key][field] for key in memory_keys for field in memory_fields)
+    for index, key in enumerate(memory_keys):
+        y = 483 + index * 62
+        row = rows[key]
+        note = 'whole child process' if key == 'retained' else 'median'
         content += [_text(28, y + 14, row['label'], size=14, weight=500),
                     _text(28, y + 32, note, size=11, fill=MUTED)]
-        content += _paired_bars(row, y, fields, maximum, mib)
-    content.append(_text(28, 311, 'Includes host/runtime overhead; retained-object run includes compilation and warmups.',
-                         size=11, fill=MUTED))
-    return _svg('Scriptw versus V8 peak process memory', description, 332, content)
+        content += _paired_bars(row, y, memory_fields, maximum, mib)
+    content += [
+        _text(28, 676, 'Startup: fresh process · Execution: fresh Store / V8 context', size=11, fill=MUTED),
+        _text(28, 695, 'RSS includes host/runtime overhead; retained-object run includes compilation and warmups.',
+              size=11, fill=MUTED),
+        _text(28, 717, _resources(point['machine']), size=11, fill=MUTED),
+        _text(28, 736, f'Wasmtime {point["wasmtime_version"]} · Node {point["node_version"]} / '
+              f'V8 {point["v8_version"]}', size=11, fill=MUTED),
+    ]
+    return _svg('Scriptw versus V8 elapsed time and peak process memory', description, 757, content)

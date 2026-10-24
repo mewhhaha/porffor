@@ -72,11 +72,10 @@ class PerformanceHistoryTests(unittest.TestCase):
         text = (self.root / 'README.md').read_text()
         self.assertTrue(text.endswith('## Tests\nPreserve this status.\n'))
         self.assertTrue(PUBLISH.render(self.root, check=True)['checked'])
-        svg = (self.root / PUBLISH.DOCS / 'assets/performance-vs-v8.svg').read_text()
+        svg = (self.root / PUBLISH.DOCS / 'assets/performance-memory.svg').read_text()
         self.assertIn(report['source_commit'][:9], svg)
         self.assertIn('07:05 UTC', svg)
-        for name in ('performance-memory.svg', 'performance-vs-v8.svg'):
-            ET.fromstring((self.root / PUBLISH.DOCS / 'assets' / name).read_bytes())
+        ET.fromstring(svg)
 
     def test_record_is_idempotent_and_archives_are_deterministic(self):
         path, report = self.report()
@@ -201,7 +200,7 @@ class PerformanceHistoryTests(unittest.TestCase):
         PUBLISH.record(self.root, last)
         _, points = PUBLISH.load_history(self.root)
         self.assertEqual(len({point['cohort_id'] for point in points}), 2)
-        svg = (self.root / PUBLISH.DOCS / 'assets/performance-vs-v8.svg').read_text()
+        svg = (self.root / PUBLISH.DOCS / 'assets/performance-memory.svg').read_text()
         self.assertIn('different CPU', svg)
         self.assertIn(report['source_commit'][:9], svg)
         self.assertNotIn(points[0]['source_commit'][:9], svg)
@@ -269,18 +268,22 @@ class PerformanceHistoryTests(unittest.TestCase):
             PUBLISH.record(self.root, path)
         self.assertEqual(self.bytes(), before)
 
-    def test_renderer_keeps_faster_than_v8_ratios_and_escapes_labels(self):
+    def test_renderer_keeps_faster_than_v8_timings_and_escapes_labels(self):
         _, points = PUBLISH.load_history(ROOT)
         point = copy.deepcopy(points[-1])
-        point['metrics'][0].update(scriptw_ns=1, v8_ns=2, label='<untrusted & label>')
+        for row in point['metrics']:
+            row.update(scriptw_ns=1_000_000, v8_ns=2_000_000)
+        point['metrics'][0]['label'] = '<untrusted & label>'
         svg = charts.render_current(point)
         root = ET.fromstring(svg)
-        bars = {bar.get('data-engine'): bar for bar in root.iter('{http://www.w3.org/2000/svg}rect')
-                if bar.get('data-metric') == 'cold'}
+        cold_bars = [bar for bar in root.iter('{http://www.w3.org/2000/svg}rect')
+                     if bar.get('data-metric') == 'cold']
+        bars = {bar.get('data-engine'): bar for bar in cold_bars[:2]}
         self.assertEqual(set(bars), {'Scriptw', 'V8'})
         self.assertEqual(bars['Scriptw'].get('x'), bars['V8'].get('x'))
         self.assertAlmostEqual(float(bars['Scriptw'].get('width')) / float(bars['V8'].get('width')), .5)
-        self.assertIn('0.5×', svg)
+        self.assertIn('1 ms', svg)
+        self.assertIn('2 ms', svg)
         self.assertIn('&lt;untrusted &amp; label&gt;', svg)
         self.assertNotIn('<untrusted', svg)
 

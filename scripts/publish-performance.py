@@ -14,7 +14,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from benchmark_metrics import SCHEMA, digest, load_report
-from performance_charts import render_current, render_memory
+from performance_charts import render_current
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_HISTORY = 'scriptw-readme-performance-history-v1'
@@ -265,8 +265,7 @@ def load_history(root):
 def readme_block():
     return '\n'.join([
         START,
-        '![Median elapsed time: paired V8 and Scriptw bars for each workload; lower is better](docs/rust-rewrite/assets/performance-vs-v8.svg)', '',
-        '![Peak process memory: paired V8 and Scriptw bars; lower is better](docs/rust-rewrite/assets/performance-memory.svg)',
+        '![Elapsed time and peak process memory: paired V8 and Scriptw bars; lower is better](docs/rust-rewrite/assets/performance-memory.svg)',
         END,
     ])
 
@@ -278,8 +277,7 @@ def outputs(root, points):
     current = points[-1]
     files = {
         Path('README.md'): (readme.split(START)[0] + readme_block() + readme.split(END)[1]).encode(),
-        DOCS / 'assets/performance-vs-v8.svg': render_current(current).encode(),
-        DOCS / 'assets/performance-memory.svg': render_memory(current).encode(),
+        DOCS / 'assets/performance-memory.svg': render_current(current).encode(),
     }
     for path, data in files.items():
         if path.suffix == '.svg':

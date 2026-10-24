@@ -1,35 +1,72 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 332" role="img" aria-labelledby="title description">
-<title id="title">Scriptw versus V8 peak process memory</title>
-<desc id="description">Peak process RSS in MiB, including runtime and host overhead; lower is better. Shared zero-based linear scale. Startup values are medians; retained-object values cover the whole child process, including compilation and warmups. This is not JavaScript heap usage. Cold start: V8 49.79 MiB, Scriptw 388.71 MiB; Cached start: V8 49.82 MiB, Scriptw 358.03 MiB; 8,192 retained objects: V8 76.68 MiB, Scriptw 405.25 MiB</desc>
-<rect width="1040" height="332" rx="12" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 757" role="img" aria-labelledby="title description">
+<title id="title">Scriptw versus V8 elapsed time and peak process memory</title>
+<desc id="description">Elapsed time and peak process memory; lower is better. Each section uses a shared zero-based linear scale: milliseconds for median elapsed times, MiB for peak process RSS. Startup RSS values are medians; retained-object RSS covers the whole child process, including compilation and warmups. RSS includes host/runtime overhead and is not JavaScript heap usage. Cold start: V8 17.521 ms, Scriptw 698.4 ms; Cached start: V8 17.595 ms, Scriptw 517.923 ms; 10,000 integer steps: V8 2.025 ms, Scriptw 4.799 ms; 500 objects: V8 0.052 ms, Scriptw 5.515 ms; 8,192 retained objects: V8 2.614 ms, Scriptw 422.117 ms. Cold start: V8 49.79 MiB, Scriptw 388.71 MiB; Cached start: V8 49.82 MiB, Scriptw 358.03 MiB; 8,192 retained objects: V8 76.68 MiB, Scriptw 405.25 MiB. </desc>
+<rect width="1040" height="757" rx="12" fill="#ffffff"/>
 <g font-family="system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
-<text x="28.000" y="35.000" font-size="22" fill="#24292f" font-weight="600">Peak process memory</text>
-<text x="28.000" y="61.000" font-size="12" fill="#57606a">RSS · MiB · lower is better · shared linear scale</text>
+<text x="28.000" y="35.000" font-size="22" fill="#24292f" font-weight="600">Scriptw vs V8</text>
+<text x="28.000" y="61.000" font-size="12" fill="#57606a">Lower is better · shared linear scale within each section</text>
 <rect x="643" y="23" width="14" height="14" rx="2" fill="#d97706"/>
 <text x="665.000" y="35.000" font-size="13" fill="#24292f">Node / V8</text>
 <rect x="801" y="23" width="14" height="14" rx="2" fill="#0969da"/>
 <text x="823.000" y="35.000" font-size="13" fill="#24292f">Scriptw / Wasmtime</text>
-<text x="28.000" y="106.000" font-size="14" fill="#24292f" font-weight="500">Cold start</text>
-<text x="28.000" y="124.000" font-size="11" fill="#57606a">median</text>
-<line x1="268.000" y1="89.000" x2="268.000" y2="130.000" stroke="#d8dee4"/>
-<rect x="268" y="92" width="61.670940" height="14" fill="#d97706" data-engine="V8" data-metric="cold"><title>Cold start · V8: 49.79 MiB</title></rect>
-<text x="338.671" y="104.000" font-size="12" fill="#d97706" font-weight="500">49.79 MiB</text>
-<rect x="268" y="113" width="481.507538" height="14" fill="#0969da" data-engine="Scriptw" data-metric="cold"><title>Cold start · Scriptw: 388.71 MiB</title></rect>
-<text x="758.508" y="125.000" font-size="12" fill="#0969da" font-weight="500">388.71 MiB</text>
-<text x="28.000" y="178.000" font-size="14" fill="#24292f" font-weight="500">Cached start</text>
-<text x="28.000" y="196.000" font-size="11" fill="#57606a">median</text>
-<line x1="268.000" y1="161.000" x2="268.000" y2="202.000" stroke="#d8dee4"/>
-<rect x="268" y="164" width="61.709651" height="14" fill="#d97706" data-engine="V8" data-metric="hot"><title>Cached start · V8: 49.82 MiB</title></rect>
-<text x="338.710" y="176.000" font-size="12" fill="#d97706" font-weight="500">49.82 MiB</text>
-<rect x="268" y="185" width="443.508174" height="14" fill="#0969da" data-engine="Scriptw" data-metric="hot"><title>Cached start · Scriptw: 358.03 MiB</title></rect>
-<text x="720.508" y="197.000" font-size="12" fill="#0969da" font-weight="500">358.03 MiB</text>
-<text x="28.000" y="250.000" font-size="14" fill="#24292f" font-weight="500">8,192 retained objects</text>
-<text x="28.000" y="268.000" font-size="11" fill="#57606a">whole child process</text>
-<line x1="268.000" y1="233.000" x2="268.000" y2="274.000" stroke="#d8dee4"/>
-<rect x="268" y="236" width="94.981474" height="14" fill="#d97706" data-engine="V8" data-metric="retained"><title>8,192 retained objects · V8: 76.68 MiB</title></rect>
-<text x="371.981" y="248.000" font-size="12" fill="#d97706" font-weight="500">76.68 MiB</text>
-<rect x="268" y="257" width="502.000000" height="14" fill="#0969da" data-engine="Scriptw" data-metric="retained"><title>8,192 retained objects · Scriptw: 405.25 MiB</title></rect>
-<text x="779.000" y="269.000" font-size="12" fill="#0969da" font-weight="500">405.25 MiB</text>
-<text x="28.000" y="311.000" font-size="11" fill="#57606a">Includes host/runtime overhead; retained-object run includes compilation and warmups.</text>
+<text x="28.000" y="84.000" font-size="11" fill="#57606a">2026-10-24 07:05 UTC · compiler 31c5958d2 · 7 samples · 10 execution warmups</text>
+<text x="28.000" y="118.000" font-size="11" fill="#57606a" font-weight="600">ELAPSED TIME · ms · median</text>
+<text x="28.000" y="161.000" font-size="14" fill="#24292f" font-weight="500">Cold start</text>
+<line x1="268.000" y1="134.000" x2="268.000" y2="175.000" stroke="#d8dee4"/>
+<rect x="268" y="137" width="12.593729" height="14" fill="#d97706" data-engine="V8" data-metric="cold"><title>Cold start · V8: 17.521 ms</title></rect>
+<text x="289.594" y="149.000" font-size="12" fill="#d97706" font-weight="500">17.521 ms</text>
+<rect x="268" y="158" width="502.000000" height="14" fill="#0969da" data-engine="Scriptw" data-metric="cold"><title>Cold start · Scriptw: 698.4 ms</title></rect>
+<text x="779.000" y="170.000" font-size="12" fill="#0969da" font-weight="500">698.4 ms</text>
+<text x="28.000" y="223.000" font-size="14" fill="#24292f" font-weight="500">Cached start</text>
+<line x1="268.000" y1="196.000" x2="268.000" y2="237.000" stroke="#d8dee4"/>
+<rect x="268" y="199" width="12.647372" height="14" fill="#d97706" data-engine="V8" data-metric="hot"><title>Cached start · V8: 17.595 ms</title></rect>
+<text x="289.647" y="211.000" font-size="12" fill="#d97706" font-weight="500">17.595 ms</text>
+<rect x="268" y="220" width="372.275987" height="14" fill="#0969da" data-engine="Scriptw" data-metric="hot"><title>Cached start · Scriptw: 517.923 ms</title></rect>
+<text x="649.276" y="232.000" font-size="12" fill="#0969da" font-weight="500">517.923 ms</text>
+<text x="28.000" y="285.000" font-size="14" fill="#24292f" font-weight="500">10,000 integer steps</text>
+<line x1="268.000" y1="258.000" x2="268.000" y2="299.000" stroke="#d8dee4"/>
+<rect x="268" y="261" width="1.455415" height="14" fill="#d97706" data-engine="V8" data-metric="integer"><title>10,000 integer steps · V8: 2.025 ms</title></rect>
+<text x="278.455" y="273.000" font-size="12" fill="#d97706" font-weight="500">2.025 ms</text>
+<rect x="268" y="282" width="3.449418" height="14" fill="#0969da" data-engine="Scriptw" data-metric="integer"><title>10,000 integer steps · Scriptw: 4.799 ms</title></rect>
+<text x="280.449" y="294.000" font-size="12" fill="#0969da" font-weight="500">4.799 ms</text>
+<text x="28.000" y="347.000" font-size="14" fill="#24292f" font-weight="500">500 objects</text>
+<line x1="268.000" y1="320.000" x2="268.000" y2="361.000" stroke="#d8dee4"/>
+<rect x="268" y="323" width="0.037291" height="14" fill="#d97706" data-engine="V8" data-metric="objects"><title>500 objects · V8: 0.052 ms</title></rect>
+<text x="277.037" y="335.000" font-size="12" fill="#d97706" font-weight="500">0.052 ms</text>
+<rect x="268" y="344" width="3.964309" height="14" fill="#0969da" data-engine="Scriptw" data-metric="objects"><title>500 objects · Scriptw: 5.515 ms</title></rect>
+<text x="280.964" y="356.000" font-size="12" fill="#0969da" font-weight="500">5.515 ms</text>
+<text x="28.000" y="409.000" font-size="14" fill="#24292f" font-weight="500">8,192 retained objects</text>
+<line x1="268.000" y1="382.000" x2="268.000" y2="423.000" stroke="#d8dee4"/>
+<rect x="268" y="385" width="1.878869" height="14" fill="#d97706" data-engine="V8" data-metric="retained"><title>8,192 retained objects · V8: 2.614 ms</title></rect>
+<text x="278.879" y="397.000" font-size="12" fill="#d97706" font-weight="500">2.614 ms</text>
+<rect x="268" y="406" width="303.411770" height="14" fill="#0969da" data-engine="Scriptw" data-metric="retained"><title>8,192 retained objects · Scriptw: 422.117 ms</title></rect>
+<text x="580.412" y="418.000" font-size="12" fill="#0969da" font-weight="500">422.117 ms</text>
+<line x1="28.000" y1="439.000" x2="1012.000" y2="439.000" stroke="#d8dee4"/>
+<text x="28.000" y="464.000" font-size="11" fill="#57606a" font-weight="600">PEAK PROCESS MEMORY · MiB · RSS</text>
+<text x="28.000" y="497.000" font-size="14" fill="#24292f" font-weight="500">Cold start</text>
+<text x="28.000" y="515.000" font-size="11" fill="#57606a">median</text>
+<line x1="268.000" y1="480.000" x2="268.000" y2="521.000" stroke="#d8dee4"/>
+<rect x="268" y="483" width="61.670940" height="14" fill="#d97706" data-engine="V8" data-metric="cold"><title>Cold start · V8: 49.79 MiB</title></rect>
+<text x="338.671" y="495.000" font-size="12" fill="#d97706" font-weight="500">49.79 MiB</text>
+<rect x="268" y="504" width="481.507538" height="14" fill="#0969da" data-engine="Scriptw" data-metric="cold"><title>Cold start · Scriptw: 388.71 MiB</title></rect>
+<text x="758.508" y="516.000" font-size="12" fill="#0969da" font-weight="500">388.71 MiB</text>
+<text x="28.000" y="559.000" font-size="14" fill="#24292f" font-weight="500">Cached start</text>
+<text x="28.000" y="577.000" font-size="11" fill="#57606a">median</text>
+<line x1="268.000" y1="542.000" x2="268.000" y2="583.000" stroke="#d8dee4"/>
+<rect x="268" y="545" width="61.709651" height="14" fill="#d97706" data-engine="V8" data-metric="hot"><title>Cached start · V8: 49.82 MiB</title></rect>
+<text x="338.710" y="557.000" font-size="12" fill="#d97706" font-weight="500">49.82 MiB</text>
+<rect x="268" y="566" width="443.508174" height="14" fill="#0969da" data-engine="Scriptw" data-metric="hot"><title>Cached start · Scriptw: 358.03 MiB</title></rect>
+<text x="720.508" y="578.000" font-size="12" fill="#0969da" font-weight="500">358.03 MiB</text>
+<text x="28.000" y="621.000" font-size="14" fill="#24292f" font-weight="500">8,192 retained objects</text>
+<text x="28.000" y="639.000" font-size="11" fill="#57606a">whole child process</text>
+<line x1="268.000" y1="604.000" x2="268.000" y2="645.000" stroke="#d8dee4"/>
+<rect x="268" y="607" width="94.981474" height="14" fill="#d97706" data-engine="V8" data-metric="retained"><title>8,192 retained objects · V8: 76.68 MiB</title></rect>
+<text x="371.981" y="619.000" font-size="12" fill="#d97706" font-weight="500">76.68 MiB</text>
+<rect x="268" y="628" width="502.000000" height="14" fill="#0969da" data-engine="Scriptw" data-metric="retained"><title>8,192 retained objects · Scriptw: 405.25 MiB</title></rect>
+<text x="779.000" y="640.000" font-size="12" fill="#0969da" font-weight="500">405.25 MiB</text>
+<text x="28.000" y="676.000" font-size="11" fill="#57606a">Startup: fresh process · Execution: fresh Store / V8 context</text>
+<text x="28.000" y="695.000" font-size="11" fill="#57606a">RSS includes host/runtime overhead; retained-object run includes compilation and warmups.</text>
+<text x="28.000" y="717.000" font-size="11" fill="#57606a">AMD Ryzen 7 7800X3D 8-Core Processor · 1 measured CPU · 4 GiB memory limit · no swap</text>
+<text x="28.000" y="736.000" font-size="11" fill="#57606a">Wasmtime 47.0.0 · Node 24.12.0 / V8 13.6.233.17-node.37</text>
 </g>
 </svg>
