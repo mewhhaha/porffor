@@ -1,8 +1,7 @@
-"""Deterministic SVGs for admitted Scriptw/V8 performance checkpoints.
+"""Deterministic SVG comparisons from admitted Scriptw/V8 measurements.
 
-The publisher owns evidence admission. These renderers consume its normalized
-points and keep incompatible measurement cohorts out of a connected history.
-No plotting dependency, browser, network access or timing run is required.
+The publisher owns evidence admission. No plotting dependency, browser, network
+access or timing run is required to render the latest checkpoint.
 """
 from datetime import datetime, timezone
 from html import escape
@@ -10,16 +9,18 @@ import math
 
 
 METRICS = (
-    ('cold', 'Cold start', 'Startup', '#0969da', None),
-    ('hot', 'Cached start', 'Startup', '#8250df', '7 4'),
-    ('integer', '10,000 integer steps', 'Execution', '#1a7f37', None),
-    ('objects', '500 objects', 'Execution', '#bc4c00', '7 4'),
-    ('retained', '8,192 retained objects', 'Execution', '#cf222e', '2 4'),
+    ('cold', 'Cold start', 'Startup'),
+    ('hot', 'Cached start', 'Startup'),
+    ('integer', '10,000 integer steps', 'Execution'),
+    ('objects', '500 objects', 'Execution'),
+    ('retained', '8,192 retained objects', 'Execution'),
 )
 WIDTH = 1040
 INK = '#24292f'
 MUTED = '#57606a'
 GRID = '#d8dee4'
+V8 = '#d97706'
+SCRIPTW = '#0969da'
 
 
 def _text(x, y, value, *, size=13, fill=INK, weight=None, anchor=None):
@@ -31,12 +32,9 @@ def _text(x, y, value, *, size=13, fill=INK, weight=None, anchor=None):
     return f'<text {attributes}>{escape(str(value))}</text>'
 
 
-def _line(x1, y1, x2, y2, *, stroke=GRID, width=1, dash=None):
-    attributes = (f'x1="{x1:.3f}" y1="{y1:.3f}" x2="{x2:.3f}" '
-                  f'y2="{y2:.3f}" stroke="{stroke}" stroke-width="{width}"')
-    if dash:
-        attributes += f' stroke-dasharray="{dash}"'
-    return f'<line {attributes}/>'
+def _line(x1, y1, x2, y2, *, stroke=GRID):
+    return (f'<line x1="{x1:.3f}" y1="{y1:.3f}" x2="{x2:.3f}" '
+            f'y2="{y2:.3f}" stroke="{stroke}"/>')
 
 
 def _svg(title, description, height, content):
@@ -63,17 +61,19 @@ def _checked(point):
     if len(metrics) != len(METRICS) or {m['id'] for m in metrics} != {m[0] for m in METRICS}:
         raise ValueError('performance charts need exactly the five README metrics')
     rows = {metric['id']: metric for metric in metrics}
-    for key, _, group, _, _ in METRICS:
+    for key, _, group in METRICS:
         row = rows[key]
         if row['group'] != group:
             raise ValueError('performance metric has the wrong timing group')
-        values = (row['scriptw_ns'], row['v8_ns'])
-        if any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0
-               for value in values):
-            raise ValueError('chart timings must be finite and positive')
-        ratio = row['scriptw_ns'] / row['v8_ns']
-        if not math.isfinite(ratio) or ratio <= 0:
-            raise ValueError('chart timing ratio must be finite and positive')
+        for fields, role in ((('scriptw_ns', 'v8_ns'), 'timings'),
+                             (('scriptw_rss_bytes', 'v8_rss_bytes'), 'RSS values')):
+            values = [row[field] for field in fields]
+            if any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0
+                   for value in values):
+                raise ValueError(f'chart {role} must be finite and positive')
+            ratio = values[0] / values[1]
+            if not math.isfinite(ratio) or ratio <= 0:
+                raise ValueError(f'chart {role} ratio must be finite and positive')
     _timestamp(point['measured_at'])
     return rows
 
@@ -87,169 +87,108 @@ def _ratio(value):
 
 
 def _milliseconds(nanoseconds):
-    return f'{nanoseconds / 1_000_000:.6g}'
+    value = nanoseconds / 1_000_000
+    return f'{value:.3f}'.rstrip('0').rstrip('.') if nanoseconds >= 1000 else f'{value:.3g}'
 
 
-def _scale(ratios):
-    """Log exponents include V8=1 with padding and at most seven tick marks."""
-    lower = min(0, math.floor(math.log10(min(ratios)))) - .15
-    upper = max(1, math.ceil(math.log10(max(ratios)))) + .08
-    first, last = math.ceil(lower), math.floor(upper)
-    step = max(1, math.ceil((last - first) / 5))
-    ticks = sorted({0, *range(first, last + 1, step)})
-    return lower, upper, ticks
+def _heading(title, subtitle):
+    content = [_text(28, 35, title, size=22, weight=600),
+               _text(28, 61, subtitle, size=12, fill=MUTED)]
+    for x, label, color in ((643, 'Node / V8', V8), (801, 'Scriptw / Wasmtime', SCRIPTW)):
+        content += [f'<rect x="{x}" y="23" width="14" height="14" rx="2" fill="{color}"/>',
+                    _text(x + 22, 35, label, size=13)]
+    return content
 
 
-def _tick_label(exponent):
-    if -3 <= exponent <= 3:
-        return _ratio(10 ** exponent)
-    return f'1e{exponent:+}×'
+def _paired_bars(row, y, fields, maximum, format_value):
+    """Both bars share a zero origin and a linear scale, with no minimum width."""
+    left, width = 268, 502
+    content = [_line(left, y - 3, left, y + 38)]
+    for engine, field, color, offset in (('V8', fields[1], V8, 0),
+                                          ('Scriptw', fields[0], SCRIPTW, 21)):
+        value = row[field]
+        bar_width = value / maximum * width
+        label = format_value(value)
+        content += [
+            f'<rect x="{left}" y="{y + offset}" width="{bar_width:.6f}" height="14" '
+            f'fill="{color}" data-engine="{engine}" data-metric="{escape(row["id"], quote=True)}">'
+            f'<title>{escape(row["label"])} · {engine}: {escape(label)}</title></rect>',
+            _text(left + bar_width + 9, y + offset + 12, label, size=12, fill=color, weight=500),
+        ]
+    return content
 
 
-def _context(point):
-    return (f"{point['machine']['cpu_model']} · Node {point['node_version']} / "
-            f"V8 {point['v8_version']} · Wasmtime {point['wasmtime_version']}")
+def _resources(machine):
+    cpus = len(machine.get('measurement_affinity', []))
+    memory = machine.get('effective_memory_bytes')
+    parts = [f'{cpus} measured CPU' + ('s' if cpus != 1 else '')] if cpus else []
+    if memory:
+        parts.append(f'{memory / 2**30:g} GiB memory limit')
+    if any(row.get('memory.swap.max') == '0' for row in machine.get('cgroups', [])):
+        parts.append('no swap')
+    return ' · '.join([machine['cpu_model'], *parts])
 
 
 def render_current(point):
-    """Show the five exact median-time ratios against a visible V8 reference."""
+    """Compare absolute median times with two zero-based bars per workload."""
     rows = _checked(point)
-    ratios = {key: rows[key]['scriptw_ns'] / rows[key]['v8_ns'] for key, *_ in METRICS}
-    lower, upper, ticks = _scale(list(ratios.values()))
-    left, right, top, bottom = 278, 778, 112, 334
-
-    def position(value):
-        return left + (math.log10(value) - lower) / (upper - lower) * (right - left)
-
     measured = _timestamp(point['measured_at']).strftime('%Y-%m-%d %H:%M UTC')
-    description = ('Scriptw elapsed time divided by V8 elapsed time. V8 equals one; '
-                   'lower is better. Logarithmic horizontal scale. ' + '; '.join(
-        f'{rows[key]["label"]}: Scriptw {_milliseconds(rows[key]["scriptw_ns"])} ms, '
-        f'V8 {_milliseconds(rows[key]["v8_ns"])} ms, {_ratio(ratios[key])}'
+    description = ('Median elapsed time in milliseconds; lower is better. Each workload has '
+                   'its own zero-based linear scale, shared by its V8 and Scriptw bars. '
+                   'Ratios are Scriptw divided by V8. ' + '; '.join(
+        f'{rows[key]["label"]}: V8 {_milliseconds(rows[key]["v8_ns"])} ms, '
+        f'Scriptw {_milliseconds(rows[key]["scriptw_ns"])} ms, '
+        f'{_ratio(rows[key]["scriptw_ns"] / rows[key]["v8_ns"])}'
         for key, *_ in METRICS))
-    content = [
-        _text(28, 34, 'Scriptw performance vs V8', size=22, weight=600),
-        _text(28, 57, f'{measured} · compiler {point["source_commit"][:9]} · '
-              f'{point["samples"]} samples · {point["warmups"]} execution warmups', size=12, fill=MUTED),
-        _text(28, 93, 'Measurement', size=12, weight=600),
-        _text(left, 93, 'Elapsed-time ratio · lower is better · log scale', size=12, fill=MUTED),
-        _text(1012, 93, 'Scriptw / V8', size=12, weight=600, anchor='end'),
-    ]
-    reference = position(1)
-    for exponent in ticks:
-        x = left + (exponent - lower) / (upper - lower) * (right - left)
-        content += [_line(x, top, x, bottom),
-                    _text(x, 355, _tick_label(exponent), size=11, fill=MUTED, anchor='middle')]
-    content.append(_line(reference, top, reference, bottom, stroke=INK, width=1.5, dash='4 4'))
-    content.append(_text(reference + 7, 110, 'V8 = 1×', size=10, fill=MUTED))
-    for index, (key, _, _, color, _) in enumerate(METRICS):
-        y = 135 + index * 44
-        row, ratio = rows[key], ratios[key]
-        target = position(ratio)
-        content.append(_text(28, y + 1, row['label'], size=14, weight=500))
-        content.append(_line(reference, y - 4, target, y - 4, stroke=color, width=13))
-        content.append(f'<circle cx="{target:.3f}" cy="{y - 4:.3f}" r="6.5" fill="{color}">'
-                       f'<title>{escape(row["label"])}: {_ratio(ratio)}</title></circle>')
-        content.append(_text(1012, y - 2, _ratio(ratio), size=19, weight=600, anchor='end'))
-        content.append(_text(1012, y + 15,
-                             f'{_milliseconds(row["scriptw_ns"])} / {_milliseconds(row["v8_ns"])} ms',
-                             size=11, fill=MUTED, anchor='end'))
+    content = _heading('Elapsed time', 'Median · ms · lower is better · independent linear scale per workload')
     content += [
-        _text(28, 383, 'Execution uses a fresh Store / V8 context per invocation; startup uses fresh processes.',
-              size=11, fill=MUTED),
-        _text(28, 403, 'Measured medians, not confidence intervals. Full samples, scope and provenance are retained in the history.',
-              size=11, fill=MUTED),
+        _text(28, 84, f'{measured} · compiler {point["source_commit"][:9]} · '
+              f'{point["samples"]} samples · {point["warmups"]} execution warmups', size=11, fill=MUTED),
+        _text(28, 117, 'STARTUP', size=11, weight=600, fill=MUTED),
+        _text(1012, 117, 'Scriptw / V8', size=11, fill=MUTED, anchor='end'),
+        _text(28, 277, 'EXECUTION', size=11, weight=600, fill=MUTED),
+        _line(28, 251, 1012, 251),
     ]
-    return _svg('Scriptw performance versus V8', description, 423, content)
-
-
-def _legend(content, metrics, x, y):
-    for key, label, _, color, dash in metrics:
-        width = 155 if key in ('cold', 'hot') else 215
-        content.append(_line(x, y - 4, x + 25, y - 4, stroke=color, width=2.5, dash=dash))
-        content.append(_text(x + 32, y, label, size=12))
-        x += width
-
-
-def render_history(points):
-    """Plot matched checkpoints with ordinal x spacing; retain no mixed line."""
-    if not points:
-        raise ValueError('performance history needs a measured checkpoint')
-    if len({point['cohort_id'] for point in points}) != 1:
-        raise ValueError('cannot connect different performance cohorts')
-    instants = [_timestamp(point['measured_at']) for point in points]
-    if instants != sorted(instants):
-        raise ValueError('performance history must be in measurement order')
-    all_rows = [_checked(point) for point in points]
-    total = len(points)
-    points, all_rows = points[-12:], all_rows[-12:]
-    latest = points[-1]
-    content = [
-        _text(28, 34, 'Performance history vs V8', size=22, weight=600),
-        _text(28, 57, 'Scriptw / V8 elapsed time · lower is better · V8 = 1× · logarithmic vertical scales',
-              size=12, fill=MUTED),
-    ]
-    if len(points) == 1:
-        content.append(_text(28, 79, 'One measured checkpoint; no trend is drawn.', size=12, fill=MUTED))
-    else:
-        content.append(_text(28, 79, f'{len(points)} of {total} matched checkpoints shown · '
-                             'equal checkpoint spacing, not elapsed calendar time', size=12, fill=MUTED))
-    left, right = 88, 985
-
-    def x_position(index):
-        return (left + right) / 2 if len(points) == 1 else left + index * (right - left) / (len(points) - 1)
-
-    for group, metric_specs, top, bottom, heading in [
-        ('Startup', METRICS[:2], 127, 245, 110),
-        ('Execution', METRICS[2:], 355, 485, 338),
-    ]:
-        values = [rows[key]['scriptw_ns'] / rows[key]['v8_ns']
-                  for rows in all_rows for key, *_ in metric_specs]
-        lower, upper, ticks = _scale(values)
-
-        def y_position(value):
-            return bottom - (math.log10(value) - lower) / (upper - lower) * (bottom - top)
-
-        content.append(_text(28, heading, group, size=16, weight=600))
-        _legend(content, metric_specs, 245 if group == 'Startup' else 270, heading)
-        for exponent in ticks:
-            y = bottom - (exponent - lower) / (upper - lower) * (bottom - top)
-            content.append(_line(left, y, right, y))
-            content.append(_text(left - 12, y + 4, _tick_label(exponent), size=11, fill=MUTED, anchor='end'))
-        content.append(_line(left, y_position(1), right, y_position(1), stroke=INK, width=1.3, dash='4 4'))
-        for index, point in enumerate(points):
-            x = x_position(index)
-            content.append(_line(x, top, x, bottom, stroke='#eaeef2'))
-            measured = _timestamp(point['measured_at'])
-            content.append(_text(x, bottom + 18, point['source_commit'][:9], size=10, anchor='middle'))
-            content.append(_text(x, bottom + 32, measured.strftime('%Y-%m-%d'), size=10, fill=MUTED, anchor='middle'))
-            content.append(_text(x, bottom + 46, measured.strftime('%H:%M UTC'), size=10, fill=MUTED, anchor='middle'))
-        for key, label, _, color, dash in metric_specs:
-            coords = [(x_position(index), y_position(rows[key]['scriptw_ns'] / rows[key]['v8_ns']))
-                      for index, rows in enumerate(all_rows)]
-            if len(coords) > 1:
-                attributes = (f'points="{" ".join(f"{x:.3f},{y:.3f}" for x, y in coords)}" '
-                              f'fill="none" stroke="{color}" stroke-width="2.6" stroke-linejoin="round"')
-                if dash:
-                    attributes += f' stroke-dasharray="{dash}"'
-                content.append(f'<polyline {attributes}/>')
-            for point, rows, (x, y) in zip(points, all_rows, coords, strict=True):
-                ratio = rows[key]['scriptw_ns'] / rows[key]['v8_ns']
-                content.append(f'<circle cx="{x:.3f}" cy="{y:.3f}" r="4.5" fill="{color}" '
-                               f'data-source-commit="{escape(point["source_commit"], quote=True)}" '
-                               f'data-report-sha256="{escape(point["id"], quote=True)}">'
-                               f'<title>{escape(label)} · {escape(point["source_commit"][:9])}: '
-                               f'{_ratio(ratio)}; Scriptw {_milliseconds(rows[key]["scriptw_ns"])} ms / '
-                               f'V8 {_milliseconds(rows[key]["v8_ns"])} ms</title></circle>')
+    for (key, _, _), y in zip(METRICS, (133, 195, 293, 355, 417), strict=True):
+        row = rows[key]
+        content.append(_text(28, y + 24, row['label'], size=14, weight=500))
+        content += _paired_bars(row, y, ('scriptw_ns', 'v8_ns'),
+                                max(row['scriptw_ns'], row['v8_ns']),
+                                lambda value: _milliseconds(value) + ' ms')
+        content.append(_text(1012, y + 25, _ratio(row['scriptw_ns'] / row['v8_ns']),
+                             size=19, weight=600, anchor='end'))
     content += [
-        _text(28, 563, _context(latest), size=11, fill=MUTED),
-        _text(28, 583, 'Only matched machine, runtime, workload and measurement policies are connected. Medians are not confidence intervals.',
-              size=11, fill=MUTED),
-        _text(28, 603, f'Latest: {latest["source_commit"][:9]} · cohort {latest["cohort_id"][:12]} · '
-              'full history and raw milliseconds remain in the data.', size=11, fill=MUTED),
+        _text(28, 483, 'Startup: fresh process · Execution: fresh Store / V8 context', size=11, fill=MUTED),
+        _text(28, 505, _resources(point['machine']), size=11, fill=MUTED),
+        _text(28, 524, f'Wasmtime {point["wasmtime_version"]} · Node {point["node_version"]} / '
+              f'V8 {point["v8_version"]}', size=11, fill=MUTED),
     ]
-    description = ('Performance measured at matched compiler checkpoints. Startup and execution have separate log-scale panels. '
-                   'V8 is a one-times elapsed-time reference; lower is better. X positions are equally spaced checkpoints, '
-                   'not an elapsed calendar axis. ' + ('One checkpoint has no trend line. ' if len(points) == 1 else '')
-                   + f'Shows {len(points)} of {total} checkpoints from one compatibility cohort.')
-    return _svg('Scriptw versus V8 performance history', description, 623, content)
+    return _svg('Scriptw versus V8 elapsed time', description, 545, content)
+
+
+def render_memory(point):
+    """Show startup medians and the whole retained-object child RSS separately."""
+    rows = _checked(point)
+    keys = ('cold', 'hot', 'retained')
+    fields = ('scriptw_rss_bytes', 'v8_rss_bytes')
+    maximum = max(rows[key][field] for key in keys for field in fields)
+
+    def mib(value):
+        return f'{value / 2**20:.2f} MiB'
+
+    description = ('Peak process RSS in MiB, including runtime and host overhead; lower is better. '
+                   'Shared zero-based linear scale. Startup values are medians; retained-object '
+                   'values cover the whole child process, including compilation and warmups. '
+                   'This is not JavaScript heap usage. ' + '; '.join(
+        f'{rows[key]["label"]}: V8 {mib(rows[key][fields[1]])}, Scriptw {mib(rows[key][fields[0]])}'
+        for key in keys))
+    content = _heading('Peak process memory', 'RSS · MiB · lower is better · shared linear scale')
+    for key, y, note in (('cold', 92, 'median'), ('hot', 164, 'median'),
+                          ('retained', 236, 'whole child process')):
+        row = rows[key]
+        content += [_text(28, y + 14, row['label'], size=14, weight=500),
+                    _text(28, y + 32, note, size=11, fill=MUTED)]
+        content += _paired_bars(row, y, fields, maximum, mib)
+    content.append(_text(28, 311, 'Includes host/runtime overhead; retained-object run includes compilation and warmups.',
+                         size=11, fill=MUTED))
+    return _svg('Scriptw versus V8 peak process memory', description, 332, content)

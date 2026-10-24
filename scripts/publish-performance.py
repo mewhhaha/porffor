@@ -3,7 +3,6 @@
 import argparse
 from datetime import datetime, timezone
 import gzip
-from html import escape
 import io
 import json
 import math
@@ -15,7 +14,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from benchmark_metrics import SCHEMA, digest, load_report
-from performance_charts import render_current, render_history
+from performance_charts import render_current, render_memory
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_HISTORY = 'scriptw-readme-performance-history-v1'
@@ -263,52 +262,13 @@ def load_history(root):
     return manifest, points
 
 
-def markdown_text(value):
-    return escape(str(value)).replace('|', '&#124;').replace('\n', ' ')
-
-
-def readme_block(points):
-    current = points[-1]
-    rows = current['metrics']
-    compatible = [p for p in points if p['cohort_id'] == current['cohort_id']]
-    cohorts = len({p['cohort_id'] for p in points})
-    date = instant(current['measured_at']).strftime('%Y-%m-%d %H:%M UTC')
-    checkpoint_word = 'checkpoint' if len(points) == 1 else 'checkpoints'
-    cohort_word = 'cohort' if cohorts == 1 else 'cohorts'
-    lines = [START, f'Measured **{date}** at compiler `{current["source_commit"][:9]}`; '
-             f'{current["samples"]} samples, {current["warmups"]} execution warmups.', '',
-             '![Scriptw/V8 elapsed-time ratios; V8 is 1× and lower is better](docs/rust-rewrite/assets/performance-vs-v8.svg)', '',
-             '![Measured Scriptw performance history relative to V8](docs/rust-rewrite/assets/performance-history.svg)', '',
-             f'History: **{len(points)} measured {checkpoint_word}**, **{cohorts} comparison {cohort_word}**. '
-             f'The trend shows {min(12, len(compatible))} of {len(compatible)} checkpoints matching the latest setup. '
-             'A new commit adds no point until it is measured.', '',
-             '[Raw history and evidence](docs/rust-rewrite/performance-history.json) · '
-             '[Refresh commands and comparison rules](docs/rust-rewrite/contracts/performance-history.md)', '',
-             '| Measurement | Scriptw / Wasmtime | Node / V8 | Time / V8 |',
-             '| --- | ---: | ---: | ---: |']
-    for row in rows:
-        label = row['label'] if row['group'] == 'Startup' else 'Execute: ' + row['label']
-        lines.append(f'| {label} | {row["scriptw_ns"] / 1e6:.3f} ms | '
-                     f'{row["v8_ns"] / 1e6:.3f} ms | {row["scriptw_ns"] / row["v8_ns"]:.2f}× |')
-    lines += ['', '| Peak process RSS | Scriptw / Wasmtime | Node / V8 |', '| --- | ---: | ---: |']
-    for key, label in (('cold', 'Cold start (median)'), ('hot', 'Cached start (median)'),
-                       ('retained', 'Retained-object run (whole child)')):
-        row = next(row for row in rows if row['id'] == key)
-        lines.append(f'| {label} | {row["scriptw_rss_bytes"] / 2**20:.2f} MiB | '
-                     f'{row["v8_rss_bytes"] / 2**20:.2f} MiB |')
-    machine = current['machine']
-    cpus = len(machine.get('measurement_affinity', []))
-    memory = machine.get('effective_memory_bytes')
-    resources = f'{cpus} measured CPU' + ('s' if cpus != 1 else '') if cpus else 'CPU affinity not recorded'
-    resources += f', {memory / 2**30:g} GiB inherited memory limit' if memory else ', memory limit not recorded'
-    if any(row.get('memory.swap.max') == '0' for row in machine.get('cgroups', [])):
-        resources += ', no swap'
-    lines += ['', f'{markdown_text(machine["cpu_model"])}; {resources}. '
-              f'Wasmtime {markdown_text(current["wasmtime_version"])}; '
-              f'Node {markdown_text(current["node_version"])} / V8 {markdown_text(current["v8_version"])}.', '',
-              'Ratios divide the two measured medians, using a logarithmic graph scale; lower is better, V8 = 1×. '
-              'Startup and execution are separate boundaries. These observations establish no statistical significance.', END]
-    return '\n'.join(lines)
+def readme_block():
+    return '\n'.join([
+        START,
+        '![Median elapsed time: paired V8 and Scriptw bars for each workload; lower is better](docs/rust-rewrite/assets/performance-vs-v8.svg)', '',
+        '![Peak process memory: paired V8 and Scriptw bars; lower is better](docs/rust-rewrite/assets/performance-memory.svg)',
+        END,
+    ])
 
 
 def outputs(root, points):
@@ -316,11 +276,10 @@ def outputs(root, points):
     require(readme.count(START) == readme.count(END) == 1 and readme.index(START) < readme.index(END),
             'README needs exactly one ordered generated performance block')
     current = points[-1]
-    cohort = [p for p in points if p['cohort_id'] == current['cohort_id']]
     files = {
-        Path('README.md'): (readme.split(START)[0] + readme_block(points) + readme.split(END)[1]).encode(),
+        Path('README.md'): (readme.split(START)[0] + readme_block() + readme.split(END)[1]).encode(),
         DOCS / 'assets/performance-vs-v8.svg': render_current(current).encode(),
-        DOCS / 'assets/performance-history.svg': render_history(cohort).encode(),
+        DOCS / 'assets/performance-memory.svg': render_memory(current).encode(),
     }
     for path, data in files.items():
         if path.suffix == '.svg':

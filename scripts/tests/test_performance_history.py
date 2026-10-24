@@ -70,11 +70,12 @@ class PerformanceHistoryTests(unittest.TestCase):
         self.assertEqual(row['scriptw_ns'], report['summaries']['execution']['wasmtime']['objects.js']['execution_ns']['median'])
         self.assertEqual(row['v8_ns'], report['summaries']['execution']['v8']['objects.js']['execution_ns']['median'])
         text = (self.root / 'README.md').read_text()
-        self.assertIn(report['source_commit'][:9], text)
-        self.assertIn('07:05 UTC', text)
         self.assertTrue(text.endswith('## Tests\nPreserve this status.\n'))
         self.assertTrue(PUBLISH.render(self.root, check=True)['checked'])
-        for name in ('performance-history.svg', 'performance-vs-v8.svg'):
+        svg = (self.root / PUBLISH.DOCS / 'assets/performance-vs-v8.svg').read_text()
+        self.assertIn(report['source_commit'][:9], svg)
+        self.assertIn('07:05 UTC', svg)
+        for name in ('performance-memory.svg', 'performance-vs-v8.svg'):
             ET.fromstring((self.root / PUBLISH.DOCS / 'assets' / name).read_bytes())
 
     def test_record_is_idempotent_and_archives_are_deterministic(self):
@@ -191,7 +192,7 @@ class PerformanceHistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'positive'):
             PUBLISH.record(self.root, path)
 
-    def test_new_machine_gets_a_separate_series_not_a_connected_trend(self):
+    def test_new_machine_keeps_separate_evidence_and_displays_latest_scores(self):
         first, _ = self.report(0, 'first')
         last, report = self.report()
         report['machine']['cpu_model'] = 'different CPU'
@@ -200,16 +201,15 @@ class PerformanceHistoryTests(unittest.TestCase):
         PUBLISH.record(self.root, last)
         _, points = PUBLISH.load_history(self.root)
         self.assertEqual(len({point['cohort_id'] for point in points}), 2)
-        svg = (self.root / PUBLISH.DOCS / 'assets/performance-history.svg').read_text()
-        self.assertIn('One measured checkpoint', svg)
-        self.assertNotIn('<polyline', svg)
-        with self.assertRaisesRegex(ValueError, 'different performance cohorts'):
-            charts.render_history(points)
+        svg = (self.root / PUBLISH.DOCS / 'assets/performance-vs-v8.svg').read_text()
+        self.assertIn('different CPU', svg)
+        self.assertIn(report['source_commit'][:9], svg)
+        self.assertNotIn(points[0]['source_commit'][:9], svg)
 
     def test_check_is_read_only_and_render_repairs_stale_outputs(self):
         path, _ = self.report()
         PUBLISH.record(self.root, path)
-        svg = self.root / PUBLISH.DOCS / 'assets/performance-history.svg'
+        svg = self.root / PUBLISH.DOCS / 'assets/performance-memory.svg'
         svg.write_text('stale')
         before = self.bytes()
         with self.assertRaisesRegex(ValueError, 'stale performance output'):
@@ -274,7 +274,12 @@ class PerformanceHistoryTests(unittest.TestCase):
         point = copy.deepcopy(points[-1])
         point['metrics'][0].update(scriptw_ns=1, v8_ns=2, label='<untrusted & label>')
         svg = charts.render_current(point)
-        ET.fromstring(svg)
+        root = ET.fromstring(svg)
+        bars = {bar.get('data-engine'): bar for bar in root.iter('{http://www.w3.org/2000/svg}rect')
+                if bar.get('data-metric') == 'cold'}
+        self.assertEqual(set(bars), {'Scriptw', 'V8'})
+        self.assertEqual(bars['Scriptw'].get('x'), bars['V8'].get('x'))
+        self.assertAlmostEqual(float(bars['Scriptw'].get('width')) / float(bars['V8'].get('width')), .5)
         self.assertIn('0.5×', svg)
         self.assertIn('&lt;untrusted &amp; label&gt;', svg)
         self.assertNotIn('<untrusted', svg)

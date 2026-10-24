@@ -1,8 +1,9 @@
-# README performance graphs and measured history
+# README performance graphs and retained measurements
 
-The README comparison and history graphs come from admitted measurements, not
-from the current Git revision. Publishing an existing report does not run a
-benchmark. New commits without measurements add no point to the history.
+The README graphs show the latest admitted measurement, with separate V8 and
+Scriptw bars. Publishing an existing report does not run a benchmark or replace
+its measured compiler identity with the current Git revision. Earlier
+measurements remain in the evidence manifest; the README has no history chart.
 
 ## Record and refresh
 
@@ -16,7 +17,11 @@ This records the measured checkpoint in
 [`performance-history.json`](../performance-history.json), retains its checked
 evidence, and updates the README's generated performance block plus
 [`performance-vs-v8.svg`](../assets/performance-vs-v8.svg) and
-[`performance-history.svg`](../assets/performance-history.svg).
+[`performance-memory.svg`](../assets/performance-memory.svg).
+
+The generated README block contains only these two images. The graphics carry
+the measurement date, compiler commit, sample and warmup counts, hardware and
+runtime identities; detailed methodology and reproduction stay in linked docs.
 
 Regenerate or check the committed outputs without timing any code:
 
@@ -36,7 +41,7 @@ The publisher accepts complete `scriptw-v8-machine-baseline-v2` reports with
 startup enabled and exactly the ordinary `startup.js`, `integer.js`,
 `objects.js` and `retained-objects.js` workload inventory. It rejects partial,
 selected-workload, startup-disabled and explicit native-policy reports for
-this README history. Separate diagnostic scoreboards retain their own scope.
+this README publication. Separate diagnostic scoreboards retain their own scope.
 
 Admission uses `benchmark_metrics.load_report`: retained logs, source snapshots
 and emitted P Wasm must match their hashes; child commands must have completed
@@ -54,32 +59,37 @@ The manifest pins both report and archive SHA-256 values. Every render/check
 safely extracts the archive to a temporary directory and revalidates the full
 report, including the actual P bytes. Missing or changed evidence fails refresh.
 
-Points retain measurement timestamps and measured compiler commits. The
+Records retain measurement timestamps and measured compiler commits. The
 publication date and checkout HEAD do not replace those identities. The initial
 2026-10-24 series contains compatible checkpoints `d89fd4068`, `30fc19314`
 and `31c5958d2`; its latest measurement is `31c5958d2`, not the later FFI commit.
 
 ## Comparison boundaries
 
-The current chart shows each workload's Scriptw/V8 median elapsed-time ratio.
-Lower is better; the V8 reference is 1. The logarithmic scale displays the
-large gaps without hiding smaller ratios or gains below 1. The history graph
-uses the same per-workload ratios and contains no blended overall score.
+The timing chart shows paired absolute median elapsed times in milliseconds:
+V8 in orange and Scriptw in blue. Each workload has its own zero-based linear
+scale, so compare the two bars within a row rather than bar lengths across
+workloads. The annotated ratio is Scriptw divided by V8; lower times and ratios
+are better. There is no blended overall score.
+
+The memory chart shows paired absolute peak process-RSS values in MiB on one
+shared zero-based linear scale. Cold and cached startup use median peaks;
+retained-object execution uses the whole-child peak, including compilation and
+warmups. Process RSS includes host/runtime overhead and is not live JavaScript
+heap usage.
 
 Cold and cached startup measure fresh processes. Execution compiles once per
 case/process, then uses a fresh Wasmtime Store/Realm or V8 Context per invocation
 after equal warmups. Scriptw's execution span includes realm/builtin work and
 completion. These scores are not isolated calls within an existing Realm.
-The README retains absolute timing and process-RSS tables alongside the graph;
-process RSS is not live JavaScript heap usage.
 
-History joins only reports admitted by the existing `compare()` compatibility
-fields: schema, machine, configuration, measurement policy, release profile,
+Comparison cohorts group only reports admitted by the existing `compare()`
+compatibility fields: schema, machine, configuration, measurement policy, release profile,
 Node versions, GNU time version/hash, Wasmtime version, complete workload
 metadata, harness hashes and sample count. Compiler source and image identities
 may change. Different hardware, runtime versions, harnesses, corpora or policies
-form separate cohorts, never one connected trend. All cohorts remain in the
-manifest; the graph displays at most 12 points from the latest cohort.
+form separate cohorts. All cohorts and their immutable raw evidence remain in
+the manifest; the README renders only the latest checkpoint.
 
 Ratios are descriptive observations. A smaller ratio can reflect changes in
 either runtime, so retain both absolute scores and raw samples when assessing a
